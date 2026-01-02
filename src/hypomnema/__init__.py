@@ -7,51 +7,43 @@ from hypomnema.base.errors import (
   InvalidContentError,
   MissingHandlerError,
 )
-from hypomnema.base.types import (
-  BaseElement,
-  InlineElement,
-  Bpt,
-  Ept,
-  It,
-  Ph,
-  Sub,
-  Hi,
-  Tuv,
-  Tu,
-  Tmx,
-  Header,
-  Prop,
-  Note,
-  Assoc,
-  Pos,
-  Segtype,
+import hypomnema.base.types as t
+from hypomnema.xml import (
+  # Backends
+  XmlBackend,
+  LxmlBackend,
+  StandardBackend,
+  # Deserialization
+  Deserializer,
+  # Serialization
+  Serializer,
 )
-from hypomnema.xml import XmlBackend, LxmlBackend, StandardBackend, Deserializer, Serializer
-
 
 from hypomnema.xml.policy import PolicyValue, DeserializationPolicy, SerializationPolicy
 
-from hypomnema.api import (
-  load,
-  save,
-  create_tmx,
-  create_header,
-  create_tu,
-  create_tuv,
-  create_note,
-  create_prop,
-  create_bpt,
-  create_ept,
-  create_it,
-  create_ph,
-  create_hi,
-  create_sub,
-)
+BaseElement = t.BaseElement
+Note = t.Note
+Prop = t.Prop
+Assoc = t.Assoc
+Segtype = t.Segtype
+Pos = t.Pos
+
+Bpt = t.Bpt[list[t.SubElementAndStr]]
+Ept = t.Ept[list[t.SubElementAndStr]]
+It = t.It[list[t.SubElementAndStr]]
+Ph = t.Ph[list[t.SubElementAndStr]]
+Sub = t.Sub[list[t.InlineElementAndStr]]
+Hi = t.Hi[list[t.InlineElementAndStr]]
+
+Tuv = t.Tuv[list[t.Prop], list[t.Note], list[t.InlineElementAndStr]]
+Tu = t.Tu[list[t.Note], list[t.Prop], list[t.Tuv]]
+Header = t.Header[list[t.Prop], list[t.Note]]
+Tmx = t.Tmx[list[t.Tu]]
+
 
 __all__ = [
   # Type aliases
   "BaseElement",
-  "InlineElement",
   # Enums
   "Pos",
   "Assoc",
@@ -82,26 +74,12 @@ __all__ = [
   "XmlBackend",
   "LxmlBackend",
   "StandardBackend",
-  # I/O
+  # Deserialization
   "Deserializer",
+  # Serialization
   "Serializer",
   # Policies
   "PolicyValue",
   "DeserializationPolicy",
   "SerializationPolicy",
-  # Public API
-  "load",
-  "save",
-  "create_tmx",
-  "create_header",
-  "create_tu",
-  "create_tuv",
-  "create_note",
-  "create_prop",
-  "create_bpt",
-  "create_ept",
-  "create_it",
-  "create_ph",
-  "create_hi",
-  "create_sub",
 ]

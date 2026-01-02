@@ -10,10 +10,9 @@ from .errors import (
 from .types import (
   # Type aliases
   BaseElement,
-  InlineElement,
   # Enums
-  Assoc,
   Pos,
+  Assoc,
   Segtype,
   # Structural elements
   Tmx,
@@ -35,7 +34,8 @@ from .types import (
 __all__ = [
   # Type aliases
   "BaseElement",
-  "InlineElement",
+  "BaseInlineElement",
+  "BaseStructuralElement",
   # Enums
   "Pos",
   "Assoc",
