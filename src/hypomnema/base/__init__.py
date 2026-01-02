@@ -1,14 +1,41 @@
-from .errors import (AttributeDeserializationError,
-                     AttributeSerializationError, InvalidContentError,
-                     InvalidTagError, MissingHandlerError, NamespaceError,
-                     XmlDeserializationError, XmlSerializationError)
-from .types import (Assoc, BaseElement, Bpt, Ept, Header, Hi, InlineElement,
-                    It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
+from .errors import (
+  XmlSerializationError,
+  XmlDeserializationError,
+  AttributeSerializationError,
+  AttributeDeserializationError,
+  InvalidTagError,
+  InvalidContentError,
+  MissingHandlerError,
+)
+from .types import (
+  # Type aliases
+  BaseElement,
+  # Enums
+  Pos,
+  Assoc,
+  Segtype,
+  # Structural elements
+  Tmx,
+  Header,
+  Prop,
+  Note,
+  Tu,
+  Tuv,
+  # Inline elements
+  Bpt,
+  Ept,
+  It,
+  Ph,
+  Sub,
+  Hi,
+)
+
 
 __all__ = [
   # Type aliases
   "BaseElement",
-  "InlineElement",
+  "BaseInlineElement",
+  "BaseStructuralElement",
   # Enums
   "Pos",
   "Assoc",

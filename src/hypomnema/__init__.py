@@ -1,21 +1,49 @@
-from hypomnema.api import (create_bpt, create_ept, create_header, create_hi,
-                           create_it, create_note, create_ph, create_prop,
-                           create_sub, create_tmx, create_tu, create_tuv, dump,
-                           iter_text, load)
-from hypomnema.base import (Assoc, AttributeDeserializationError,
-                            AttributeSerializationError, BaseElement, Bpt, Ept,
-                            Header, Hi, InlineElement, InvalidContentError,
-                            InvalidTagError, It, MissingHandlerError, Note, Ph,
-                            Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv,
-                            XmlDeserializationError, XmlSerializationError)
-from hypomnema.xml import (Deserializer, LxmlBackend, Serializer,
-                           StandardBackend, XmlBackend)
-from hypomnema.xml.policy import PolicyValue, XmlPolicy
+from hypomnema.base.errors import (
+  XmlSerializationError,
+  XmlDeserializationError,
+  AttributeSerializationError,
+  AttributeDeserializationError,
+  InvalidTagError,
+  InvalidContentError,
+  MissingHandlerError,
+)
+import hypomnema.base.types as t
+from hypomnema.xml import (
+  # Backends
+  XmlBackend,
+  LxmlBackend,
+  StandardBackend,
+  # Deserialization
+  Deserializer,
+  # Serialization
+  Serializer,
+)
+
+from hypomnema.xml.policy import PolicyValue, DeserializationPolicy, SerializationPolicy
+
+BaseElement = t.BaseElement
+Note = t.Note
+Prop = t.Prop
+Assoc = t.Assoc
+Segtype = t.Segtype
+Pos = t.Pos
+
+Bpt = t.Bpt[list[t.SubElementAndStr]]
+Ept = t.Ept[list[t.SubElementAndStr]]
+It = t.It[list[t.SubElementAndStr]]
+Ph = t.Ph[list[t.SubElementAndStr]]
+Sub = t.Sub[list[t.InlineElementAndStr]]
+Hi = t.Hi[list[t.InlineElementAndStr]]
+
+Tuv = t.Tuv[list[t.Prop], list[t.Note], list[t.InlineElementAndStr]]
+Tu = t.Tu[list[t.Note], list[t.Prop], list[t.Tuv]]
+Header = t.Header[list[t.Prop], list[t.Note]]
+Tmx = t.Tmx[list[t.Tu]]
+
 
 __all__ = [
   # Type aliases
   "BaseElement",
-  "InlineElement",
   # Enums
   "Pos",
   "Assoc",
@@ -46,26 +74,12 @@ __all__ = [
   "XmlBackend",
   "LxmlBackend",
   "StandardBackend",
-  # I/O
+  # Deserialization
   "Deserializer",
+  # Serialization
   "Serializer",
   # Policies
   "PolicyValue",
-  "XmlPolicy",
-  # Public API
-  "load",
-  "dump",
-  "iter_text",
-  "create_tmx",
-  "create_header",
-  "create_tu",
-  "create_tuv",
-  "create_note",
-  "create_prop",
-  "create_bpt",
-  "create_ept",
-  "create_it",
-  "create_ph",
-  "create_hi",
-  "create_sub",
+  "DeserializationPolicy",
+  "SerializationPolicy",
 ]
