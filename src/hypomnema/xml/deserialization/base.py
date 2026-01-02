@@ -144,7 +144,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: BaseElement](A
     AttributeDeserializationError
         If parsing fails or a required attribute is missing and policy is "raise".
     """
-    value = self.backend.get_attr(element, attribute)
+    value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
       return
@@ -187,7 +187,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: BaseElement](A
     AttributeDeserializationError
         If parsing fails or a required attribute is missing and policy is "raise".
     """
-    value = self.backend.get_attr(element, attribute)
+    value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
       return
@@ -234,7 +234,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: BaseElement](A
         If the value is not a valid enum member or a required attribute is
         missing and policy is "raise".
     """
-    value = self.backend.get_attr(element, attribute)
+    value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
       return
@@ -273,7 +273,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: BaseElement](A
     str | None
         The attribute string, or None if missing.
     """
-    value = self.backend.get_attr(element, attribute)
+    value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
       return
