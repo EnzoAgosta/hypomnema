@@ -8,23 +8,7 @@ from os import PathLike
 __all__ = ["StandardBackend"]
 
 
-class StandardBackend(XmlBackend[et.Element]):
-  """XML backend using the Python standard library's xml.etree.ElementTree.
-
-  This backend provides maximum portability as it requires no external
-  dependencies. It uses ``xml.etree.ElementTree.Element`` for element
-  representation and ``dict[str, str]`` for attribute mappings.
-
-  Notes
-  -----
-  Unlike the lxml backend, this backend does not accept bytes or QName
-  objects for ``attribute_name`` in ``get_attribute`` and ``set_attribute``.
-
-  The ``write`` method always includes an XML declaration and uses
-  ``short_empty_elements=False`` to generate explicit closing tags.
-
-  """
-
+class StandardBackend(XmlBackend[et.Element, dict[str, str]]):
   __slots__ = tuple()
 
   @overload
@@ -69,24 +53,18 @@ class StandardBackend(XmlBackend[et.Element]):
   def create_element(
     self,
     tag: str | QName,
-    attributes: Mapping[str, str] | None = None,
+    attributes: dict[str, str] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> et.Element:
     if isinstance(tag, str):
-      element_tag = QName(tag, nsmap if nsmap is not None else self._global_nsmap).qualified_name
+      element_tag = QName(tag, nsmap if nsmap is not None else self._global_nsmap)
     elif isinstance(tag, QName):
-      element_tag = tag.qualified_name
+      element_tag = tag
     else:
       raise TypeError(f"Unexpected tag type: {type(tag)}")
-    _attributes = {}
-    if attributes is not None:
-      for key, value in attributes.items():
-        if not isinstance(value, str):
-          raise TypeError(f"Unexpected value type: {type(value)}")
-        key = QName(key, nsmap if nsmap is not None else self._global_nsmap).qualified_name
-        _attributes[key] = value
-    return et.Element(element_tag, attrib=_attributes)
+    attributes = attributes if attributes is not None else {}
+    return et.Element(element_tag.qualified_name, attrib=attributes)
 
   def append_child(self, parent: et.Element, child: et.Element) -> None:
     if not isinstance(parent, et.Element):
@@ -95,24 +73,20 @@ class StandardBackend(XmlBackend[et.Element]):
       raise TypeError(f"Child is not an xml.ElementTree.Element: {type(child)}")
     parent.append(child)
 
-  def get_attribute[T](
+  def get_attribute(
     self,
     element: et.Element,
-    attribute_name: str | QName,
-    default: T | None = None,
+    attribute_name: str,
+    default: str | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> str | T | None:
+  ) -> str | None:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    if isinstance(attribute_name, QName):
-      attribute_name = attribute_name.qualified_name
-    elif isinstance(attribute_name, str):
+    if attribute_name[0] == "{" or ":" in attribute_name:
       attribute_name = QName(
         attribute_name, nsmap if nsmap is not None else self._global_nsmap
       ).qualified_name
-    else:
-      raise TypeError(f"Unexpected attribute name type: {type(attribute_name)}")
     return element.get(attribute_name, default)
 
   def set_attribute(
@@ -122,15 +96,13 @@ class StandardBackend(XmlBackend[et.Element]):
     attribute_value: str | None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
-    unsafe: bool = False,
   ) -> None:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    attribute_name = (
-      attribute_name
-      if unsafe
-      else QName(attribute_name, nsmap if nsmap is not None else self._global_nsmap).qualified_name
-    )
+    if attribute_name[0] == "{" or ":" in attribute_name:
+      attribute_name = QName(
+        attribute_name, nsmap if nsmap is not None else self._global_nsmap
+      ).qualified_name
     try:
       if attribute_value is None:
         element.attrib.pop(attribute_name)
@@ -167,13 +139,13 @@ class StandardBackend(XmlBackend[et.Element]):
   def iter_children(
     self,
     element: et.Element,
-    tag_filter: str | QName | Collection[str | QName] | None = None,
+    tag_filter: str | Collection[str] | None = None,
     *,
-    nsmap: Mapping[str | None, str] | None = None,
+    nsmap: Mapping[str, str] | None = None,
   ) -> Generator[et.Element]:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    tag_filter = prep_tag_set(tag_filter, nsmap if nsmap is not None else self._global_nsmap)
+    tag_filter = prep_tag_set(tag_filter)
     for child in element:
       if tag_filter is None or child.tag in tag_filter:
         yield child
@@ -186,22 +158,6 @@ class StandardBackend(XmlBackend[et.Element]):
   def write(
     self, element: et.Element, path: str | bytes | PathLike, encoding: str = "utf-8"
   ) -> None:
-    """Write an element tree to an XML file.
-
-    This implementation uses ``ElementTree.write`` with ``short_empty_elements=False``,
-    ensuring all empty elements have explicit closing tags (e.g., ``<elem></elem>``
-    rather than ``<elem/>``).
-
-    Parameters
-    ----------
-    element : et.Element
-        The root element to write.
-    path : str | bytes | PathLike
-        The destination path for the XML file.
-    encoding : str, optional
-        The encoding to use when writing the file. Defaults to ``"utf-8"``.
-
-    """
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     path = make_usable_path(path, mkdir=True)
@@ -219,21 +175,18 @@ class StandardBackend(XmlBackend[et.Element]):
   ) -> bytes:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    return et.tostring(
-      element,
-      encoding=normalize_encoding(encoding),
-      xml_declaration=False,
-      short_empty_elements=self_closing,
-    )
+    if self_closing and not element.text:
+      element.text = ""
+    return et.tostring(element, encoding=normalize_encoding(encoding), xml_declaration=False)
 
   def iterparse(
     self,
     path: str | bytes | PathLike,
     tag_filter: str | Collection[str] | None = None,
     *,
-    nsmap: Mapping[str | None, str] | None = None,
+    nsmap: Mapping[str, str] | None = None,
   ) -> Iterator[et.Element]:
-    tag_filter = prep_tag_set(tag_filter, nsmap if nsmap is not None else self._global_nsmap)
+    tag_filter = prep_tag_set(tag_filter)
     path = make_usable_path(path, mkdir=False)
     ctx = et.iterparse(path, events=("start", "end"))
     yield from self._iterparse(ctx, tag_filter)
