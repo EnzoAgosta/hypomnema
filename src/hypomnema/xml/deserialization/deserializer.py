@@ -2,7 +2,7 @@ from logging import Logger, getLogger
 
 from hypomnema.base.errors import MissingHandlerError
 from hypomnema.base.types import BaseElement
-from hypomnema.xml.backends.base import XmlBackend
+from hypomnema.xml.backends.base import XmlBackend, T_Attributes
 from hypomnema.xml.deserialization._handlers import (
   BptDeserializer,
   EptDeserializer,
@@ -24,7 +24,7 @@ from hypomnema.xml.policy import DeserializationPolicy
 __all__ = ["Deserializer"]
 
 
-class Deserializer[TypeofBackendElement]:
+class Deserializer[BackendElementType]:
   """
   Orchestrator for converting XML elements into TMX objects using registered handlers.
 
@@ -56,12 +56,12 @@ class Deserializer[TypeofBackendElement]:
 
   def __init__(
     self,
-    backend: XmlBackend[TypeofBackendElement],
+    backend: XmlBackend[BackendElementType, T_Attributes],
     policy: DeserializationPolicy | None = None,
     logger: Logger | None = None,
-    handlers: dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]] | None = None,
+    handlers: dict[str, BaseElementDeserializer] | None = None,
   ):
-    self.backend: XmlBackend[TypeofBackendElement] = backend
+    self.backend: XmlBackend[BackendElementType, T_Attributes] = backend
     self.policy: DeserializationPolicy = policy or DeserializationPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
@@ -75,9 +75,7 @@ class Deserializer[TypeofBackendElement]:
       if handler._emit is None:
         handler._set_emit(self.deserialize)
 
-  def _get_default_handlers(
-    self,
-  ) -> dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]]:
+  def _get_default_handlers(self) -> dict[str, BaseElementDeserializer]:
     """
     Initialize the internal mapping of default TMX element deserializers.
 
@@ -101,13 +99,13 @@ class Deserializer[TypeofBackendElement]:
       "tmx": TmxDeserializer(self.backend, self.policy, self.logger),
     }
 
-  def deserialize(self, element: TypeofBackendElement) -> BaseElement | None:
+  def deserialize(self, element: BackendElementType) -> BaseElement | None:
     """
     Dispatch an XML element to a handler and return the resulting TMX object.
 
     Parameters
     ----------
-    element : TypeofBackendElement
+    element : BackendElementType
         The backend XML element to deserialize.
 
     Returns
