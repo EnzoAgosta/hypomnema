@@ -1,5 +1,7 @@
 from codecs import lookup
-from collections.abc import Iterable
+from collections.abc import Collection, Mapping
+from logging import Logger
+from typing import TypeIs, Any
 from encodings import normalize_encoding as python_normalize_encoding
 from logging import Logger
 from os import PathLike
@@ -24,36 +26,20 @@ __all__ = [
 ]
 
 
-def normalize_encoding(encoding: str) -> str:
-  """Normalize and validate an encoding name.
+def normalize_tag(tag: Any) -> str:
+  if isinstance(tag, str):
+    return tag.split("}", 1)[1] if "}" in tag else tag
+  elif isinstance(tag, (bytes, bytearray)):
+    return normalize_tag(tag.decode("utf-8"))
+  elif hasattr(tag, "localname"):
+    return tag.localname
+  elif hasattr(tag, "text"):
+    return normalize_tag(tag.text)
+  else:
+    raise TypeError(f"Unexpected tag type: {type(tag)}")
 
-  Converts the encoding name to a standard form and validates
-  that it is a valid Python codec.
 
-  Special case for "unicode", which gets converted to "utf-8".
-
-  Parameters
-  ----------
-  encoding : str
-      The encoding name to normalize.
-
-  Returns
-  -------
-  str
-      The normalized encoding name.
-
-  Raises
-  ------
-  ValueError
-      If the encoding is not recognized.
-
-  Examples
-  --------
-  .. code-block:: python
-
-      normalize_encoding("UTF-8")  # "utf-8"
-      normalize_encoding("unicode")  # "utf-8"
-  """
+def normalize_encoding(encoding: str | None) -> str:
   normalized_encoding = python_normalize_encoding(encoding or "utf-8").lower()
   if encoding == "unicode":
     normalized_encoding = "utf-8"
@@ -65,78 +51,20 @@ def normalize_encoding(encoding: str) -> str:
 
 
 def prep_tag_set(
-  tags: str | QNameLike | Iterable[str | QNameLike],
-  *,
-  nsmap: Mapping[str | None, str] | None = None,
-) -> set[str]:
-  """Prepare a set of qualified tag names.
-
-  Converts tags (strings or QNameLike objects) into their qualified
-  form and returns as a set for efficient lookup.
-
-  Parameters
-  ----------
-  tags : str | QNameLike | Iterable[str | QNameLike]
-      Tag(s) to prepare. Can be a single tag or iterable of tags.
-  nsmap : Mapping[str | None, str] | None
-      Namespace prefix to URI mapping for resolving prefixes.
-
-  Returns
-  -------
-  set[str]
-      Set of qualified tag names.
-
-  Examples
-  --------
-  .. code-block:: python
-
-      nsmap = {"ns": "http://example.com"}
-      tags = prep_tag_set(["ns:tag1", "ns:tag2"], nsmap=nsmap)
-      # {\"{http://example.com}tag1\", \"{http://example.com}tag2\"}
-  """
-  from hypomnema.xml.qname import QName, QNameLike
-
+  tags: str | Collection[str] | None, nsmap: dict[str | None, str] | None = None
+) -> set[str] | None:
+  _nsmap = dict() if nsmap is None else nsmap
+  if not tags:
+    return None
   if isinstance(tags, str):
     qname = QName(tags, nsmap=nsmap)
     return {qname.qualified_name}
-  elif isinstance(tags, QNameLike):
-    return {QName(tags, nsmap=nsmap).text}
-  else:
-    result: set[str] = set()
-    for tag in tags:
-      result.update(prep_tag_set(tag, nsmap=nsmap))
-    return result
+  return {QName(tag, _nsmap).qualified_name for tag in tags}
 
 
 def assert_object_type[ExpectedType](
   obj: Any, expected_type: type[ExpectedType], *, logger: Logger, policy: XmlPolicy
 ) -> TypeIs[ExpectedType]:
-  """Assert that an object is of the expected type.
-
-  Checks if an object is an instance of the expected type and
-  handles the result according to the configured policy.
-
-  Parameters
-  ----------
-  obj : Any
-      The object to check.
-  expected_type : type[ExpectedType]
-      The expected type.
-  logger : Logger
-      Logger for error messages.
-  policy : XmlPolicy
-      Policy for handling type mismatches.
-
-  Returns
-  -------
-  TypeIs[ExpectedType]
-      True if obj is of expected_type, False otherwise.
-
-  Raises
-  ------
-  XmlSerializationError
-      If the object type is incorrect and policy is "raise".
-  """
   if not isinstance(obj, expected_type):
     logger.log(
       policy.invalid_object_type.log_level,
@@ -152,28 +80,7 @@ def assert_object_type[ExpectedType](
   return True
 
 
-def check_tag(tag: str | QNameLike, expected_tag: str, logger: Logger, policy: XmlPolicy) -> None:
-  """Check if a tag matches the expected tag.
-
-  Parameters
-  ----------
-  tag : str | QNameLike
-      The tag to check.
-  expected_tag : str
-      The expected tag name.
-  logger : Logger
-      Logger for error messages.
-  policy : XmlPolicy
-      Policy for handling tag mismatches.
-
-  Raises
-  ------
-  InvalidTagError
-      If tags don't match and policy is "raise".
-  """
-  from hypomnema.xml.qname import QName, QNameLike
-
-  tag = QName(tag).text if isinstance(tag, QNameLike) else tag
+def check_tag(tag: str, expected_tag: str, logger: Logger, policy: DeserializationPolicy) -> None:
   if not tag == expected_tag:
     logger.log(
       policy.invalid_tag.log_level, "Incorrect tag: expected %s, got %s", expected_tag, tag
@@ -182,31 +89,8 @@ def check_tag(tag: str | QNameLike, expected_tag: str, logger: Logger, policy: X
       raise InvalidTagError(f"Incorrect tag: expected {expected_tag}, got {tag}")
 
 
-def make_usable_path(path: str | PathLike, *, mkdir: bool = True) -> Path:
-  """Convert a path to an absolute, usable Path object.
-
-  Expands user directories, resolves to absolute path, and
-  optionally creates parent directories.
-
-  Parameters
-  ----------
-  path : str | PathLike
-      The path to convert.
-  mkdir : bool
-      If True, create parent directories. Default True.
-
-  Returns
-  -------
-  Path
-      The usable Path object.
-
-  Examples
-  --------
-  .. code-block:: python
-
-      path = make_usable_path("~/documents/file.txt")
-      # Returns: Path("/home/user/documents/file.txt")
-  """
+def make_usable_path(path: str | bytes | PathLike, *, mkdir: bool = True) -> Path:
+  path = path.decode() if isinstance(path, bytes) else path
   final_path = Path(path).expanduser()
   final_path = final_path.resolve()
   if mkdir:
@@ -233,31 +117,7 @@ def _is_ncname_char(char: str) -> bool:
 
 
 def is_ncname(name: str) -> bool:
-  """Check if a string is a valid NCName (non-colonized name).
-
-  Validates that the name follows XML NCName rules:
-  - Must start with a letter or underscore
-  - Subsequent characters can be letters, digits, underscores,
-    hyphens, periods, or combining characters
-
-  Parameters
-  ----------
-  name : str
-      The name to validate.
-
-  Returns
-  -------
-  bool
-      True if valid NCName, False otherwise.
-
-  Examples
-  --------
-  .. code-block:: python
-
-      is_ncname("validName")  # True
-      is_ncname("invalid:name")  # False
-      is_ncname("123name")  # False
-  """
+  """Return True if *name* is a valid XML 1.0 NCName."""
   if not name:
     return False
   if not _is_letter(name[0]):
@@ -265,53 +125,66 @@ def is_ncname(name: str) -> bool:
   return all(_is_ncname_char(ch) for ch in name[1:])
 
 
-# RFC 3986 URI regex pattern
-# Adapted from Appendix B of RFC 3986 by Claude 4.5 Opus
-URI_PATTERN = compile(
-  r"^"
-  r"(?:([a-zA-Z][a-zA-Z0-9+.-]*):"  # scheme (required)
-  r"(?:"
-  r"//(?:"  # authority (optional)
-  r"(?:[a-zA-Z0-9._~%!$&'()*+,;=:-]*)@)?"  # userinfo
-  r"(?:"  # host
-  r"\[(?:[a-fA-F0-9:.]+)\]|"  # IPv6
-  r"[a-zA-Z0-9._~%!$&'()*+,;=-]*"  # reg-name or IPv4
-  r")"
-  r"(?::[0-9]*)?"  # port
-  r")?"
-  r"([a-zA-Z0-9._~%!$&'()*+,;=:@/-]*)"  # path
-  r"(?:\?([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # query
-  r"(?:#([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # fragment
-  r")$",
-  IGNORECASE,
-)
+def _split_qualified_tag(
+  tag: str, nsmap: Mapping[str | None, str]
+) -> tuple[str | None, str | None, str]:
+  uri, localname = tag[1:].split("}", 1)
+  if not is_ncname(localname):
+    raise ValueError(f"NCName {localname} is not a valid xml localname")
+  for prefix, value in nsmap.items():
+    if value == uri:
+      return uri, prefix, localname
+  return None, None, localname
 
 
-def is_valid_uri(uri: str) -> bool:
-  """Check if a string is a valid URI according to RFC 3986.
+def _split_prefixed_tag(
+  tag: str, nsmap: Mapping[str | None, str]
+) -> tuple[str | None, str | None, str]:
+  prefix, localname = tag.split(":", 1)
+  if not is_ncname(localname):
+    raise ValueError(f"NCName {localname} is not a valid xml localname")
+  if not is_ncname(prefix):
+    raise ValueError(f"NCName {prefix} is not a valid xml prefix")
+  return nsmap.get(prefix), prefix, localname
 
   Validates that the string conforms to URI syntax rules
   including scheme, authority, path, query, and fragment.
 
-  Parameters
-  ----------
-  uri : str
-      The URI to validate.
+class QName:
+  uri: str | None
+  """The namespace URI."""
+  prefix: str | None
+  """The namespace prefix."""
+  local_name: str
+  """The local name."""
 
-  Returns
-  -------
-  bool
-      True if valid URI, False otherwise.
+  def __init__(
+    self, tag: str | bytes | bytearray, nsmap: Mapping[str | None, str], encoding: str = "utf-8"
+  ) -> None:
+    if isinstance(tag, str):
+      tag = tag
+    if isinstance(tag, (bytes, bytearray)):
+      tag = tag.decode(encoding)
+    else:
+      raise TypeError(f"Unexpected tag type: {type(tag)}")
 
-  Examples
-  --------
-  .. code-block:: python
+    if tag[0] == "{":
+      self.uri, self.prefix, self.local_name = _split_qualified_tag(tag, nsmap)
+    elif tag[0] == ":":
+      self.uri, self.prefix, self.local_name = _split_prefixed_tag(tag, nsmap)
+    else:
+      self.uri, self.prefix, self.local_name = None, None, tag
 
-      is_valid_uri("http://example.com/path")  # True
-      is_valid_uri("urn:isbn:0451450523")  # True
-      is_valid_uri("not a uri")  # False
-  """
-  if not uri or not isinstance(uri, str):
-    return False
+  @property
+  def qualified_name(self) -> str:
+    """The fully qualified name."""
+    if self.uri is None:
+      return self.local_name
+    return f"{{{self.uri}}}{self.local_name}"
 
-  return bool(URI_PATTERN.match(uri))
+  @property
+  def prefixed_name(self) -> str:
+    """The prefixed name."""
+    if self.prefix is None:
+      return self.local_name
+    return f"{self.prefix}:{self.local_name}"
