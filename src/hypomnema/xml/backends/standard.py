@@ -9,6 +9,22 @@ __all__ = ["StandardBackend"]
 
 
 class StandardBackend(XmlBackend[et.Element, dict[str, str]]):
+  """XML backend using the Python standard library's xml.etree.ElementTree.
+
+  This backend provides maximum portability as it requires no external
+  dependencies. It uses ``xml.etree.ElementTree.Element`` for element
+  representation and ``dict[str, str]`` for attribute mappings.
+
+  Notes
+  -----
+  Unlike the lxml backend, this backend does not accept bytes or QName
+  objects for ``attribute_name`` in ``get_attribute`` and ``set_attribute``.
+
+  The ``write`` method always includes an XML declaration and uses
+  ``short_empty_elements=False`` to generate explicit closing tags.
+
+  """
+
   __slots__ = tuple()
 
   @overload
@@ -158,6 +174,22 @@ class StandardBackend(XmlBackend[et.Element, dict[str, str]]):
   def write(
     self, element: et.Element, path: str | bytes | PathLike, encoding: str = "utf-8"
   ) -> None:
+    """Write an element tree to an XML file.
+
+    This implementation uses ``ElementTree.write`` with ``short_empty_elements=False``,
+    ensuring all empty elements have explicit closing tags (e.g., ``<elem></elem>``
+    rather than ``<elem/>``).
+
+    Parameters
+    ----------
+    element : et.Element
+        The root element to write.
+    path : str | bytes | PathLike
+        The destination path for the XML file.
+    encoding : str, optional
+        The encoding to use when writing the file. Defaults to ``"utf-8"``.
+
+    """
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     path = make_usable_path(path, mkdir=True)

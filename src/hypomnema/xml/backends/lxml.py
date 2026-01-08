@@ -10,6 +10,25 @@ __all__ = ["LxmlBackend"]
 
 
 class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
+  """XML backend using the lxml library.
+
+  This backend provides higher performance and additional features compared
+  to the standard library implementation, including better XPath support
+  and more efficient memory handling for large documents.
+
+  The backend uses ``lxml.etree._Element`` for element representation and
+  ``lxml._types._AttrMapping`` for attribute dictionaries.
+
+  Notes
+  -----
+  When ``get_tag`` encounters bytes or bytearray tags (as lxml may return
+  for certain encodings), it decodes them using the specified encoding.
+
+  The ``get_attribute`` and ``set_attribute`` methods accept ``lxml.etree.QName``
+  objects in addition to strings for the ``attribute_name`` parameter.
+
+  """
+
   __slots__ = tuple()
 
   @overload
@@ -38,6 +57,29 @@ class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
     as_qname: bool = False,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> str | QName:
+    """Return the tag name of an element.
+
+    This implementation handles lxml's internal QName representation
+    and decodes byte/bytearray tags when necessary.
+
+    Parameters
+    ----------
+    encoding : str, optional
+        Encoding to use when decoding bytearray tags. Defaults to ``"utf-8"``.
+        This parameter is specific to the lxml backend.
+    as_qname : bool, optional
+        If True, return a ``QName`` object. If False (default), return
+        the fully qualified tag name as a string.
+    nsmap : Mapping[str | None, str] | None, optional
+        Namespace map for resolution. Defaults to the element's intrinsic
+        namespace map.
+
+    Returns
+    -------
+    str | QName
+        The tag name as a string or ``QName`` object.
+
+    """
     element_tag = element.tag
     _encoding = normalize_encoding(encoding)
     if isinstance(element_tag, et.QName):
@@ -84,6 +126,28 @@ class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
     encoding: str = "utf-8",
     nsmap: Mapping[str | None, str] | None = None,
   ) -> str | None:
+    """Retrieve the value of an attribute.
+
+    This implementation accepts ``lxml.etree.QName`` objects for
+    ``attribute_name`` and handles bytes/bytearray attribute names.
+
+    Parameters
+    ----------
+    attribute_name : str | bytes | QName
+        The attribute name. Can be a string, bytes, bytearray, or
+        ``lxml.etree.QName`` object.
+    encoding : str, optional
+        Encoding to use when decoding bytearray attribute names.
+        Defaults to ``"utf-8"``. Specific to lxml backend.
+    default : str | None, optional
+        Value to return if the attribute does not exist.
+
+    Returns
+    -------
+    str | None
+        The attribute value or ``default``.
+
+    """
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
     if isinstance(attribute_name, et.QName):
@@ -105,6 +169,24 @@ class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
     encoding: str = "utf-8",
     nsmap: Mapping[str | None, str] | None = None,
   ) -> None:
+    """Set or remove an attribute on an element.
+
+    This implementation accepts ``lxml.etree.QName`` objects for
+    ``attribute_name`` and handles bytes/bytearray attribute names.
+    Silently ignores KeyError when removing non-existent attributes.
+
+    Parameters
+    ----------
+    attribute_name : str | bytes | bytearray | QName
+        The attribute name. Can be a string, bytes, bytearray, or
+        ``lxml.etree.QName`` object.
+    attribute_value : str | None
+        The value to set. If None, the attribute is removed.
+    encoding : str, optional
+        Encoding to use when decoding bytearray attribute names.
+        Defaults to ``"utf-8"``. Specific to lxml backend.
+
+    """
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
     if isinstance(attribute_name, et.QName):
@@ -163,6 +245,24 @@ class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
         yield child
 
   def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> et._Element:
+    """Parse an XML file and return the root element.
+
+    This implementation uses lxml's XMLParser with ``recover=True``,
+    allowing parsing of malformed XML where possible.
+
+    Parameters
+    ----------
+    path : str | bytes | PathLike
+        The path to the XML file to parse.
+    encoding : str, optional
+        The encoding to use when reading the file. Defaults to ``"utf-8"``.
+
+    Returns
+    -------
+    et._Element
+        The root element of the parsed XML document.
+
+    """
     path = make_usable_path(path, mkdir=False)
     root = et.parse(
       path, parser=et.XMLParser(encoding=normalize_encoding(encoding), recover=True)
@@ -172,6 +272,21 @@ class LxmlBackend(XmlBackend[et._Element, lxml_types._AttrMapping]):
   def write(
     self, element: et._Element, path: str | bytes | PathLike, encoding: str = "utf-8"
   ) -> None:
+    """Write an element tree to an XML file.
+
+    This implementation uses lxml's ``xmlfile`` context manager for
+    efficient writing with proper XML declaration handling.
+
+    Parameters
+    ----------
+    element : et._Element
+        The root element to write.
+    path : str | bytes | PathLike
+        The destination path for the XML file.
+    encoding : str, optional
+        The encoding to use when writing the file. Defaults to ``"utf-8"``.
+
+    """
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
     path = make_usable_path(path, mkdir=True)
