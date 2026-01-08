@@ -13,305 +13,151 @@ from hypomnema.xml.utils import (make_usable_path, normalize_encoding,
 __all__ = ["StandardBackend"]
 
 
-class StandardBackend(XmlBackend[et.Element]):
-  """XML backend using Python's standard library xml.etree.
-
-  This backend provides XML operations using the built-in
-  xml.etree.ElementTree module. It has zero external dependencies
-  but may be slower than LxmlBackend for large files.
-
-  Parameters
-  ----------
-  nsmap : Mapping[str, str] | None
-      Custom namespace prefix to URI mappings.
-  logger : Logger | None
-      Logger instance for debug and error messages.
-  default_encoding : str | None
-      Default encoding for XML operations. Defaults to "utf-8".
-  policy : XmlPolicy | None
-      Policy configuration for error handling behavior.
-
-  Examples
-  --------
-  .. code-block:: python
-
-      from hypomnema.xml.backends.standard import StandardBackend
-
-      backend = StandardBackend()
-      root = backend.parse("input.xml")
-      print(backend.get_tag(root))
-  """
-
-  __slots__: tuple[str, ...] = tuple()
-
-  def __init__(
-    self,
-    nsmap: Mapping[str, str] | None = None,
-    logger: Logger | None = None,
-    default_encoding: str | None = None,
-    policy: XmlPolicy | None = None,
-  ):
-    """Initialize the StandardBackend.
-
-    Parameters
-    ----------
-    nsmap : Mapping[str, str] | None
-        Custom namespace prefix to URI mappings.
-    logger : Logger | None
-        Logger instance.
-    default_encoding : str | None
-        Default encoding for XML operations.
-    policy : XmlPolicy | None
-        Policy for error handling.
-    """
-    super().__init__(nsmap, logger, default_encoding, policy)
+class StandardBackend(XmlBackend[et.Element, dict[str, str]]):
+  __slots__ = tuple()
 
   @overload
   def get_tag(self, element: et.Element, *, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: et.Element, *, as_qname: Literal[False] = False) -> str: ...
-  def get_tag(self, element: et.Element, *, as_qname: bool = False) -> str | QName:
-    """Get the tag name of an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    as_qname : bool
-        If True, return QName object. If False, return string.
-
-    Returns
-    -------
-    str | QName
-        The tag name of the element.
-    """
-    tag = element.tag
-    result: QName
-    match tag:
-      case et.QName():
-        result = QName(tag.text, nsmap=self.nsmap)
-      case str():
-        result = QName(tag, nsmap=self.nsmap)
-      case _:
-        raise TypeError(f"Unexpected tag type: {type(tag)}")
-    return result if as_qname else result.text
+  def get_tag(
+    self,
+    element: et.Element,
+    *,
+    encoding: str = "utf-8",
+    as_qname: bool = False,
+    nsmap: Mapping[str | None, str] | None = None,
+  ) -> str: ...
+  def get_tag(
+    self,
+    element: et.Element,
+    *,
+    encoding: str = "utf-8",
+    as_qname: bool = False,
+    nsmap: Mapping[str | None, str] | None = None,
+  ) -> str | QName:
+    element_tag = element.tag
+    _encoding = normalize_encoding(encoding)
+    if isinstance(element_tag, et.QName):
+      tag = element_tag.text
+    elif isinstance(element_tag, (bytes, bytearray)):
+      tag = element_tag.decode(_encoding)
+    else:
+      tag = element_tag
+    qname_wrapper = QName(
+      tag, nsmap if nsmap is not None else self._global_nsmap, encoding=_encoding
+    )
+    return qname_wrapper if as_qname else qname_wrapper.qualified_name
 
   def create_element(
-    self, tag: str | QNameLike, attributes: Mapping[str, str] | None = None
+    self,
+    tag: str | QName,
+    attributes: dict[str, str] | None = None,
+    *,
+    nsmap: Mapping[str | None, str] | None = None,
   ) -> et.Element:
-    """Create a new XML element.
-
-    Parameters
-    ----------
-    tag : str | QNameLike
-        Tag name for the element.
-    attributes : Mapping[str, str] | None
-        Optional attribute name-value pairs.
-
-    Returns
-    -------
-    et.Element
-        The created element.
-    """
-    if attributes is None:
-      attributes = {}
-    _attributes = {QName(key, nsmap=self.nsmap).text: value for key, value in attributes.items()}
-    _tag = QName(tag, nsmap=self.nsmap)
-    return et.Element(_tag.qualified_name, attrib=_attributes)
+    if isinstance(tag, str):
+      element_tag = QName(tag, nsmap if nsmap is not None else self._global_nsmap)
+    elif isinstance(tag, QName):
+      element_tag = tag
+    else:
+      raise TypeError(f"Unexpected tag type: {type(tag)}")
+    attributes = attributes if attributes is not None else {}
+    return et.Element(element_tag.qualified_name, attrib=attributes)
 
   def append_child(self, parent: et.Element, child: et.Element) -> None:
-    """Append a child element to a parent.
-
-    Parameters
-    ----------
-    parent : et.Element
-        Parent element.
-    child : et.Element
-        Child element to append.
-    """
+    if not isinstance(parent, et.Element):
+      raise TypeError(f"Parent is not an xml.ElementTree.Element: {type(parent)}")
+    if not isinstance(child, et.Element):
+      raise TypeError(f"Child is not an xml.ElementTree.Element: {type(child)}")
     parent.append(child)
 
-  @overload
-  def get_attribute(self, element: et.Element, attribute_name: str) -> str | None: ...
-  @overload
-  def get_attribute[TypeOfDefault](
-    self, element: et.Element, attribute_name: str, *, default: TypeOfDefault
-  ) -> str | TypeOfDefault: ...
-  def get_attribute[TypeOfDefault](
-    self, element: et.Element, attribute_name: str, *, default: TypeOfDefault | None = None
-  ) -> str | TypeOfDefault | None:
-    """Get an attribute value from an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    attribute_name : str
-        Name of the attribute.
-    default : TypeOfDefault | None
-        Default value if attribute is not present.
-
-    Returns
-    -------
-    str | TypeOfDefault | None
-        The attribute value, or default if not found.
-    """
-    _key = QName(attribute_name, nsmap=self.nsmap)
-    return element.get(_key.text, default)
+  def get_attribute(
+    self,
+    element: et.Element,
+    attribute_name: str,
+    default: str | None = None,
+    *,
+    nsmap: Mapping[str | None, str] | None = None,
+  ) -> str | None:
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
+    if attribute_name[0] == "{" or ":" in attribute_name:
+      attribute_name = QName(
+        attribute_name, nsmap if nsmap is not None else self._global_nsmap
+      ).qualified_name
+    return element.get(attribute_name, default)
 
   def set_attribute(
-    self, element: et.Element, attribute_name: str | QNameLike, attribute_value: str
+    self,
+    element: et.Element,
+    attribute_name: str,
+    attribute_value: str | None,
+    *,
+    nsmap: Mapping[str | None, str] | None = None,
   ) -> None:
-    """Set an attribute on an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    attribute_name : str | QNameLike
-        Name of the attribute.
-    attribute_value : str
-        Value to set.
-    """
-    _key = QName(attribute_name, nsmap=self.nsmap)
-    element.set(_key.text, attribute_value)
-
-  def delete_attribute(self, element: et.Element, attribute_name: str | QNameLike) -> None:
-    """Delete an attribute from an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    attribute_name : str | QNameLike
-        Name of the attribute to delete.
-    """
-    _key = QName(attribute_name, nsmap=self.nsmap)
-    element.attrib.pop(_key.text, None)
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
+    if attribute_name[0] == "{" or ":" in attribute_name:
+      attribute_name = QName(
+        attribute_name, nsmap if nsmap is not None else self._global_nsmap
+      ).qualified_name
+    try:
+      if attribute_value is None:
+        element.attrib.pop(attribute_name)
+      else:
+        element.attrib[attribute_name] = attribute_value
+    except KeyError:
+      pass
 
   def get_attribute_map(self, element: et.Element) -> dict[str, str]:
-    """Get all attributes of an element as a dictionary.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-
-    Returns
-    -------
-    dict[str, str]
-        Mapping of attribute names to values.
-    """
-    return {k: v for k, v in element.attrib.items()}
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
+    return element.attrib
 
   def get_text(self, element: et.Element) -> str | None:
-    """Get text content of an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-
-    Returns
-    -------
-    str | None
-        Text content, or None if empty.
-    """
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     return element.text
 
   def set_text(self, element: et.Element, text: str | None) -> None:
-    """Set text content of an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    text : str | None
-        Text content to set.
-    """
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     element.text = text
 
   def get_tail(self, element: et.Element) -> str | None:
-    """Get tail text (text after element's closing tag).
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-
-    Returns
-    -------
-    str | None
-        Tail text, or None if empty.
-    """
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     return element.tail
 
   def set_tail(self, element: et.Element, tail: str | None) -> None:
-    """Set tail text of an element.
-
-    Parameters
-    ----------
-    element : et.Element
-        The XML element.
-    tail : str | None
-        Tail text to set.
-    """
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     element.tail = tail
 
   def iter_children(
-    self, element: et.Element, tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None
+    self,
+    element: et.Element,
+    tag_filter: str | Collection[str] | None = None,
+    *,
+    nsmap: Mapping[str, str] | None = None,
   ) -> Generator[et.Element]:
-    """Iterate over child elements.
-
-    Parameters
-    ----------
-    element : et.Element
-        Parent element.
-    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
-        Optional tag filter(s) to match.
-
-    Returns
-    -------
-    Generator[et.Element]
-        Generator yielding matching child elements.
-    """
-    tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
+    tag_filter = prep_tag_set(tag_filter)
     for child in element:
-      if tag_set is None or child.tag in tag_set:
+      if tag_filter is None or child.tag in tag_filter:
         yield child
 
-  def parse(self, path: str | PathLike, encoding: str | None = None) -> et.Element:
-    """Parse an XML file and return the root element.
-
-    Parameters
-    ----------
-    path : str | PathLike
-        Path to the XML file.
-    encoding : str | None
-        Optional encoding override.
-
-    Returns
-    -------
-    et.Element
-        Root element of the parsed document.
-    """
+  def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> et.Element:
     path = make_usable_path(path, mkdir=False)
-    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
-    root = et.parse(path, parser=et.XMLParser(encoding=encoding)).getroot()
+    root = et.parse(path, parser=et.XMLParser(encoding=normalize_encoding(encoding))).getroot()
     return root
 
-  def write(self, element: et.Element, path: str | PathLike, encoding: str | None = None) -> None:
-    """Write an element to a file.
-
-    Parameters
-    ----------
-    element : et.Element
-        Root element to write.
-    path : str | PathLike
-        Path to write the file.
-    encoding : str | None
-        Optional encoding override.
-    """
+  def write(
+    self, element: et.Element, path: str | bytes | PathLike, encoding: str = "utf-8"
+  ) -> None:
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     path = make_usable_path(path, mkdir=True)
     encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
     with open(path, "wb") as f:
@@ -330,47 +176,21 @@ class StandardBackend(XmlBackend[et.Element]):
   def to_bytes(
     self, element: et.Element, encoding: str | None = None, self_closing: bool = False
   ) -> bytes:
-    """Serialize an element to bytes.
-
-    Parameters
-    ----------
-    element : et.Element
-        Element to serialize.
-    encoding : str | None
-        Optional encoding override.
-    self_closing : bool
-        If True, output as self-closing tag if empty.
-
-    Returns
-    -------
-    bytes
-        Serialized XML as bytes.
-    """
-    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
-    return et.tostring(
-      element, encoding=encoding, xml_declaration=False, short_empty_elements=self_closing
-    )
+    if not isinstance(element, et.Element):
+      raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
+    if self_closing and not element.text:
+      element.text = ""
+    return et.tostring(element, encoding=normalize_encoding(encoding), xml_declaration=False)
 
   def iterparse(
     self,
-    path: str | PathLike,
-    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+    path: str | bytes | PathLike,
+    tag_filter: str | Collection[str] | None = None,
+    *,
+    nsmap: Mapping[str, str] | None = None,
   ) -> Iterator[et.Element]:
-    """Parse XML incrementally, yielding matching elements.
-
-    Parameters
-    ----------
-    path : str | PathLike
-        Path to the XML file.
-    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
-        Tag(s) to match and yield.
-
-    Returns
-    -------
-    Iterator[et.Element]
-        Iterator over matching elements.
-    """
-    tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
+    tag_filter = prep_tag_set(tag_filter)
+    path = make_usable_path(path, mkdir=False)
     ctx = et.iterparse(path, events=("start", "end"))
     # need to ignore mypy error here because standard typing
     # doesn't narrow to only "start" and "end" events even
