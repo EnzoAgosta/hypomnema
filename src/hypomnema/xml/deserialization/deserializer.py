@@ -2,26 +2,28 @@ from logging import Logger, getLogger
 
 from hypomnema.base.errors import MissingHandlerError
 from hypomnema.base.types import BaseElement
-from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.deserialization._handlers import (BptDeserializer,
-                                                     EptDeserializer,
-                                                     HeaderDeserializer,
-                                                     HiDeserializer,
-                                                     ItDeserializer,
-                                                     NoteDeserializer,
-                                                     PhDeserializer,
-                                                     PropDeserializer,
-                                                     SubDeserializer,
-                                                     TmxDeserializer,
-                                                     TuDeserializer,
-                                                     TuvDeserializer)
+from hypomnema.xml.backends.base import XmlBackend, T_Attributes
+from hypomnema.xml.deserialization._handlers import (
+  BptDeserializer,
+  EptDeserializer,
+  HeaderDeserializer,
+  HiDeserializer,
+  ItDeserializer,
+  NoteDeserializer,
+  PhDeserializer,
+  PropDeserializer,
+  SubDeserializer,
+  TmxDeserializer,
+  TuDeserializer,
+  TuvDeserializer,
+)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.policy import XmlPolicy
 
 __all__ = ["Deserializer"]
 
 
-class Deserializer[TypeofBackendElement]:
+class Deserializer[BackendElementType]:
   """
   Orchestrator for converting XML elements into TMX objects using registered handlers.
 
@@ -53,13 +55,13 @@ class Deserializer[TypeofBackendElement]:
 
   def __init__(
     self,
-    backend: XmlBackend[TypeofBackendElement],
-    policy: XmlPolicy | None = None,
+    backend: XmlBackend[BackendElementType, T_Attributes],
+    policy: DeserializationPolicy | None = None,
     logger: Logger | None = None,
-    handlers: dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]] | None = None,
+    handlers: dict[str, BaseElementDeserializer] | None = None,
   ):
-    self.backend: XmlBackend[TypeofBackendElement] = backend
-    self.policy: XmlPolicy = policy or XmlPolicy()
+    self.backend: XmlBackend[BackendElementType, T_Attributes] = backend
+    self.policy: DeserializationPolicy = policy or DeserializationPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
       self.logger.info("Using default handlers")
@@ -72,9 +74,7 @@ class Deserializer[TypeofBackendElement]:
       if handler._emit is None:
         handler._set_emit(self.deserialize)
 
-  def _get_default_handlers(
-    self,
-  ) -> dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]]:
+  def _get_default_handlers(self) -> dict[str, BaseElementDeserializer]:
     """
     Initialize the internal mapping of default TMX element deserializers.
 
@@ -98,13 +98,13 @@ class Deserializer[TypeofBackendElement]:
       "tmx": TmxDeserializer(self.backend, self.policy, self.logger),
     }
 
-  def deserialize(self, element: TypeofBackendElement) -> BaseElement | None:
+  def deserialize(self, element: BackendElementType) -> BaseElement | None:
     """
     Dispatch an XML element to a handler and return the resulting TMX object.
 
     Parameters
     ----------
-    element : TypeofBackendElement
+    element : BackendElementType
         The backend XML element to deserialize.
 
     Returns

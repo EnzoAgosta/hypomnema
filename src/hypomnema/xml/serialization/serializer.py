@@ -1,36 +1,39 @@
+from hypomnema.base.errors import MissingHandlerError
+from hypomnema.xml.serialization._handlers import (
+  NoteSerializer,
+  PropSerializer,
+  HeaderSerializer,
+  BptSerializer,
+  EptSerializer,
+  ItSerializer,
+  PhSerializer,
+  SubSerializer,
+  HiSerializer,
+  TuvSerializer,
+  TuSerializer,
+  TmxSerializer,
+)
+from hypomnema.xml.serialization.base import BaseElementSerializer
+from hypomnema.xml.backends.base import XmlBackend, T_Attributes
+from hypomnema.xml.policy import SerializationPolicy
+from hypomnema.base.types import BaseElement
 from collections.abc import Mapping
 from logging import Logger, getLogger
 
-from hypomnema.base.errors import MissingHandlerError
-from hypomnema.base.types import (BaseElement, Bpt, Ept, Header, Hi, It, Note,
-                                  Ph, Prop, Sub, Tmx, Tu, Tuv)
-from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import XmlPolicy
-from hypomnema.xml.serialization._handlers import (BptSerializer,
-                                                   EptSerializer,
-                                                   HeaderSerializer,
-                                                   HiSerializer, ItSerializer,
-                                                   NoteSerializer,
-                                                   PhSerializer,
-                                                   PropSerializer,
-                                                   SubSerializer,
-                                                   TmxSerializer, TuSerializer,
-                                                   TuvSerializer)
-from hypomnema.xml.serialization.base import BaseElementSerializer
 
 __all__ = ["Serializer"]
 
 
-class Serializer[TypeOfBackendElement]:
+class Serializer[BackendElementType]:
   def __init__(
     self,
-    backend: XmlBackend[TypeOfBackendElement],
-    policy: XmlPolicy | None = None,
+    backend: XmlBackend[BackendElementType, T_Attributes],
+    policy: SerializationPolicy | None = None,
     logger: Logger | None = None,
-    handlers: Mapping[type, BaseElementSerializer] | None = None,
+    handlers: Mapping[str, BaseElementSerializer] | None = None,
   ):
-    self.backend: XmlBackend[TypeOfBackendElement] = backend
-    self.policy: XmlPolicy = policy or XmlPolicy()
+    self.backend: XmlBackend[BackendElementType, T_Attributes] = backend
+    self.policy: SerializationPolicy = policy or SerializationPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
       self.logger.debug("Using default handlers")
@@ -43,24 +46,24 @@ class Serializer[TypeOfBackendElement]:
       if handler._emit is None:
         handler._set_emit(self.serialize)
 
-  def _get_default_handlers(self) -> dict[type, BaseElementSerializer]:
+  def _get_default_handlers(self) -> dict[str, BaseElementSerializer]:
     return {
-      Note: NoteSerializer(self.backend, self.policy, self.logger),
-      Prop: PropSerializer(self.backend, self.policy, self.logger),
-      Header: HeaderSerializer(self.backend, self.policy, self.logger),
-      Tu: TuSerializer(self.backend, self.policy, self.logger),
-      Tuv: TuvSerializer(self.backend, self.policy, self.logger),
-      Bpt: BptSerializer(self.backend, self.policy, self.logger),
-      Ept: EptSerializer(self.backend, self.policy, self.logger),
-      It: ItSerializer(self.backend, self.policy, self.logger),
-      Ph: PhSerializer(self.backend, self.policy, self.logger),
-      Sub: SubSerializer(self.backend, self.policy, self.logger),
-      Hi: HiSerializer(self.backend, self.policy, self.logger),
-      Tmx: TmxSerializer(self.backend, self.policy, self.logger),
+      "Note": NoteSerializer(self.backend, self.policy, self.logger),
+      "Prop": PropSerializer(self.backend, self.policy, self.logger),
+      "Header": HeaderSerializer(self.backend, self.policy, self.logger),
+      "Tu": TuSerializer(self.backend, self.policy, self.logger),
+      "Tuv": TuvSerializer(self.backend, self.policy, self.logger),
+      "Bpt": BptSerializer(self.backend, self.policy, self.logger),
+      "Ept": EptSerializer(self.backend, self.policy, self.logger),
+      "It": ItSerializer(self.backend, self.policy, self.logger),
+      "Ph": PhSerializer(self.backend, self.policy, self.logger),
+      "Sub": SubSerializer(self.backend, self.policy, self.logger),
+      "Hi": HiSerializer(self.backend, self.policy, self.logger),
+      "Tmx": TmxSerializer(self.backend, self.policy, self.logger),
     }
 
-  def serialize(self, obj: BaseElement) -> TypeOfBackendElement | None:
-    obj_type = type(obj)
+  def serialize(self, obj: BaseElement) -> BackendElementType | None:
+    obj_type = obj.__class__.__name__
     self.logger.debug("Serializing %r", obj_type)
     handler = self.handlers.get(obj_type)
     if handler is None:

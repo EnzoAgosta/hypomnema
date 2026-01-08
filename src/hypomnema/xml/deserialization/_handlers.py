@@ -1,7 +1,25 @@
 from hypomnema.base.errors import XmlDeserializationError
-from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, InlineElement,
-                                  It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx,
-                                  Tu, Tuv)
+from hypomnema.base.types import (
+  Assoc,
+  InlineElement,
+  Bpt,
+  Ept,
+  Hi,
+  It,
+  Note,
+  Ph,
+  Pos,
+  Prop,
+  Segtype,
+  Sub,
+  Tmx,
+  Tu,
+  Header,
+  Tuv,
+  GenericTuv,
+  GenericHeader,
+  GenericTu,
+)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.utils import check_tag
 
@@ -527,7 +545,7 @@ class TuDeserializer[BackendElementType](BaseElementDeserializer[BackendElementT
           notes.append(note)
       elif tag == "tuv":
         tuv = self.emit(child)
-        if isinstance(tuv, Tuv):
+        if isinstance(tuv, GenericTuv):
           variants.append(tuv)
       else:
         self.logger.log(
@@ -607,13 +625,13 @@ class TmxDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
             continue
         header_found = True
         header_obj = self.emit(child)
-        if isinstance(header_obj, Header):
+        if isinstance(header_obj, GenericHeader):
           header = header_obj
       elif tag == "body":
         for grandchild in self.backend.iter_children(child):
           if self.backend.get_tag(grandchild) == "tu":
             tu_obj = self.emit(grandchild)
-            if isinstance(tu_obj, Tu):
+            if isinstance(tu_obj, GenericTu):
               body.append(tu_obj)
       else:
         self.logger.log(

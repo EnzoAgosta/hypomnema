@@ -423,6 +423,22 @@ class GenericTmx(Generic[IterableOfTus]):
   """Container of translation units (optional)."""
 
 
+type GenericBaseElement = (
+  GenericTmx
+  | GenericHeader
+  | Prop
+  | Note
+  | GenericTu
+  | GenericTuv
+  | GenericBpt
+  | GenericEpt
+  | GenericIt
+  | GenericPh
+  | GenericHi
+  | GenericSub
+)
+type GenericInlineElement = GenericBpt | GenericEpt | GenericIt | GenericPh | GenericHi
+
 Sub = GenericSub[list[str | "Bpt" | "Ept" | "Ph" | "It" | "Hi"]]
 Hi = GenericHi[list[str | "Bpt" | "Ept" | "Ph" | "It" | "Hi"]]
 Ept = GenericEpt[list[Sub | str]]
@@ -436,4 +452,4 @@ Tmx = GenericTmx[list[Tu]]
 
 
 type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
-type InlineElement = Bpt | Ept | It | Ph | Hi
+type InlineElement = Bpt | Ept | It | Ph | Hi | Sub

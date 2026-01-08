@@ -1,5 +1,22 @@
-from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, It, Note, Ph,
-                                  Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
+from hypomnema.xml.utils import assert_object_type
+from hypomnema.base.types import (
+  Assoc,
+  BaseElement,
+  Bpt,
+  Ept,
+  Header,
+  Hi,
+  It,
+  Note,
+  Ph,
+  Pos,
+  Prop,
+  Segtype,
+  Sub,
+  Tmx,
+  Tu,
+  Tuv,
+)
 from hypomnema.xml.serialization.base import BaseElementSerializer
 from hypomnema.xml.utils import assert_object_type
 
@@ -19,10 +36,10 @@ __all__ = [
 ]
 
 
-class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Prop]):
+class PropSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Prop]):
   """Serializer for the TMX `<prop>` element."""
 
-  def _serialize(self, obj: Prop) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Prop object into a `<prop>` XML element.
 
@@ -33,7 +50,7 @@ class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<prop>` element, or None if type validation fails.
     """
     if not assert_object_type(obj, Prop, logger=self.logger, policy=self.policy):
@@ -46,10 +63,10 @@ class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
     return element
 
 
-class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Note]):
+class NoteSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Note]):
   """Serializer for the TMX `<note>` element."""
 
-  def _serialize(self, obj: Note) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Note object into a `<note>` XML element.
 
@@ -60,7 +77,7 @@ class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<note>` element, or None if type validation fails.
     """
     if not assert_object_type(obj, Note, logger=self.logger, policy=self.policy):
@@ -72,10 +89,10 @@ class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
     return element
 
 
-class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Header]):
+class HeaderSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Header]):
   """Serializer for the TMX `<header>` element."""
 
-  def _serialize(self, obj: Header) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Header object into a `<header>` XML element including children.
 
@@ -86,7 +103,7 @@ class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackend
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<header>` element, or None if type validation fails.
     """
     if not assert_object_type(obj, Header, logger=self.logger, policy=self.policy):
@@ -109,10 +126,10 @@ class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackend
     return element
 
 
-class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tuv]):
+class TuvSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Tuv]):
   """Serializer for the TMX `<tuv>` (Translation Unit Variant) element."""
 
-  def _serialize(self, obj: Tuv) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Tuv object into a `<tuv>` XML element with nested `<seg>`.
 
@@ -123,7 +140,7 @@ class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<tuv>` element, or None if type validation fails.
     """
     if not assert_object_type(obj, Tuv, logger=self.logger, policy=self.policy):
@@ -149,10 +166,10 @@ class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     return element
 
 
-class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tu]):
+class TuSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Tu]):
   """Serializer for the TMX `<tr>` (Translation Unit) element."""
 
-  def _serialize(self, obj: Tu) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Tu object into a `<tu>` XML element.
 
@@ -163,7 +180,7 @@ class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<tu>` element, or None if type validation fails.
     """
     if not assert_object_type(obj, Tu, logger=self.logger, policy=self.policy):
@@ -189,10 +206,10 @@ class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     return element
 
 
-class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tmx]):
+class TmxSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Tmx]):
   """Serializer for the root `<tmx>` element."""
 
-  def _serialize(self, obj: Tmx) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Tmx object into a `<tmx>` XML document structure.
 
@@ -203,7 +220,7 @@ class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The root `<tmx>` element, or None if type validation fails.
 
     Raises
@@ -222,10 +239,10 @@ class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     return element
 
 
-class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Bpt]):
+class BptSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Bpt]):
   """Serializer for the TMX `<bpt>` (Begin Paired Tag) element."""
 
-  def _serialize(self, obj: Bpt) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Bpt object into a `<bpt>` XML element.
 
@@ -236,7 +253,7 @@ class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<bpt>` element.
     """
     if not assert_object_type(obj, Bpt, logger=self.logger, policy=self.policy):
@@ -249,10 +266,10 @@ class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     return element
 
 
-class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Ept]):
+class EptSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Ept]):
   """Serializer for the TMX `<ept>` (End Paired Tag) element."""
 
-  def _serialize(self, obj: Ept) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert an Ept object into an `<ept>` XML element.
 
@@ -263,7 +280,7 @@ class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<ept>` element.
     """
     if not assert_object_type(obj, Ept, logger=self.logger, policy=self.policy):
@@ -274,10 +291,10 @@ class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     return element
 
 
-class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Hi]):
+class HiSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Hi]):
   """Serializer for the TMX `<hi>` (Highlight) element."""
 
-  def _serialize(self, obj: Hi) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Hi object into a `<hi>` XML element.
 
@@ -288,7 +305,7 @@ class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<hi>` element.
     """
     if not assert_object_type(obj, Hi, logger=self.logger, policy=self.policy):
@@ -300,10 +317,10 @@ class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     return element
 
 
-class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, It]):
+class ItSerializer[BackendElementType](BaseElementSerializer[BackendElementType, It]):
   """Serializer for the TMX `<it>` (Isolated Tag) element."""
 
-  def _serialize(self, obj: It) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert an It object into an `<it>` XML element.
 
@@ -314,7 +331,7 @@ class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<it>` element.
     """
     if not assert_object_type(obj, It, logger=self.logger, policy=self.policy):
@@ -327,10 +344,10 @@ class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     return element
 
 
-class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Ph]):
+class PhSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Ph]):
   """Serializer for the TMX `<ph>` (Placeholder) element."""
 
-  def _serialize(self, obj: Ph) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Ph object into a `<ph>` XML element.
 
@@ -341,7 +358,7 @@ class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<ph>` element.
     """
     if not assert_object_type(obj, Ph, logger=self.logger, policy=self.policy):
@@ -354,10 +371,10 @@ class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     return element
 
 
-class SubSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Sub]):
+class SubSerializer[BackendElementType](BaseElementSerializer[BackendElementType, Sub]):
   """Serializer for the TMX `<sub>` (Sub-flow) element."""
 
-  def _serialize(self, obj: Sub) -> TypeOfBackendElement | None:
+  def _serialize(self, obj: BaseElement) -> BackendElementType | None:
     """
     Convert a Sub object into a `<sub>` XML element.
 
@@ -368,7 +385,7 @@ class SubSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
 
     Returns
     -------
-    TypeOfBackendElement | None
+    BackendElementType | None
         The `<sub>` element.
     """
     if not assert_object_type(obj, Sub, logger=self.logger, policy=self.policy):
