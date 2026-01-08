@@ -12,8 +12,6 @@ official specification, the recommended date format is ``YYYYMMDDTHHMMSSZ``.
 Language codes should be BCP-47; Enforcement will tighten in a future release.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
