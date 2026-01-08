@@ -26,13 +26,7 @@ from hypomnema.base.types import (
   Pos,
   Segtype,
 )
-from hypomnema.xml import (
-  XmlBackend,
-  LxmlBackend,
-  StandardBackend,
-  Deserializer,
-  Serializer,
-)
+from hypomnema.xml import XmlBackend, LxmlBackend, StandardBackend, Deserializer, Serializer
 
 
 from hypomnema.xml.policy import PolicyValue, DeserializationPolicy, SerializationPolicy
