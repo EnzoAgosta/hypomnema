@@ -46,9 +46,10 @@ The project uses a custom type checker called `ty` (not mypy/pyright). Agents sh
 **Do NOT run tests automatically** - testing infrastructure is not fully built yet.
 
 When tests are requested:
-- Use `pytest`
-- Leverage parameterization for comprehensive coverage
-- Follow existing test patterns in `tests/`
+- Use `pytest`.
+- **Backend Parameterization:** Always use the `backend` fixture from `conftest.py`. This runs tests against `StandardBackend`, `LxmlBackend`, and `StrictBackend`. StrictBackend compliance is mandatory to ensure handlers never bypass the abstraction layer.
+- **Structure:** Separate test classes into `Test<Name>Happy` (valid paths) and `Test<Name>Error` (exceptions/edge cases).
+- **Policies:** Test policy behavior by mutating the policy object in-place (e.g., `serializer.policy.rule = ...`) rather than creating new instances.
 
 ## Dependencies
 
