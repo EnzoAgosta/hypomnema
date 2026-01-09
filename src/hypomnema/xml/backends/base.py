@@ -1,4 +1,4 @@
-from typing import TypeVar, overload, Literal
+from typing import overload, Literal
 from logging import Logger, getLogger
 from contextlib import nullcontext
 from pathlib import Path
@@ -10,13 +10,8 @@ from os import PathLike
 
 __all__ = ["XmlBackend"]
 
-T_Element = TypeVar("T_Element")
-T_AttributeKey = TypeVar("T_AttributeKey")
-T_AttributeValue = TypeVar("T_AttributeValue")
-T_Attributes = Mapping[T_AttributeKey, T_AttributeValue]
 
-
-class XmlBackend[T_Element, T_Attributes](ABC):
+class XmlBackend[TypeOfElement](ABC):
   """Abstract base class for XML document manipulation backends.
 
   This class defines the interface for creating, reading, modifying, and writing
@@ -62,7 +57,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   @abstractmethod
   def get_tag(
     self,
-    element: T_Element,
+    element: TypeOfElement,
     *,
     as_qname: Literal[True],
     nsmap: Mapping[str | None, str] | None = None,
@@ -71,7 +66,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   @abstractmethod
   def get_tag(
     self,
-    element: T_Element,
+    element: TypeOfElement,
     *,
     as_qname: bool = False,
     nsmap: Mapping[str | None, str] | None = None,
@@ -79,7 +74,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   @abstractmethod
   def get_tag(
     self,
-    element: T_Element,
+    element: TypeOfElement,
     *,
     as_qname: bool = False,
     nsmap: Mapping[str | None, str] | None = None,
@@ -109,13 +104,13 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def create_element(
+  def create_element[TagType, KeyType, ValueType](
     self,
-    tag: str | QName,
-    attributes: T_Attributes | None = None,
+    tag: TagType,
+    attributes: Mapping[KeyType, ValueType] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> T_Element:
+  ) -> TypeOfElement:
     """Create a new element with the given tag and attributes.
 
     Parameters
@@ -147,7 +142,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def append_child(self, parent: T_Element, child: T_Element) -> None:
+  def append_child(self, parent: TypeOfElement, child: TypeOfElement) -> None:
     """Attach a child element to a parent element.
 
     Parameters
@@ -168,14 +163,14 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def get_attribute(
+  def get_attribute[TypeOfDefault](
     self,
-    element: T_Element,
-    attribute_name: T_AttributeKey,
-    default: T_AttributeValue | None = None,
+    element: TypeOfElement,
+    attribute_name: str,
+    default: TypeOfDefault | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> T_AttributeValue:
+  ) -> str | TypeOfDefault | None:
     """Retrieve the value of an attribute.
 
     Parameters
@@ -202,9 +197,9 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   @abstractmethod
   def set_attribute(
     self,
-    element: T_Element,
-    attribute_name: T_AttributeKey,
-    attribute_value: T_AttributeValue | None,
+    element: TypeOfElement,
+    attribute_name: str,
+    attribute_value: str | None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> None:
@@ -234,7 +229,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def get_attribute_map(self, element: T_Element) -> T_Attributes:
+  def get_attribute_map(self, element: TypeOfElement) -> dict[str, str]:
     """Return all attributes of an element as a mapping.
 
     Parameters
@@ -253,7 +248,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def get_text(self, element: T_Element) -> str | None:
+  def get_text(self, element: TypeOfElement) -> str | None:
     """Return the text content of an element.
 
     Parameters
@@ -281,7 +276,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def set_text(self, element: T_Element, text: str | None) -> None:
+  def set_text(self, element: TypeOfElement, text: str | None) -> None:
     """Set the text content of an element.
 
     Parameters
@@ -305,7 +300,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def get_tail(self, element: T_Element) -> str | None:
+  def get_tail(self, element: TypeOfElement) -> str | None:
     """Return the trailing text of an element.
 
     Parameters
@@ -328,7 +323,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def set_tail(self, element: T_Element, tail: str | None) -> None:
+  def set_tail(self, element: TypeOfElement, tail: str | None) -> None:
     """Set the trailing text of an element.
 
     Parameters
@@ -349,11 +344,11 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   @abstractmethod
   def iter_children(
     self,
-    element: T_Element,
+    element: TypeOfElement,
     tag_filter: str | Collection[str] | None = None,
     *,
-    nsmap: Mapping[str, str] | None = None,
-  ) -> Iterator[T_Element]:
+    nsmap: Mapping[str | None, str] | None = None,
+  ) -> Iterator[TypeOfElement]:
     """Iterate over direct child elements.
 
     Parameters
@@ -384,7 +379,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> T_Element:
+  def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> TypeOfElement:
     """Parse an XML file and return the root element.
 
     Parameters
@@ -414,7 +409,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
 
   @abstractmethod
   def write(
-    self, element: T_Element, path: str | bytes | PathLike, encoding: str = "utf-8"
+    self, element: TypeOfElement, path: str | bytes | PathLike, encoding: str = "utf-8"
   ) -> None:
     """Write an element tree to an XML file.
 
@@ -443,7 +438,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   @abstractmethod
-  def clear(self, element: T_Element) -> None:
+  def clear(self, element: TypeOfElement) -> None:
     """Clear an element's text, attributes, tail and children.
 
     Parameters
@@ -461,7 +456,7 @@ class XmlBackend[T_Element, T_Attributes](ABC):
 
   @abstractmethod
   def to_bytes(
-    self, element: T_Element, encoding: str = "utf-8", self_closing: bool = False
+    self, element: TypeOfElement, encoding: str = "utf-8", self_closing: bool = False
   ) -> bytes:
     """Convert an element to its XML byte representation.
 
@@ -520,6 +515,8 @@ class XmlBackend[T_Element, T_Attributes](ABC):
       raise TypeError(f"given prefix is not a str: {prefix}")
     if not is_ncname(prefix):
       raise ValueError(f"NCName {prefix} is not a valid xml prefix")
+    if prefix == "xml":
+      raise ValueError(f"NCName {prefix} is reserved for the xml namespace")
     self._global_nsmap[prefix] = uri
 
   @abstractmethod
@@ -528,8 +525,8 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     path: str | bytes | PathLike,
     tag_filter: str | Collection[str] | None = None,
     *,
-    nsmap: Mapping[str, str] | None = None,
-  ) -> Iterator[T_Element]:
+    nsmap: Mapping[str | None, str] | None = None,
+  ) -> Iterator[TypeOfElement]:
     """Iteratively parse an XML file, yielding elements as they are closed.
 
     This method provides memory-efficient parsing of large XML files by
@@ -584,9 +581,9 @@ class XmlBackend[T_Element, T_Attributes](ABC):
     ...
 
   def _iterparse(
-    self, ctx: Iterator[tuple[str, T_Element]], tag_filter: set[str] | None
-  ) -> Generator[T_Element]:
-    elements_pending_yield: list[T_Element] = []
+    self, ctx: Iterator[tuple[str, TypeOfElement]], tag_filter: set[str] | None
+  ) -> Generator[TypeOfElement]:
+    elements_pending_yield: list[TypeOfElement] = []
 
     for event, elem in ctx:
       if event == "start":
@@ -606,10 +603,10 @@ class XmlBackend[T_Element, T_Attributes](ABC):
   def iterwrite(
     self,
     path: str | bytes | PathLike | BufferedIOBase,
-    elements: Iterable[T_Element],
+    elements: Iterable[TypeOfElement],
     encoding: str = "utf-8",
     *,
-    root_elem: T_Element | None = None,
+    root_elem: TypeOfElement | None = None,
     max_number_of_elements_in_buffer: int = 1000,
     write_xml_declaration: bool = True,
     write_doctype: bool = True,

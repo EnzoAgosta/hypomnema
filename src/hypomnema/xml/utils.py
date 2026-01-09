@@ -3,7 +3,7 @@ from pathlib import Path
 from hypomnema.base.errors import XmlSerializationError, InvalidTagError
 from hypomnema.xml.policy import SerializationPolicy, DeserializationPolicy
 from codecs import lookup
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping, Iterable
 from logging import Logger
 from typing import TypeIs, Any
 from encodings import normalize_encoding as python_normalize_encoding
@@ -46,7 +46,7 @@ def normalize_encoding(encoding: str | None) -> str:
 
 
 def prep_tag_set(
-  tags: str | Collection[str] | None, nsmap: dict[str | None, str] | None = None
+  tags: str | QName | Iterable[str | QName] | None, nsmap: Mapping[str | None, str]
 ) -> set[str] | None:
   """Convert tag names to a set of fully qualified names.
 
@@ -76,7 +76,19 @@ def prep_tag_set(
   if isinstance(tags, str):
     qname = QName(tags, _nsmap)
     return {qname.qualified_name}
-  return {QName(tag, _nsmap).qualified_name for tag in tags}
+  elif isinstance(tags, QName):
+    return {tags.qualified_name}
+  else:
+    result = set()
+    for tag in tags:
+      if isinstance(tag, str):
+        qname = QName(tag, _nsmap)
+        result.add(qname.qualified_name)
+      elif isinstance(tag, QName):
+        result.add(tag.qualified_name)
+      else:
+        raise TypeError(f"Unexpected tag type: {type(tag)}")
+    return result
 
 
 def assert_object_type[ExpectedType](
@@ -345,14 +357,14 @@ class QName:
     """
     if isinstance(tag, str):
       tag = tag
-    if isinstance(tag, (bytes, bytearray)):
+    elif isinstance(tag, (bytes, bytearray)):
       tag = tag.decode(encoding)
     else:
       raise TypeError(f"Unexpected tag type: {type(tag)}")
 
     if tag[0] == "{":
       self.uri, self.prefix, self.local_name = _split_qualified_tag(tag, nsmap)
-    elif tag[0] == ":":
+    elif ":" in tag:
       self.uri, self.prefix, self.local_name = _split_prefixed_tag(tag, nsmap)
     else:
       self.uri, self.prefix, self.local_name = None, None, tag
