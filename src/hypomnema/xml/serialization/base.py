@@ -156,7 +156,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
       if self.policy.invalid_attribute_type.behavior == "raise":
         raise AttributeSerializationError(f"Attribute {attribute!r} is not a datetime object")
       return
-    self.backend.set_attribute(target, attribute, value.isoformat())
+    self.backend.set_attribute(target, attribute, value.isoformat(), unsafe=True)
 
   def _set_int_attribute(
     self, target: TypeOfBackendElement, value: int | None, attribute: str, required: bool
