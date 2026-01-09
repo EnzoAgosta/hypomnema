@@ -266,6 +266,8 @@ def _split_qualified_tag(
   uri, localname = tag[1:].split("}", 1)
   if not is_ncname(localname):
     raise ValueError(f"NCName {localname} is not a valid xml localname")
+  if uri == "http://www.w3.org/XML/1998/namespace":
+    return uri, "xml", localname
   for prefix, value in nsmap.items():
     if value == uri:
       return uri, prefix, localname
@@ -280,6 +282,8 @@ def _split_prefixed_tag(
     raise ValueError(f"NCName {localname} is not a valid xml localname")
   if not is_ncname(prefix):
     raise ValueError(f"NCName {prefix} is not a valid xml prefix")
+  if prefix == "xml":
+    return "http://www.w3.org/XML/1998/namespace", prefix, localname
   return nsmap.get(prefix), prefix, localname
 
 
@@ -332,7 +336,10 @@ class QName:
   """The local name."""
 
   def __init__(
-    self, tag: str | bytes | bytearray | QName, nsmap: Mapping[str | None, str], encoding: str = "utf-8"
+    self,
+    tag: str | bytes | bytearray | QName,
+    nsmap: Mapping[str | None, str],
+    encoding: str = "utf-8",
   ) -> None:
     """Initialize a QName from a tag string and namespace map.
 

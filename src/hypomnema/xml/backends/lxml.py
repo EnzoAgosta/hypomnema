@@ -12,7 +12,10 @@ type LxmlKeyValType = str | bytes | et.QName | QName
 
 
 def _normalize_to_str(
-  value: LxmlTagType, nsmap: Mapping[str | None, str], encoding: str = "utf-8", no_bytearray: bool = False
+  value: LxmlTagType,
+  nsmap: Mapping[str | None, str],
+  encoding: str = "utf-8",
+  no_bytearray: bool = False,
 ) -> str:
   match value:
     case et.QName():
@@ -205,12 +208,20 @@ class LxmlBackend(XmlBackend[et._Element]):
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}") from None
     _nsmap = nsmap if nsmap is not None else element.nsmap
-    attribute_name = attribute_name if unsafe else _normalize_to_str(attribute_name, _nsmap, encoding, no_bytearray=True)
+    attribute_name = (
+      attribute_name
+      if unsafe
+      else _normalize_to_str(attribute_name, _nsmap, encoding, no_bytearray=True)
+    )
     if attribute_value is None:
       if attribute_name in element.attrib:
         element.attrib.pop(attribute_name)  # type: ignore
     else:
-      attribute_value = attribute_value if unsafe else _normalize_to_str(attribute_value, _nsmap, encoding, no_bytearray=True)
+      attribute_value = (
+        attribute_value
+        if unsafe
+        else _normalize_to_str(attribute_value, _nsmap, encoding, no_bytearray=True)
+      )
       element.attrib[attribute_name] = attribute_value  # type: ignore
 
   def get_attribute_map(self, element: et._Element) -> dict[str, str]:
