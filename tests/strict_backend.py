@@ -58,11 +58,20 @@ class StrictBackend(XmlBackend[int]):
 
     return elem.get(attribute_name, default)
 
+<<<<<<< HEAD
   def set_attribute(self, element, attribute_name, attribute_value, *, nsmap=None, unsafe=False):
     elem = self._get_elem(element)
 
     _nsmap = nsmap if nsmap is not None else self._global_nsmap
     attribute_name = attribute_name if unsafe else QName(attribute_name, _nsmap).qualified_name
+=======
+  def set_attribute(self, element, attribute_name, attribute_value, *, nsmap=None):
+    elem = self._get_elem(element)
+
+    _nsmap = nsmap if nsmap is not None else self._global_nsmap
+    if attribute_name[0] == "{" or ":" in attribute_name:
+      attribute_name = QName(attribute_name, _nsmap).qualified_name
+>>>>>>> 7c25f28 (Add test infrastructure with StrictBackend for XML backend testing (#42))
 
     if attribute_value is None:
       if attribute_name in elem.attrib:
@@ -154,10 +163,23 @@ class StrictBackend(XmlBackend[int]):
     write_xml_declaration=True,
     write_doctype=True,
   ):
+<<<<<<< HEAD
     elements = (self._get_elem(self._register(element)) for element in elements)
     root_elem = self.create_element("tmx", attributes={"version": "1.4"})
 
     super().iterwrite(
+=======
+    # We can reuse the default implementation in XmlBackend if we don't override it,
+    # provided `to_bytes` and `create_element` works.
+    # XmlBackend.iterwrite is not abstract, it's implemented.
+    # So I don't strictly need to implement it here unless I want to optimize or change behavior.
+    # The base implementation uses `to_bytes` which I implemented.
+    # So I will just inherit it!
+    elements = (self._get_elem(self._register(element)) for element in elements)
+    root_elem = self.create_element("tmx", attributes={"version": "1.4"})
+
+    return super().iterwrite(
+>>>>>>> 7c25f28 (Add test infrastructure with StrictBackend for XML backend testing (#42))
       path,
       elements,
       encoding,
