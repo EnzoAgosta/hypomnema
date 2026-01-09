@@ -42,9 +42,6 @@ __all__ = [
   "Tuv",
 ]
 
-type GenericInlineElementAndStr = str | GenericBpt | GenericEpt | GenericIt | GenericPh | GenericHi
-type GenericSubElementAndStr = str | GenericSub
-
 
 class Pos(StrEnum):
   """
@@ -126,12 +123,12 @@ class Note:
   """Original encoding (maps to `o-encoding` in TMX) (optional)."""
 
 
-IterableOfProps = TypeVar("IterableOfProps", bound=Iterable[Prop])
-IterableOfNotes = TypeVar("IterableOfNotes", bound=Iterable[Note])
+IterableOfProps = TypeVar("IterableOfProps", bound=Iterable[Prop], default=list[Prop])
+IterableOfNotes = TypeVar("IterableOfNotes", bound=Iterable[Note], default=list[Note])
 
 
 @dataclass(slots=True)
-class GenericHeader(Generic[IterableOfProps, IterableOfNotes]):
+class Header(Generic[IterableOfProps, IterableOfNotes]):
   """
   TMX header element (`<header>`).
   """
@@ -179,16 +176,18 @@ class GenericHeader(Generic[IterableOfProps, IterableOfNotes]):
   """Container of notes (optional)."""
 
 
-IterableOfInlineElementsAndStr = TypeVar(
-  "IterableOfInlineElementsAndStr", bound=Iterable[GenericInlineElementAndStr]
-)
 IterableOfSubElementsAndStr = TypeVar(
-  "IterableOfSubElementsAndStr", bound=Iterable[GenericSubElementAndStr]
+  "IterableOfSubElementsAndStr", bound=Iterable["Sub | str"], default=list["Sub | str"]
+)
+IterableOfInlineElementsAndStr = TypeVar(
+  "IterableOfInlineElementsAndStr",
+  bound=Iterable["Bpt | Ept | It | Ph | Hi | Sub | str"],
+  default=list["Bpt | Ept | It | Ph | Hi | Sub | str"],
 )
 
 
 @dataclass(slots=True)
-class GenericBpt(Generic[IterableOfSubElementsAndStr]):
+class Bpt(Generic[IterableOfSubElementsAndStr]):
   """
   Begin paired tag (`<bpt>`) – opening half of an inline tag pair.
   """
@@ -207,7 +206,7 @@ class GenericBpt(Generic[IterableOfSubElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericEpt(Generic[IterableOfSubElementsAndStr]):
+class Ept(Generic[IterableOfSubElementsAndStr]):
   """
   End paired tag (`<ept>`) – closing half of an inline tag pair.
   """
@@ -220,7 +219,7 @@ class GenericEpt(Generic[IterableOfSubElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericHi(Generic[IterableOfInlineElementsAndStr]):
+class Hi(Generic[IterableOfInlineElementsAndStr]):
   """
   Highlighted inline span (`<hi>`).
   """
@@ -236,7 +235,7 @@ class GenericHi(Generic[IterableOfInlineElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericIt(Generic[IterableOfSubElementsAndStr]):
+class It(Generic[IterableOfSubElementsAndStr]):
   """
   Isolated tag (`<it>`) – standalone placeholder.
   """
@@ -255,7 +254,7 @@ class GenericIt(Generic[IterableOfSubElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericPh(Generic[IterableOfSubElementsAndStr]):
+class Ph(Generic[IterableOfSubElementsAndStr]):
   """
   Placeholder tag (`<ph>`) – replaces a native code fragment.
   """
@@ -274,7 +273,7 @@ class GenericPh(Generic[IterableOfSubElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericSub(Generic[IterableOfInlineElementsAndStr]):
+class Sub(Generic[IterableOfInlineElementsAndStr]):
   """
   Sub-flow segment (`<sub>`) – nested translatable unit.
   """
@@ -290,7 +289,7 @@ class GenericSub(Generic[IterableOfInlineElementsAndStr]):
 
 
 @dataclass(slots=True)
-class GenericTuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndStr]):
+class Tuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndStr]):
   """
   Translation unit variant (`<tuv>`) – one language version of a `<tu>`.
   """
@@ -341,11 +340,11 @@ class GenericTuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineEleme
   """Mixed inline content (optional)."""
 
 
-IterableOfTuvs = TypeVar("IterableOfTuvs", bound=Iterable[GenericTuv])
+IterableOfTuvs = TypeVar("IterableOfTuvs", bound=Iterable[Tuv], default=list[Tuv])
 
 
 @dataclass(slots=True)
-class GenericTu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
+class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
   """
   Translation unit (`<tu>`) – container for one or more `<tuv>` variants.
   """
@@ -402,16 +401,16 @@ class GenericTu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
   """Container of language variants (optional)."""
 
 
-IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[GenericTu])
+IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[Tu])
 
 
 @dataclass(slots=True)
-class GenericTmx(Generic[IterableOfTus]):
+class Tmx(Generic[IterableOfTus]):
   """
   Root TMX container (`<tmx>`).
   """
 
-  header: GenericHeader
+  header: Header
   """Global metadata for the file."""
 
   version: str = "1.4"
@@ -419,34 +418,6 @@ class GenericTmx(Generic[IterableOfTus]):
 
   body: IterableOfTus = field(default_factory=list)
   """Container of translation units (optional)."""
-
-
-type GenericBaseElement = (
-  GenericTmx
-  | GenericHeader
-  | Prop
-  | Note
-  | GenericTu
-  | GenericTuv
-  | GenericBpt
-  | GenericEpt
-  | GenericIt
-  | GenericPh
-  | GenericHi
-  | GenericSub
-)
-type GenericInlineElement = GenericBpt | GenericEpt | GenericIt | GenericPh | GenericHi
-
-Sub = GenericSub[list[str | "Bpt" | "Ept" | "Ph" | "It" | "Hi"]]
-Hi = GenericHi[list[str | "Bpt" | "Ept" | "Ph" | "It" | "Hi"]]
-Ept = GenericEpt[list[Sub | str]]
-It = GenericIt[list[Sub | str]]
-Ph = GenericPh[list[Sub | str]]
-Bpt = GenericBpt[list[Sub | str]]
-Tuv = GenericTuv[list[Prop], list[Note], list[Bpt | Ept | Ph | It | Hi]]
-Tu = GenericTu[list[Note], list[Prop], list[Tuv]]
-Header = GenericHeader[list[Prop], list[Note]]
-Tmx = GenericTmx[list[Tu]]
 
 
 type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
