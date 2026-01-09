@@ -17,9 +17,6 @@ from hypomnema.base.types import (
   Tu,
   Header,
   Tuv,
-  GenericTuv,
-  GenericHeader,
-  GenericTu,
 )
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 
@@ -545,7 +542,7 @@ class TuDeserializer[BackendElementType](BaseElementDeserializer[BackendElementT
           notes.append(note)
       elif tag == "tuv":
         tuv = self.emit(child)
-        if isinstance(tuv, GenericTuv):
+        if isinstance(tuv, Tuv):
           variants.append(tuv)
       else:
         self.logger.log(
@@ -625,13 +622,13 @@ class TmxDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
             continue
         header_found = True
         header_obj = self.emit(child)
-        if isinstance(header_obj, GenericHeader):
+        if isinstance(header_obj, Header):
           header = header_obj
       elif tag == "body":
         for grandchild in self.backend.iter_children(child):
           if self.backend.get_tag(grandchild) == "tu":
             tu_obj = self.emit(grandchild)
-            if isinstance(tu_obj, GenericTu):
+            if isinstance(tu_obj, Tu):
               body.append(tu_obj)
       else:
         self.logger.log(

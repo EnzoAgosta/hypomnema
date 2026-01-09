@@ -5,14 +5,14 @@ from logging import Logger
 from typing import Callable
 
 from hypomnema.base.errors import AttributeDeserializationError, XmlDeserializationError
-from hypomnema.base.types import GenericBaseElement, GenericInlineElement, GenericSub
-from hypomnema.xml.backends.base import XmlBackend, T_Attributes
+from hypomnema.base.types import BaseElement, InlineElement, Sub
+from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import DeserializationPolicy
 
 __all__ = ["BaseElementDeserializer"]
 
 
-class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseElement](ABC):
+class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement](ABC):
   """
   Abstract base class for converting XML elements into TMX objects.
 
@@ -27,7 +27,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
 
   Attributes
   ----------
-  backend : XMLBackend[BackendElementType]
+  backend : XMLBackend[TypeOfBackendElement]
       The XML library wrapper.
   policy : DeserializationPolicy
       The deserialization configuration.
@@ -36,29 +36,29 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
   """
 
   def __init__(self, backend: XmlBackend, policy: DeserializationPolicy, logger: Logger):
-    self.backend: XmlBackend[BackendElementType, T_Attributes] = backend
+    self.backend: XmlBackend[TypeOfBackendElement] = backend
     self.policy = policy
     self.logger = logger
-    self._emit: Callable[[BackendElementType], GenericBaseElement | None] | None = None
+    self._emit: Callable[[TypeOfBackendElement], BaseElement | None] | None = None
 
-  def _set_emit(self, emit: Callable[[BackendElementType], GenericBaseElement | None]) -> None:
+  def _set_emit(self, emit: Callable[[TypeOfBackendElement], BaseElement | None]) -> None:
     """
     Set the dispatch function for recursive deserialization.
 
     Parameters
     ----------
-    emit : Callable[[BackendElementType], BaseElement | None]
+    emit : Callable[[TypeOfBackendElement], BaseElement | None]
         A function that dispatches XML elements to their specific deserializers.
     """
     self._emit = emit
 
-  def emit(self, obj: BackendElementType) -> GenericBaseElement | None:
+  def emit(self, obj: TypeOfBackendElement) -> BaseElement | None:
     """
     Invoke the dispatcher to deserialize an XML element.
 
     Parameters
     ----------
-    obj : BackendElementType
+    obj : TypeOfBackendElement
         The backend-specific XML element to deserialize.
 
     Returns
@@ -75,13 +75,13 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
     return self._emit(obj)
 
   @abstractmethod
-  def _deserialize(self, element: BackendElementType) -> GenericBaseElement | None:
+  def _deserialize(self, element: TypeOfBackendElement) -> BaseElement | None:
     """
     Perform the actual deserialization of the specific XML element.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element instance to convert.
 
     Returns
@@ -92,14 +92,14 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
     ...
 
   def _handle_missing_attribute(
-    self, element: BackendElementType, attribute: str, required: bool
+    self, element: TypeOfBackendElement, attribute: str, required: bool
   ) -> None:
     """
     Handle cases where an expected XML attribute is missing according to policy.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element being inspected.
     attribute : str
         The name of the missing attribute.
@@ -120,14 +120,14 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
     return
 
   def _parse_attribute_as_datetime(
-    self, element: BackendElementType, attribute: str, required: bool
+    self, element: TypeOfBackendElement, attribute: str, required: bool
   ) -> datetime | None:
     """
     Retrieve and parse an attribute value as an ISO 8601 datetime.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element containing the attribute.
     attribute : str
         The name of the attribute.
@@ -163,14 +163,14 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
         ) from e
 
   def _parse_attribute_as_int(
-    self, element: BackendElementType, attribute: str, required: bool
+    self, element: TypeOfBackendElement, attribute: str, required: bool
   ) -> int | None:
     """
     Retrieve and parse an attribute value as an integer.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element containing the attribute.
     attribute : str
         The name of the attribute.
@@ -207,14 +207,14 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
       return
 
   def _parse_attribute_as_enum[EnumType: StrEnum](
-    self, element: BackendElementType, attribute: str, enum_type: type[EnumType], required: bool
+    self, element: TypeOfBackendElement, attribute: str, enum_type: type[EnumType], required: bool
   ) -> EnumType | None:
     """
     Retrieve and parse an attribute value as a specific StrEnum member.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element containing the attribute.
     attribute : str
         The name of the attribute.
@@ -254,14 +254,14 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
       return
 
   def _parse_attribute_as_str(
-    self, element: BackendElementType, attribute: str, required: bool
+    self, element: TypeOfBackendElement, attribute: str, required: bool
   ) -> str | None:
     """
     Retrieve an attribute value as a string.
 
     Parameters
     ----------
-    element : BackendElementType
+    element : TypeOfBackendElement
         The XML element containing the attribute.
     attribute : str
         The name of the attribute.
@@ -280,8 +280,8 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
     return value
 
   def _deserialize_content(
-    self, source: BackendElementType, allowed: tuple[str, ...]
-  ) -> list[GenericInlineElement | GenericSub | str]:
+    self, source: TypeOfBackendElement, allowed: tuple[str, ...]
+  ) -> list[InlineElement | Sub | str]:
     """
     Extract text and child elements from an XML element.
 
@@ -289,7 +289,7 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
 
     Parameters
     ----------
-    source : BackendElementType
+    source : TypeOfBackendElement
         The XML element containing mixed content.
     allowed : tuple[str, ...]
         The permitted tags for child elements.
@@ -310,18 +310,18 @@ class BaseElementDeserializer[BackendElementType, TmxElementType: GenericBaseEle
     if (text := self.backend.get_text(source)) is not None:
       result.append(text)
     for child in self.backend.iter_children(source):
-      child_tag = self.backend.get_tag(child, as_qname=True)
-      if child_tag not in allowed:
+      tag = self.backend.get_tag(child)
+      if tag not in allowed:
         self.logger.log(
           self.policy.invalid_child_element.log_level,
           "Incorrect child element in %s: expected one of %s, got %s",
           source_tag,
           ", ".join(allowed),
-          child_tag,
+          tag,
         )
         if self.policy.invalid_child_element.behavior == "raise":
           raise XmlDeserializationError(
-            f"Incorrect child element in {source_tag}: expected one of {', '.join(allowed)}, got {child_tag}"
+            f"Incorrect child element in {source_tag}: expected one of {', '.join(allowed)}, got {tag}"
           )
         continue
       child_obj = self.emit(child)

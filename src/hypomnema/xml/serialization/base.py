@@ -5,14 +5,14 @@ from datetime import datetime
 from logging import Logger
 
 from hypomnema.base.errors import AttributeSerializationError, XmlSerializationError
-from hypomnema.base.types import InlineElement, Tuv, GenericBaseElement, GenericSub
-from hypomnema.xml.backends.base import XmlBackend, T_Attributes
+from hypomnema.base.types import InlineElement, Tuv, BaseElement, Sub
+from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import SerializationPolicy
 
 __all__ = ["BaseElementSerializer"]
 
 
-class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseElement](ABC):
+class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement](ABC):
   """
   Abstract base class for converting TMX objects into XML elements.
 
@@ -36,17 +36,14 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
   """
 
   def __init__(
-    self,
-    backend: XmlBackend[BackendElementType, T_Attributes],
-    policy: SerializationPolicy,
-    logger: Logger,
+    self, backend: XmlBackend[TypeOfBackendElement], policy: SerializationPolicy, logger: Logger
   ):
-    self.backend: XmlBackend[BackendElementType, T_Attributes] = backend
+    self.backend: XmlBackend[TypeOfBackendElement] = backend
     self.policy: SerializationPolicy = policy
     self.logger: Logger = logger
-    self._emit: Callable[[GenericBaseElement], BackendElementType | None] | None = None
+    self._emit: Callable[[BaseElement], TypeOfBackendElement | None] | None = None
 
-  def _set_emit(self, emit: Callable[[GenericBaseElement], BackendElementType | None]) -> None:
+  def _set_emit(self, emit: Callable[[BaseElement], TypeOfBackendElement | None]) -> None:
     """
     Set the dispatch function for recursive serialization.
     Must be called before `emit()` is called.
@@ -58,7 +55,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     """
     self._emit = emit
 
-  def emit(self, obj: GenericBaseElement) -> BackendElementType | None:
+  def emit(self, obj: BaseElement) -> TypeOfBackendElement | None:
     """
     Invoke the dispatcher to serialize a BaseElement object.
 
@@ -81,7 +78,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     return self._emit(obj)
 
   @abstractmethod
-  def _serialize(self, obj: TmxElementType) -> BackendElementType | None:
+  def _serialize(self, obj: TypeOfTmxElement) -> TypeOfBackendElement | None:
     """
     Perform the actual serialization of the specific TMX object type.
 
@@ -98,7 +95,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     ...
 
   def _handle_missing_attribute(
-    self, target: BackendElementType, attribute: str, required: bool
+    self, target: TypeOfBackendElement, attribute: str, required: bool
   ) -> None:
     """
     Handle cases where an attribute value is None according to policy.
@@ -131,7 +128,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     return
 
   def _set_datetime_attribute(
-    self, target: BackendElementType, value: datetime | None, attribute: str, required: bool
+    self, target: TypeOfBackendElement, value: datetime | None, attribute: str, required: bool
   ) -> None:
     """
     Serialize and set a datetime attribute in ISO 8601 format.
@@ -162,7 +159,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     self.backend.set_attribute(target, attribute, value.isoformat())
 
   def _set_int_attribute(
-    self, target: BackendElementType, value: int | None, attribute: str, required: bool
+    self, target: TypeOfBackendElement, value: int | None, attribute: str, required: bool
   ) -> None:
     """
     Serialize and set an integer attribute.
@@ -192,7 +189,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
 
   def _set_enum_attribute[EnumType: StrEnum](
     self,
-    target: BackendElementType,
+    target: TypeOfBackendElement,
     value: EnumType | None,
     attribute: str,
     enum_type: type[EnumType],
@@ -232,7 +229,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     self.backend.set_attribute(target, attribute, value.value)
 
   def _set_str_attribute(
-    self, target: BackendElementType, value: str | None, attribute: str, required: bool
+    self, target: TypeOfBackendElement, value: str | None, attribute: str, required: bool
   ) -> None:
     """
     Serialize and set a string attribute.
@@ -263,8 +260,8 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
   def _serialize_content_into(
     self,
     source: InlineElement | Tuv,
-    target: BackendElementType,
-    allowed: tuple[type[GenericBaseElement | GenericSub], ...],
+    target: TypeOfBackendElement,
+    allowed: tuple[type[BaseElement | Sub], ...],
   ) -> None:
     """
     Iteratively serialize mixed text and XML elements into a target element.
@@ -283,7 +280,7 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
     XmlSerializationError
         If a child object type is not a string or in the allowed tuple,        and policy behavior is "raise".
     """
-    last_child: BackendElementType | None = None
+    last_child: TypeOfBackendElement | None = None
     for item in source.content:
       if isinstance(item, str):
         if last_child is None:
@@ -316,8 +313,11 @@ class BaseElementSerializer[BackendElementType, TmxElementType: GenericBaseEleme
           )
         continue
 
-  def _serialize_children[ChildType: GenericBaseElement](
-    self, children: list[ChildType], target: BackendElementType, expected_type: type[ChildType]
+  def _serialize_children[TypeofChildItem: BaseElement](
+    self,
+    children: list[TypeofChildItem],
+    target: TypeOfBackendElement,
+    expected_type: type[TypeofChildItem],
   ) -> None:
     """
     Serialize a list of child objects and append them to a target element.
