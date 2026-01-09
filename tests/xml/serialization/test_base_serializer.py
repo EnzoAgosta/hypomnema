@@ -29,7 +29,6 @@ class BaseSerializerTest:
     self.logger = logging.getLogger("test")
     self.serializer = ConcreteSerializer(backend, self.policy, self.logger)
 
-    # Mock emit to return a simple element for children/content tests
     self.serializer._set_emit(lambda x: self.backend.create_element("child"))
 
 
@@ -144,7 +143,7 @@ class TestBaseSerializerError(BaseSerializerTest):
     """Test missing required attribute is ignored if policy says so."""
     self.policy.required_attribute_missing = PolicyValue("ignore", logging.DEBUG)
     elem = self.backend.create_element("elem")
-    # Should not raise
+
     self.serializer._handle_missing_attribute(elem, "attr", required=True)
 
   def test_set_datetime_attribute_none_required(self):
