@@ -84,14 +84,20 @@ class StrictBackend(XmlBackend[int]):
     _element = self._get_elem(element)
     _element.set(_key.text, attribute_value)
 
-  def delete_attribute(self, element: int, attribute_name: str | QNameLike) -> None:
-    _key = QName(attribute_name, nsmap=self.nsmap)
-    _element = self._get_elem(element)
-    _element.attrib.pop(_key.text, None)
+<<<<<<< HEAD
+  def set_attribute(self, element, attribute_name, attribute_value, *, nsmap=None, unsafe=False):
+    elem = self._get_elem(element)
 
-  def get_attribute_map(self, element: int) -> dict[str, str]:
-    _element = self._get_elem(element)
-    return {k: v for k, v in _element.attrib.items()}
+    _nsmap = nsmap if nsmap is not None else self._global_nsmap
+    attribute_name = attribute_name if unsafe else QName(attribute_name, _nsmap).qualified_name
+=======
+  def set_attribute(self, element, attribute_name, attribute_value, *, nsmap=None):
+    elem = self._get_elem(element)
+
+    _nsmap = nsmap if nsmap is not None else self._global_nsmap
+    if attribute_name[0] == "{" or ":" in attribute_name:
+      attribute_name = QName(attribute_name, _nsmap).qualified_name
+>>>>>>> 7c25f28 (Add test infrastructure with StrictBackend for XML backend testing (#42))
 
   def get_text(self, element: int) -> str | None:
     _element = self._get_elem(element)
@@ -165,17 +171,28 @@ class StrictBackend(XmlBackend[int]):
     elements: Iterable[int],
     encoding: str | None = None,
     *,
-    root_elem: int | None = None,
-    max_number_of_elements_in_buffer: int = 1000,
-    write_xml_declaration: bool = False,
-    write_doctype: bool = False,
-  ) -> None:
-    _elements = (self._get_elem(element) for element in elements)
-    if root_elem is not None:
-      _root_elem = self._get_elem(root_elem)
-    else:
-      _root_elem = None
+    root_elem=None,
+    max_number_of_elements_in_buffer=1000,
+    write_xml_declaration=True,
+    write_doctype=True,
+  ):
+<<<<<<< HEAD
+    elements = (self._get_elem(self._register(element)) for element in elements)
+    root_elem = self.create_element("tmx", attributes={"version": "1.4"})
+
     super().iterwrite(
+=======
+    # We can reuse the default implementation in XmlBackend if we don't override it,
+    # provided `to_bytes` and `create_element` works.
+    # XmlBackend.iterwrite is not abstract, it's implemented.
+    # So I don't strictly need to implement it here unless I want to optimize or change behavior.
+    # The base implementation uses `to_bytes` which I implemented.
+    # So I will just inherit it!
+    elements = (self._get_elem(self._register(element)) for element in elements)
+    root_elem = self.create_element("tmx", attributes={"version": "1.4"})
+
+    return super().iterwrite(
+>>>>>>> 7c25f28 (Add test infrastructure with StrictBackend for XML backend testing (#42))
       path,
       _elements,
       encoding,
