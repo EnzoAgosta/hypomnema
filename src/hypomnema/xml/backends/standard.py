@@ -79,8 +79,14 @@ class StandardBackend(XmlBackend[et.Element]):
       element_tag = tag.qualified_name
     else:
       raise TypeError(f"Unexpected tag type: {type(tag)}")
-    attributes = attributes if attributes is not None else {}
-    return et.Element(element_tag, attrib={**attributes})
+    _attributes = {}
+    if attributes is not None:
+      for key, value in attributes.items():
+        if not isinstance(value, str):
+          raise TypeError(f"Unexpected value type: {type(value)}")
+        key = QName(key, nsmap if nsmap is not None else self._global_nsmap).qualified_name
+        _attributes[key] = value
+    return et.Element(element_tag, attrib=_attributes)
 
   def append_child(self, parent: et.Element, child: et.Element) -> None:
     if not isinstance(parent, et.Element):
@@ -116,13 +122,15 @@ class StandardBackend(XmlBackend[et.Element]):
     attribute_value: str | None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
+    unsafe: bool = False,
   ) -> None:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    if attribute_name[0] == "{" or ":" in attribute_name:
-      attribute_name = QName(
-        attribute_name, nsmap if nsmap is not None else self._global_nsmap
-      ).qualified_name
+    attribute_name = (
+      attribute_name
+      if unsafe
+      else QName(attribute_name, nsmap if nsmap is not None else self._global_nsmap).qualified_name
+    )
     try:
       if attribute_value is None:
         element.attrib.pop(attribute_name)
@@ -211,9 +219,12 @@ class StandardBackend(XmlBackend[et.Element]):
   ) -> bytes:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
-    if self_closing and not element.text:
-      element.text = ""
-    return et.tostring(element, encoding=normalize_encoding(encoding), xml_declaration=False)
+    return et.tostring(
+      element,
+      encoding=normalize_encoding(encoding),
+      xml_declaration=False,
+      short_empty_elements=self_closing,
+    )
 
   def iterparse(
     self,

@@ -269,7 +269,7 @@ def _split_qualified_tag(
   for prefix, value in nsmap.items():
     if value == uri:
       return uri, prefix, localname
-  return None, None, localname
+  return uri, None, localname
 
 
 def _split_prefixed_tag(
@@ -332,7 +332,7 @@ class QName:
   """The local name."""
 
   def __init__(
-    self, tag: str | bytes | bytearray, nsmap: Mapping[str | None, str], encoding: str = "utf-8"
+    self, tag: str | bytes | bytearray | QName, nsmap: Mapping[str | None, str], encoding: str = "utf-8"
   ) -> None:
     """Initialize a QName from a tag string and namespace map.
 
@@ -359,6 +359,9 @@ class QName:
       tag = tag
     elif isinstance(tag, (bytes, bytearray)):
       tag = tag.decode(encoding)
+    elif isinstance(tag, QName):
+      self.uri, self.prefix, self.local_name = tag.uri, tag.prefix, tag.local_name
+      return
     else:
       raise TypeError(f"Unexpected tag type: {type(tag)}")
 

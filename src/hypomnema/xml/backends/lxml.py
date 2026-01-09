@@ -7,16 +7,21 @@ from os import PathLike
 
 __all__ = ["LxmlBackend"]
 
-type LxmlAnyStrOrQNameType = str | bytes | bytearray | et.QName | QName
+type LxmlTagType = str | bytes | bytearray | et.QName | QName
+type LxmlKeyValType = str | bytes | et.QName | QName
 
 
 def _normalize_to_str(
-  value: LxmlAnyStrOrQNameType, nsmap: Mapping[str | None, str], encoding: str = "utf-8"
+  value: LxmlTagType, nsmap: Mapping[str | None, str], encoding: str = "utf-8", no_bytearray: bool = False
 ) -> str:
   match value:
     case et.QName():
       return value.text
-    case bytes() | bytearray():
+    case bytearray():
+      if no_bytearray:
+        raise TypeError(f"Unexpected bytearray value: {value!r}")
+      return value.decode(normalize_encoding("utf-8"))
+    case bytes():
       return value.decode(normalize_encoding("utf-8"))
     case QName():
       return value.qualified_name
@@ -106,8 +111,8 @@ class LxmlBackend(XmlBackend[et._Element]):
 
   def create_element(
     self,
-    tag: LxmlAnyStrOrQNameType,
-    attributes: Mapping[LxmlAnyStrOrQNameType, LxmlAnyStrOrQNameType] | None = None,
+    tag: LxmlTagType,
+    attributes: Mapping[LxmlKeyValType, str] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
     encoding: str = "utf-8",
@@ -117,9 +122,10 @@ class LxmlBackend(XmlBackend[et._Element]):
     _attributes = {}
     if attributes is not None:
       for key, value in attributes.items():
-        normalized_key = _normalize_to_str(key, _nsmap, encoding)
-        _normalized_value = _normalize_to_str(value, _nsmap, encoding)
-        _attributes[normalized_key] = _normalized_value
+        normalized_key = _normalize_to_str(key, _nsmap, encoding, no_bytearray=True)
+        if not isinstance(value, str):
+          raise TypeError(f"Unexpected value type: {type(value)}")
+        _attributes[normalized_key] = value
     return et.Element(_tag, attrib=_attributes)
 
   def append_child(self, parent: et._Element, child: et._Element) -> None:
@@ -132,12 +138,12 @@ class LxmlBackend(XmlBackend[et._Element]):
   def get_attribute(
     self,
     element: et._Element,
-    attribute_name: LxmlAnyStrOrQNameType,
-    default: LxmlAnyStrOrQNameType | None = None,
+    attribute_name: LxmlTagType,
+    default: LxmlTagType | None = None,
     *,
     encoding: str = "utf-8",
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> LxmlAnyStrOrQNameType | None:
+  ) -> LxmlTagType | None:
     """Retrieve the value of an attribute.
 
     This implementation accepts ``lxml.etree.QName`` objects for
@@ -171,11 +177,12 @@ class LxmlBackend(XmlBackend[et._Element]):
   def set_attribute(
     self,
     element: et._Element,
-    attribute_name: LxmlAnyStrOrQNameType,
-    attribute_value: LxmlAnyStrOrQNameType | None,
+    attribute_name: LxmlKeyValType,
+    attribute_value: LxmlKeyValType | None,
     *,
     encoding: str = "utf-8",
     nsmap: Mapping[str | None, str] | None = None,
+    unsafe: bool = False,
   ) -> None:
     """Set or remove an attribute on an element.
 
@@ -198,13 +205,13 @@ class LxmlBackend(XmlBackend[et._Element]):
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}") from None
     _nsmap = nsmap if nsmap is not None else element.nsmap
-    attribute_name = _normalize_to_str(attribute_name, _nsmap, encoding)
+    attribute_name = attribute_name if unsafe else _normalize_to_str(attribute_name, _nsmap, encoding, no_bytearray=True)
     if attribute_value is None:
       if attribute_name in element.attrib:
-        element.attrib.pop(attribute_name)
+        element.attrib.pop(attribute_name)  # type: ignore
     else:
-      attribute_value = _normalize_to_str(attribute_value, _nsmap, encoding)
-      element.attrib[attribute_name] = attribute_value
+      attribute_value = attribute_value if unsafe else _normalize_to_str(attribute_value, _nsmap, encoding, no_bytearray=True)
+      element.attrib[attribute_name] = attribute_value  # type: ignore
 
   def get_attribute_map(self, element: et._Element) -> dict[str, str]:
     if not isinstance(element, et._Element):
@@ -239,7 +246,7 @@ class LxmlBackend(XmlBackend[et._Element]):
   def iter_children(
     self,
     element: et._Element,
-    tag_filter: LxmlAnyStrOrQNameType | Collection[LxmlAnyStrOrQNameType] | None = None,
+    tag_filter: LxmlTagType | Collection[LxmlTagType] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> Generator[et._Element]:
@@ -321,14 +328,14 @@ class LxmlBackend(XmlBackend[et._Element]):
   ) -> bytes:
     if not isinstance(element, et._Element):
       raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
-    if self_closing and not element.text:
+    if not self_closing and not element.text:
       element.text = ""
     return et.tostring(element, encoding=normalize_encoding(encoding), xml_declaration=False)
 
   def iterparse(
     self,
     path: str | bytes | PathLike,
-    tag_filter: LxmlAnyStrOrQNameType | Collection[LxmlAnyStrOrQNameType] | None = None,
+    tag_filter: LxmlTagType | Collection[LxmlTagType] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> Iterator[et._Element]:

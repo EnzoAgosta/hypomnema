@@ -202,6 +202,7 @@ class XmlBackend[TypeOfElement](ABC):
     attribute_value: str | None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
+    unsafe: bool = False,
   ) -> None:
     """Set or remove an attribute on an element.
 
@@ -511,9 +512,9 @@ class XmlBackend[TypeOfElement](ABC):
     """
     if not isinstance(uri, str):
       raise TypeError(f"given uri is not a str: {uri}")
-    if not isinstance(prefix, str):
+    if prefix is not None and not isinstance(prefix, str):
       raise TypeError(f"given prefix is not a str: {prefix}")
-    if not is_ncname(prefix):
+    if prefix is not None and not is_ncname(prefix):
       raise ValueError(f"NCName {prefix} is not a valid xml prefix")
     if prefix == "xml":
       raise ValueError(f"NCName {prefix} is reserved for the xml namespace")
