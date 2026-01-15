@@ -76,22 +76,7 @@ def _normalize_content[T](content: Iterable[T] | str | None) -> list[T | str]:
 def create_tmx(
   *, header: Header | None = None, body: Iterable[Tu] | None = None, version: str = "1.4"
 ) -> Tmx:
-  """Create a minimal Tmx instance.
-
-  Parameters
-  ----------
-  header : Header | None, optional
-      Header element. If None, creates a default header.
-  body : Iterable[Tu] | None, optional
-      Iterable of translation units.
-  version : str, optional
-      TMX version (default: "1.4").
-
-  Returns
-  -------
-  Tmx
-      A new TMX container.
-  """
+  """Create a Tmx with common defaults."""
   if header is None:
     header = create_header()
   if body is None:
@@ -116,49 +101,8 @@ def create_header(
   notes: Iterable[Note] | None = None,
   props: Iterable[Prop] | None = None,
 ) -> Header:
-  """Create a minimal Header instance.
-
-  Parameters
-  ----------
-  creationtool : str, optional
-      Name of the tool that created the file.
-  creationtoolversion : str, optional
-      Version of the tool.
-  segtype : Segtype | str, optional
-      Default segmentation level.
-  o_tmf : str, optional
-      Original TMF format (default: "tmx").
-  adminlang : str, optional
-      Administrative language (BCP-47).
-  srclang : str, optional
-      Source language (BCP-47).
-  datatype : str, optional
-      Data type (default: "plaintext").
-  o_encoding : str | None, optional
-      Original encoding.
-  creationdate : datetime | None, optional
-      Creation timestamp.
-  creationid : str | None, optional
-      User who created the file.
-  changedate : datetime | None, optional
-      Last modification timestamp.
-  changeid : str | None, optional
-      User who last modified the file.
-  notes : Iterable[Note] | None, optional
-      Collection of notes.
-  props : Iterable[Prop] | None, optional
-      Collection of properties.
-
-  Returns
-  -------
-  Header
-      A new Header instance.
-  """
-  segtype = Segtype(segtype) if isinstance(segtype, str) else segtype
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
-  creationdate = creationdate if creationdate is not None else datetime.now(UTC)
-
+  """Create a Header with common defaults."""
+  segtype_enum = Segtype(segtype) if isinstance(segtype, str) else segtype
   return Header(
     creationtool=creationtool,
     creationtoolversion=creationtoolversion,
@@ -197,56 +141,8 @@ def create_tu(
   notes: Iterable[Note] | None = None,
   props: Iterable[Prop] | None = None,
 ) -> Tu:
-  """Create a minimal Tu instance.
-
-  Parameters
-  ----------
-  tuid : str | None, optional
-      Unique identifier for the unit.
-  srclang : str | None, optional
-      Source language (BCP-47).
-  segtype : Segtype | str | None, optional
-      Segmentation level override.
-  variants : Iterable[Tuv] | None, optional
-      Collection of language variants.
-  o_encoding : str | None, optional
-      Original encoding.
-  datatype : str | None, optional
-      Data type override.
-  usagecount : int | None, optional
-      Number of times reused.
-  lastusagedate : datetime | None, optional
-      Last reuse timestamp.
-  creationtool : str | None, optional
-      Tool that created the unit.
-  creationtoolversion : str | None, optional
-      Tool version.
-  creationdate : datetime | None, optional
-      Creation timestamp.
-  creationid : str | None, optional
-      User who created the unit.
-  changedate : datetime | None, optional
-      Last modification timestamp.
-  changeid : str | None, optional
-      User who last modified the unit.
-  o_tmf : str | None, optional
-      Original TMF format.
-  notes : Iterable[Note] | None, optional
-      Collection of notes.
-  props : Iterable[Prop] | None, optional
-      Collection of properties.
-
-  Returns
-  -------
-  Tu
-      A new Translation Unit instance.
-  """
-  segtype = Segtype(segtype) if isinstance(segtype, str) else segtype
-  variants = list(variants) if variants is not None else []
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
-  creationdate = creationdate if creationdate is not None else datetime.now(UTC)
-
+  """Create a Tu with common defaults."""
+  segtype_enum = Segtype(segtype) if isinstance(segtype, str) else segtype
   return Tu(
     tuid=tuid,
     srclang=srclang,
@@ -286,50 +182,7 @@ def create_tuv(
   notes: Iterable[Note] | None = None,
   props: Iterable[Prop] | None = None,
 ) -> Tuv:
-  """Create a minimal Tuv instance defaults.
-
-  Parameters
-  ----------
-  lang : str
-      Language code (BCP-47, required).
-  content : Iterable[str | InlineElement] | None, optional
-      Segment content (text and inline elements).
-  o_encoding : str | None, optional
-      Original encoding.
-  datatype : str | None, optional
-      Data type override.
-  usagecount : int | None, optional
-      Number of times reused.
-  lastusagedate : datetime | None, optional
-      Last reuse timestamp.
-  creationtool : str | None, optional
-      Tool that created the variant.
-  creationtoolversion : str | None, optional
-      Tool version.
-  creationdate : datetime | None, optional
-      Creation timestamp.
-  creationid : str | None, optional
-      User who created the variant.
-  changedate : datetime | None, optional
-      Last modification timestamp.
-  changeid : str | None, optional
-      User who last modified the variant.
-  o_tmf : str | None, optional
-      Original TMF format.
-  notes : Iterable[Note] | None, optional
-      Collection of notes.
-  props : Iterable[Prop] | None, optional
-      Collection of properties.
-
-  Returns
-  -------
-  Tuv
-      A new Translation Unit Variant instance.
-  """
-  content = _normalize_content(content)
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
-
+  """Create a Tuv with common defaults."""
   return Tuv(
     lang=lang,
     content=content,
@@ -350,46 +203,14 @@ def create_tuv(
 
 
 def create_note(text: str, *, lang: str | None = None, o_encoding: str | None = None) -> Note:
-  """Create a Note instance.
-
-  Parameters
-  ----------
-  text : str
-      The note content.
-  lang : str | None, optional
-      Language code (BCP-47).
-  o_encoding : str | None, optional
-      Original encoding.
-
-  Returns
-  -------
-  Note
-      A new Note instance.
-  """
+  """Create a Note."""
   return Note(text=text, lang=lang, o_encoding=o_encoding)
 
 
 def create_prop(
   text: str, type: str, *, lang: str | None = None, o_encoding: str | None = None
 ) -> Prop:
-  """Create a Prop instance.
-
-  Parameters
-  ----------
-  text : str
-      The property value.
-  type : str
-      The property name (user-defined).
-  lang : str | None, optional
-      Language code (BCP-47).
-  o_encoding : str | None, optional
-      Original encoding.
-
-  Returns
-  -------
-  Prop
-      A new Prop instance.
-  """
+  """Create a Prop."""
   return Prop(text=text, type=type, lang=lang, o_encoding=o_encoding)
 
 
@@ -400,45 +221,13 @@ def create_bpt(
   x: int | None = None,
   type: str | None = None,
 ) -> Bpt:
-  """Create a Bpt (Begin Paired Tag) instance.
-
-  Parameters
-  ----------
-  i : int
-      Unique identifier matching the corresponding Ept (required).
-  content : Iterable[str | Sub] | None, optional
-      Mixed inline content.
-  x : int | None, optional
-      External reference identifier.
-  type : str | None, optional
-      Tag type (user-defined).
-
-  Returns
-  -------
-  Bpt
-      A new Begin Paired Tag instance.
-  """
-  content = _normalize_content(content)
-  return Bpt(i=i, x=x, type=type, content=content)
+  """Create a Bpt (Begin Paired Tag)."""
+  return Bpt(i=i, x=x, type=type, content=list(content) if content else [])
 
 
-def create_ept(i: int, *, content: Iterable[str | Sub] | str | None = None) -> Ept:
-  """Create an Ept (End Paired Tag) instance.
-
-  Parameters
-  ----------
-  i : int
-      Unique identifier matching the corresponding Bpt (required).
-  content : Iterable[str | Sub] | None, optional
-      Mixed inline content.
-
-  Returns
-  -------
-  Ept
-      A new End Paired Tag instance.
-  """
-  content = _normalize_content(content)
-  return Ept(i=i, content=content)
+def create_ept(i: int, *, content: Iterable[str | Sub] | None = None) -> Ept:
+  """Create an Ept (End Paired Tag)."""
+  return Ept(i=i, content=list(content) if content else [])
 
 
 def create_it(
@@ -448,27 +237,9 @@ def create_it(
   x: int | None = None,
   type: str | None = None,
 ) -> It:
-  """Create an It (Isolated Tag) instance.
-
-  Parameters
-  ----------
-  pos : Pos | str
-      Position: "begin" for opening, "end" for closing (required).
-  content : Iterable[str | Sub] | None, optional
-      Mixed inline content.
-  x : int | None, optional
-      External reference identifier.
-  type : str | None, optional
-      Tag type (user-defined).
-
-  Returns
-  -------
-  It
-      A new Isolated Tag instance.
-  """
-  content = _normalize_content(content)
-  pos = Pos(pos) if isinstance(pos, str) else pos
-  return It(pos=pos, x=x, type=type, content=content)
+  """Create an It (Isolated Tag)."""
+  pos_enum = Pos(pos) if isinstance(pos, str) else pos
+  return It(pos=pos_enum, x=x, type=type, content=list(content) if content else [])
 
 
 def create_ph(
@@ -478,27 +249,9 @@ def create_ph(
   assoc: Assoc | Literal["p", "f", "b"] | None = None,
   type: str | None = None,
 ) -> Ph:
-  """Create a Ph (Placeholder) instance.
-
-  Parameters
-  ----------
-  content : Iterable[str | Sub] | None, optional
-      Mixed inline content.
-  x : int | None, optional
-      External reference identifier.
-  assoc : Assoc | str | None, optional
-      Association: "p" (previous), "f" (following), "b" (both).
-  type : str | None, optional
-      Placeholder type (user-defined).
-
-  Returns
-  -------
-  Ph
-      A new Placeholder instance.
-  """
-  content = _normalize_content(content)
-  assoc = Assoc(assoc) if isinstance(assoc, str) else assoc
-  return Ph(x=x, assoc=assoc, type=type, content=content)
+  """Create a Ph (Placeholder)."""
+  assoc_enum = Assoc(assoc) if isinstance(assoc, str) else assoc
+  return Ph(x=x, assoc=assoc_enum, type=type, content=list(content) if content else [])
 
 
 def create_hi(
@@ -507,24 +260,8 @@ def create_hi(
   x: int | None = None,
   type: str | None = None,
 ) -> Hi:
-  """Create a Hi (Highlight) instance.
-
-  Parameters
-  ----------
-  content : Iterable[str | Bpt | Ept | It | Ph | Hi] | None, optional
-      Mixed inline content.
-  x : int | None, optional
-      External reference identifier.
-  type : str | None, optional
-      Highlight type (user-defined).
-
-  Returns
-  -------
-  Hi
-      A new Highlight instance.
-  """
-  content = _normalize_content(content)
-  return Hi(x=x, type=type, content=content)
+  """Create a Hi (Highlight)."""
+  return Hi(x=x, type=type, content=list(content) if content else [])
 
 
 def create_sub(
@@ -533,21 +270,5 @@ def create_sub(
   datatype: str | None = None,
   type: str | None = None,
 ) -> Sub:
-  """Create a Sub (Sub-flow) instance.
-
-  Parameters
-  ----------
-  content : Iterable[str | Bpt | Ept | It | Ph | Hi] | None, optional
-      Mixed inline content.
-  datatype : str | None, optional
-      Data type of the sub-flow.
-  type : str | None, optional
-      Sub-flow type (user-defined).
-
-  Returns
-  -------
-  Sub
-      A new Sub-flow instance.
-  """
-  content = _normalize_content(content)
-  return Sub(datatype=datatype, type=type, content=content)
+  """Create a Sub (Sub-flow)."""
+  return Sub(datatype=datatype, type=type, content=list(content) if content else [])

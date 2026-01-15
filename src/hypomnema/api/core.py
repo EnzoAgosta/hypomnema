@@ -1,4 +1,19 @@
-from collections.abc import Generator, Iterable
+from hypomnema.xml.utils import make_usable_path
+from logging import Logger, getLogger
+from hypomnema import (
+  Tmx,
+  BaseElement,
+  DeserializationPolicy,
+  XmlBackend,
+  StandardBackend,
+  Deserializer,
+  SerializationPolicy,
+  Serializer,
+  XmlSerializationError,
+  XmlDeserializationError,
+)
+from collections.abc import Collection, Generator
+from typing import overload
 from os import PathLike
 from pathlib import Path
 from typing import overload
@@ -78,18 +93,11 @@ def load(
     for tu in load("large.tmx", filter="tu"):
       print(tu.srclang)
   """
+  _backend = backend if backend is not None else StandardBackend(logger=logger)
+  _logger = logger if logger is not None else getLogger("hypomnema.api.load")
+  _policy = policy if policy is not None else DeserializationPolicy()
 
-  def _load_filtered(
-    _backend: XmlBackend, _path: Path, _filter: set[str], _deserializer: Deserializer
-  ) -> Generator[BaseElement]:
-    for element in _backend.iterparse(_path, tag_filter=_filter):
-      obj = _deserializer.deserialize(element)
-      if obj is not None:
-        yield obj
-
-  _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
-  _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
-  _deserializer = Deserializer(_backend)
+  _deserializer = Deserializer(_backend, policy=_policy, logger=_logger)
 
   _path = make_usable_path(path, mkdir=False)
   if not _path.exists():
@@ -97,16 +105,14 @@ def load(
   if not _path.is_file():
     raise IsADirectoryError(f"Path {_path} is a directory")
 
-  if filter is not None:
-    filter = prep_tag_set(filter, nsmap=_backend.nsmap)
-    return _load_filtered(_backend, _path, filter, _deserializer)
-  root = _backend.parse(_path)
-  if _backend.get_tag(root, as_qname=True).local_name != "tmx":
-    raise XmlDeserializationError("Root element is not a tmx")
-  tmx = _deserializer.deserialize(root)
-  if not isinstance(tmx, Tmx):
-    raise XmlDeserializationError(f"root element did not deserialize to a Tmx: {type(tmx)}")
-  return tmx
+  if filter is None:
+    root = _backend.parse(_path, encoding=encoding)
+    if not _backend.get_tag(root, as_qname=True).local_name == "tmx":
+      raise XmlDeserializationError("Root element is not a tmx")
+    return _deserializer.deserialize(root)
+  else:
+    for element in _backend.iterparse(_path, tag_filter=filter):
+      yield _deserializer.deserialize(element)
 
 
 def dump(

@@ -401,7 +401,7 @@ class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
   """Container of language variants (optional)."""
 
 
-IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[Tu])
+IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[Tu], default=list[Tu])
 
 
 @dataclass(slots=True)
