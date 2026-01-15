@@ -50,7 +50,11 @@ class TestSerializationRoundTrip:
       props=[Prop(text="prop1", type="p1")],
       variants=[
         Tuv(lang="en", content=["Source text"], creationdate=dt),
-        Tuv(lang="fr", content=["Target ", Ph(x=1, type="img", content=["image"]), " text"], creationdate=dt),
+        Tuv(
+          lang="fr",
+          content=["Target ", Ph(x=1, type="img", content=["image"]), " text"],
+          creationdate=dt,
+        ),
       ],
     )
 
