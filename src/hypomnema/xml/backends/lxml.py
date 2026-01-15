@@ -138,15 +138,15 @@ class LxmlBackend(XmlBackend[et._Element]):
       raise TypeError(f"Child is not an lxml.etree._Element: {type(child)}")
     parent.append(child)
 
-  def get_attribute(
+  def get_attribute[T](
     self,
     element: et._Element,
-    attribute_name: LxmlTagType,
-    default: LxmlTagType | None = None,
+    attribute_name: LxmlKeyValType,
+    default: T | None = None,
     *,
     encoding: str = "utf-8",
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> LxmlTagType | None:
+  ) -> LxmlKeyValType | T | None:
     """Retrieve the value of an attribute.
 
     This implementation accepts ``lxml.etree.QName`` objects for

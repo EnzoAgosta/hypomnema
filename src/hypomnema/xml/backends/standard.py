@@ -95,14 +95,14 @@ class StandardBackend(XmlBackend[et.Element]):
       raise TypeError(f"Child is not an xml.ElementTree.Element: {type(child)}")
     parent.append(child)
 
-  def get_attribute(
+  def get_attribute[T](
     self,
     element: et.Element,
     attribute_name: str | QName,
-    default: str | None = None,
+    default: T | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
-  ) -> str | None:
+  ) -> str | T | None:
     if not isinstance(element, et.Element):
       raise TypeError(f"Element is not an xml.ElementTree.Element: {type(element)}")
     if isinstance(attribute_name, QName):

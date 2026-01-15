@@ -106,8 +106,6 @@ class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackend
     """
     if not assert_object_type(obj, Header, logger=self.logger, policy=self.policy):
       return None
-    else:
-      obj
     element = self.backend.create_element("header")
     self._set_str_attribute(element, obj.creationtool, "creationtool", required=True)
     self._set_str_attribute(element, obj.creationtoolversion, "creationtoolversion", required=True)

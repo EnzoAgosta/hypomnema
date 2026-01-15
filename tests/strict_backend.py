@@ -157,7 +157,7 @@ class StrictBackend(XmlBackend[int]):
     elements = (self._get_elem(self._register(element)) for element in elements)
     root_elem = self.create_element("tmx", attributes={"version": "1.4"})
 
-    return super().iterwrite(
+    super().iterwrite(
       path,
       elements,
       encoding,

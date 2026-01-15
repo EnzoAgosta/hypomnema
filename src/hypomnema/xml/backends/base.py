@@ -346,7 +346,7 @@ class XmlBackend[TypeOfElement](ABC):
   def iter_children(
     self,
     element: TypeOfElement,
-    tag_filter: str | Collection[str] | None = None,
+    tag_filter: str | QName | Collection[str | QName] | None = None,
     *,
     nsmap: Mapping[str | None, str] | None = None,
   ) -> Iterator[TypeOfElement]:
