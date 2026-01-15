@@ -2,14 +2,12 @@
 TMX 1.4b object model with type-safe inline markup support.
 
 This package provides dataclasses that map 1-to-1 to TMX 1.4b
-elements.  Generic type parameters let callers swap ``list`` for any
-``Iterable`` (tuple, set, generator) to fit their performance or
-immutability needs.
+elements as defined in the `TMX 1.4b specification
+<https://resources.gala-global.org/tbx14b>`_.
 
 All datetime values must be ISO-8601 strings ending with 'Z' and
-seconds precision, e.g. ``2025-12-31T23:59:59Z``. As per the TMX 1.4b
-official specification, the recommended date format is ``YYYYMMDDTHHMMSSZ``.
-Language codes should be BCP-47; Enforcement will tighten in a future release.
+seconds precision, e.g. ``2025-12-31T23:59:59Z``. Language codes
+should be BCP-47.
 """
 
 from collections.abc import Iterable
@@ -45,7 +43,10 @@ __all__ = [
 
 class Pos(StrEnum):
   """
-  Position of an isolated tag (`<it>`).
+  Position of an isolated tag (``<it>``) per TMX 1.4b spec.
+
+  Indicates whether an ``<it>`` element represents a beginning or
+  ending tag when the corresponding code is not within the same segment.
   """
 
   BEGIN = "begin"
@@ -57,7 +58,10 @@ class Pos(StrEnum):
 
 class Assoc(StrEnum):
   """
-  Association of a placeholder (`<ph>`) with surrounding text.
+  Association of a placeholder (``<ph>``) per TMX 1.4b spec.
+
+  Indicates whether the placeholder belongs to the text before,
+  after, or on both sides of the element.
   """
 
   P = "p"
@@ -72,7 +76,10 @@ class Assoc(StrEnum):
 
 class Segtype(StrEnum):
   """
-  Segmentation level declared in the header or override in `<tu>`.
+  Segmentation level per TMX 1.4b spec.
+
+  Specifies the kind of segmentation used in a ``<tu>`` element.
+  If not specified, falls back to the value defined in the ``<header>``.
   """
 
   BLOCK = "block"
@@ -91,7 +98,22 @@ class Segtype(StrEnum):
 @dataclass(slots=True)
 class Prop:
   """
-  Property attached to `<header>`, `<tu>` or `<tuv>`.
+  Property element (``<prop>``) per TMX 1.4b spec.
+
+  Used to define various properties of the parent element. These
+  properties are not defined by the standard; each tool provider is
+  responsible for the types and values it uses.
+
+  Attributes
+  ----------
+  text : str
+      The property value.
+  type : str
+      The property name (user-defined).
+  lang : str | None
+      BCP-47 language code for the property text.
+  o_encoding : str | None
+      Original encoding of the property text.
   """
 
   text: str
@@ -110,7 +132,18 @@ class Prop:
 @dataclass(slots=True)
 class Note:
   """
-  Note attached to `<header>`, `<tu>` or `<tuv>`.
+  Note element (``<note>``) per TMX 1.4b spec.
+
+  Used for comments attached to ``<header>``, ``<tu>``, or ``<tuv>``.
+
+  Attributes
+  ----------
+  text : str
+      The note content.
+  lang : str | None
+      BCP-47 language code for the note text.
+  o_encoding : str | None
+      Original encoding of the note text.
   """
 
   text: str
@@ -130,7 +163,40 @@ IterableOfNotes = TypeVar("IterableOfNotes", bound=Iterable[Note], default=list[
 @dataclass(slots=True)
 class Header(Generic[IterableOfProps, IterableOfNotes]):
   """
-  TMX header element (`<header>`).
+  Header element (``<header>``) per TMX 1.4b spec.
+
+  Contains metadata about the entire TMX document.
+
+  Attributes
+  ----------
+  creationtool : str
+      Name of the tool that created the file.
+  creationtoolversion : str
+      Version of the tool that created the file.
+  segtype : Segtype
+      Default segmentation level for the file.
+  o_tmf : str
+      Original TMF format (maps to ``o-tmf`` in TMX).
+  adminlang : str
+      Language used for administrative attributes (BCP-47).
+  srclang : str
+      Source language code for all ``<tu>`` elements (BCP-47).
+  datatype : str
+      Data type declared for the file.
+  o_encoding : str | None
+      Original encoding of the file.
+  creationdate : datetime | None
+      File creation timestamp (ISO-8601 with 'Z').
+  creationid : str | None
+      User that created the file.
+  changedate : datetime | None
+      Last change timestamp (ISO-8601 with 'Z').
+  changeid : str | None
+      User that last changed the file.
+  props : IterableOfProps
+      Collection of ``<prop>`` elements.
+  notes : IterableOfNotes
+      Collection of ``<note>`` elements.
   """
 
   creationtool: str
@@ -189,7 +255,21 @@ IterableOfInlineElementsAndStr = TypeVar(
 @dataclass(slots=True)
 class Bpt(Generic[IterableOfSubElementsAndStr]):
   """
-  Begin paired tag (`<bpt>`) – opening half of an inline tag pair.
+  Begin paired tag element (``<bpt>``) per TMX 1.4b spec.
+
+  Delimits the beginning of a paired sequence of native codes.
+  Each ``<bpt>`` has a corresponding ``<ept>`` within the segment.
+
+  Attributes
+  ----------
+  i : int
+      Unique identifier matching the corresponding ``<ept>``.
+  x : int | None
+      External reference identifier.
+  type : str | None
+      Tag type (user-defined).
+  content : IterableOfSubElementsAndStr
+      Mixed inline content (code data and ``<sub>`` elements).
   """
 
   i: int
@@ -208,7 +288,17 @@ class Bpt(Generic[IterableOfSubElementsAndStr]):
 @dataclass(slots=True)
 class Ept(Generic[IterableOfSubElementsAndStr]):
   """
-  End paired tag (`<ept>`) – closing half of an inline tag pair.
+  End paired tag element (``<ept>``) per TMX 1.4b spec.
+
+  Delimits the end of a paired sequence of native codes.
+  Each ``<ept>`` has a corresponding ``<bpt>`` within the segment.
+
+  Attributes
+  ----------
+  i : int
+      Unique identifier matching the corresponding ``<bpt>``.
+  content : IterableOfSubElementsAndStr
+      Mixed inline content (code data and ``<sub>`` elements).
   """
 
   i: int
@@ -221,7 +311,19 @@ class Ept(Generic[IterableOfSubElementsAndStr]):
 @dataclass(slots=True)
 class Hi(Generic[IterableOfInlineElementsAndStr]):
   """
-  Highlighted inline span (`<hi>`).
+  Highlight element (``<hi>``) per TMX 1.4b spec.
+
+  Delimits a section of text that has special meaning, such as a
+  terminological unit, proper name, or text that should not be modified.
+
+  Attributes
+  ----------
+  x : int | None
+      External reference identifier.
+  type : str | None
+      Highlight type (user-defined).
+  content : IterableOfInlineElementsAndStr
+      Mixed inline content (text and inline elements).
   """
 
   x: int | None = None
@@ -237,7 +339,22 @@ class Hi(Generic[IterableOfInlineElementsAndStr]):
 @dataclass(slots=True)
 class It(Generic[IterableOfSubElementsAndStr]):
   """
-  Isolated tag (`<it>`) – standalone placeholder.
+  Isolated tag element (``<it>``) per TMX 1.4b spec.
+
+  Delimits a beginning/ending sequence of native codes that does not
+  have its corresponding ending/beginning within the same segment
+  (e.g., due to segmentation).
+
+  Attributes
+  ----------
+  pos : Pos
+      Whether the tag is opening (``begin``) or closing (``end``).
+  x : int | None
+      External reference identifier.
+  type : str | None
+      Tag type (user-defined).
+  content : IterableOfSubElementsAndStr
+      Mixed inline content (code data and ``<sub>`` elements).
   """
 
   pos: Pos
@@ -256,7 +373,21 @@ class It(Generic[IterableOfSubElementsAndStr]):
 @dataclass(slots=True)
 class Ph(Generic[IterableOfSubElementsAndStr]):
   """
-  Placeholder tag (`<ph>`) – replaces a native code fragment.
+  Placeholder element (``<ph>``) per TMX 1.4b spec.
+
+  Delimits a sequence of native standalone codes in the segment
+  (e.g., empty elements in XML, image tags, cross-references).
+
+  Attributes
+  ----------
+  x : int | None
+      External reference identifier.
+  type : str | None
+      Placeholder type (user-defined).
+  assoc : Assoc | None
+      Association with surrounding text.
+  content : IterableOfSubElementsAndStr
+      Mixed inline content (code data and ``<sub>`` elements).
   """
 
   x: int | None = None
@@ -275,7 +406,19 @@ class Ph(Generic[IterableOfSubElementsAndStr]):
 @dataclass(slots=True)
 class Sub(Generic[IterableOfInlineElementsAndStr]):
   """
-  Sub-flow segment (`<sub>`) – nested translatable unit.
+  Sub-flow element (``<sub>``) per TMX 1.4b spec.
+
+  Delimits sub-flow text inside a sequence of native code, such as
+  the text of a footnote or the title in an HTML anchor element.
+
+  Attributes
+  ----------
+  datatype : str | None
+      Data type of the sub-flow.
+  type : str | None
+      Sub-flow type (user-defined).
+  content : IterableOfInlineElementsAndStr
+      Mixed inline content (text and inline elements).
   """
 
   datatype: str | None = None
@@ -291,7 +434,43 @@ class Sub(Generic[IterableOfInlineElementsAndStr]):
 @dataclass(slots=True)
 class Tuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndStr]):
   """
-  Translation unit variant (`<tuv>`) – one language version of a `<tu>`.
+  Translation unit variant element (``<tuv>``) per TMX 1.4b spec.
+
+  Specifies text in a given language. Contains the segment content
+  and metadata for that language variant.
+
+  Attributes
+  ----------
+  lang : str
+      Language code (BCP-47, maps to ``xml:lang``).
+  o_encoding : str | None
+      Original encoding of the variant text.
+  datatype : str | None
+      Override data type for this variant.
+  usagecount : int | None
+      Number of times the variant has been reused.
+  lastusagedate : datetime | None
+      Last reuse timestamp (ISO-8601 with 'Z').
+  creationtool : str | None
+      Tool that created this variant.
+  creationtoolversion : str | None
+      Version of the tool.
+  creationdate : datetime | None
+      Creation timestamp (ISO-8601 with 'Z').
+  creationid : str | None
+      User that created the variant.
+  changedate : datetime | None
+      Last change timestamp (ISO-8601 with 'Z').
+  changeid : str | None
+      User that last changed the variant.
+  o_tmf : str | None
+      Original TMF format for this variant.
+  props : IterableOfProps
+      Collection of ``<prop>`` elements.
+  notes : IterableOfNotes
+      Collection of ``<note>`` elements.
+  content : IterableOfInlineElementsAndStr
+      Mixed inline content representing ``<seg>``.
   """
 
   lang: str
@@ -346,7 +525,47 @@ IterableOfTuvs = TypeVar("IterableOfTuvs", bound=Iterable[Tuv], default=list[Tuv
 @dataclass(slots=True)
 class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
   """
-  Translation unit (`<tu>`) – container for one or more `<tuv>` variants.
+  Translation unit element (``<tu>``) per TMX 1.4b spec.
+
+  Container for one or more ``<tuv>`` language variants. Each TU
+  represents a single translation memory entry.
+
+  Attributes
+  ----------
+  tuid : str | None
+      Unique identifier for the unit.
+  o_encoding : str | None
+      Original encoding of the unit text.
+  datatype : str | None
+      Override data type for this unit.
+  usagecount : int | None
+      Number of times the unit has been reused.
+  lastusagedate : datetime | None
+      Last reuse timestamp (ISO-8601 with 'Z').
+  creationtool : str | None
+      Tool that created the unit.
+  creationtoolversion : str | None
+      Version of the tool.
+  creationdate : datetime | None
+      Creation timestamp (ISO-8601 with 'Z').
+  creationid : str | None
+      User that created the unit.
+  changedate : datetime | None
+      Last change timestamp (ISO-8601 with 'Z').
+  changeid : str | None
+      User that last changed the unit.
+  segtype : Segtype | None
+      Override segmentation level for this unit.
+  o_tmf : str | None
+      Original TMF format for this unit.
+  srclang : str | None
+      Source language code (BCP-47), overrides header value if specified.
+  props : IterableOfProps
+      Collection of ``<prop>`` elements.
+  notes : IterableOfNotes
+      Collection of ``<note>`` elements.
+  variants : IterableOfTuvs
+      Collection of ``<tuv>`` language variants.
   """
 
   tuid: str | None = None
@@ -407,7 +626,19 @@ IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[Tu], default=list[Tu])
 @dataclass(slots=True)
 class Tmx(Generic[IterableOfTus]):
   """
-  Root TMX container (`<tmx>`).
+  Root TMX container element (``<tmx>``) per TMX 1.4b spec.
+
+  Encloses all other elements of a TMX document. Contains a single
+  ``<header>`` followed by a ``<body>``.
+
+  Attributes
+  ----------
+  header : Header
+      Global metadata for the file.
+  version : str
+      TMX version (fixed to "1.4" per spec).
+  body : IterableOfTus
+      Collection of ``<tu>`` translation units.
   """
 
   header: Header
@@ -421,4 +652,7 @@ class Tmx(Generic[IterableOfTus]):
 
 
 type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
+"""Type alias for all structural TMX elements."""
+
 type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
+"""Type alias for inline content markup elements."""
