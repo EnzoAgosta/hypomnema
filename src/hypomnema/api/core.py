@@ -1,3 +1,4 @@
+from pathlib import Path
 from hypomnema.xml.utils import make_usable_path
 from logging import Logger, getLogger
 from hypomnema import (
@@ -100,6 +101,14 @@ def load(
   >>>     elif isinstance(element, Header):
   >>>         print(element.creationtool)
   """
+
+  def _load_filtered(
+    _backend: XmlBackend, _path: Path, _filter: str | Collection[str], _deserializer: Deserializer
+  ) -> Generator[BaseElement]:
+    """Internal generator for filtered loading."""
+    for element in _backend.iterparse(_path, tag_filter=_filter):
+      yield _deserializer.deserialize(element)
+
   _backend = backend if backend is not None else StandardBackend(logger=logger)
   _logger = logger if logger is not None else getLogger("hypomnema.api.load")
   _policy = policy if policy is not None else DeserializationPolicy()
@@ -112,14 +121,15 @@ def load(
   if not _path.is_file():
     raise IsADirectoryError(f"Path {_path} is a directory")
 
-  if filter is None:
-    root = _backend.parse(_path, encoding=encoding)
-    if not _backend.get_tag(root, as_qname=True).local_name == "tmx":
-      raise XmlDeserializationError("Root element is not a tmx")
-    return _deserializer.deserialize(root)
-  else:
-    for element in _backend.iterparse(_path, tag_filter=filter):
-      yield _deserializer.deserialize(element)
+  if filter is not None:
+    return _load_filtered(_backend, _path, filter, _deserializer)
+  root = _backend.parse(_path, encoding=encoding)
+  if _backend.get_tag(root, as_qname=True).local_name != "tmx":
+    raise XmlDeserializationError("Root element is not a tmx")
+  tmx = _deserializer.deserialize(root)
+  if not isinstance(tmx, Tmx):
+    raise XmlDeserializationError(f"root element did not deserialize to a Tmx: {type(tmx)}")
+  return tmx
 
 
 def save(
