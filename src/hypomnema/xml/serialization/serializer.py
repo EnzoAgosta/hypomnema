@@ -15,7 +15,7 @@ from hypomnema.xml.serialization._handlers import (
 )
 from hypomnema.xml.serialization.base import BaseElementSerializer
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import SerializationPolicy
+from hypomnema.xml.policy import XmlPolicy
 from hypomnema.base.types import BaseElement, Tmx
 from collections.abc import Mapping
 from logging import Logger, getLogger
@@ -28,12 +28,12 @@ class Serializer[TypeOfBackendElement]:
   def __init__(
     self,
     backend: XmlBackend[TypeOfBackendElement],
-    policy: SerializationPolicy | None = None,
+    policy: XmlPolicy | None = None,
     logger: Logger | None = None,
     handlers: Mapping[type, BaseElementSerializer] | None = None,
   ):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
-    self.policy: SerializationPolicy = policy or SerializationPolicy()
+    self.policy: XmlPolicy = policy or XmlPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
       self.logger.debug("Using default handlers")
@@ -67,14 +67,18 @@ class Serializer[TypeOfBackendElement]:
     self.logger.debug("Serializing %r", obj_type)
     handler = self.handlers.get(obj_type)
     if handler is None:
-      self.logger.log(self.policy.missing_handler.log_level, "Missing handler for %r", obj_type)
-      if self.policy.missing_handler.behavior == "raise":
+      self.logger.log(
+        self.policy.missing_serialization_handler.log_level, "Missing handler for %r", obj_type
+      )
+      if self.policy.missing_serialization_handler.behavior == "raise":
         raise MissingHandlerError(f"Missing handler for {obj_type!r}") from None
-      elif self.policy.missing_handler.behavior == "ignore":
+      elif self.policy.missing_serialization_handler.behavior == "ignore":
         return None
       else:
         self.logger.log(
-          self.policy.missing_handler.log_level, "Falling back to default handler for %r", obj_type
+          self.policy.missing_serialization_handler.log_level,
+          "Falling back to default handler for %r",
+          obj_type,
         )
         handler = self._get_default_handlers().get(obj_type)
         if handler is None:

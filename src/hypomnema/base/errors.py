@@ -6,6 +6,7 @@ __all__ = [
   "InvalidTagError",
   "InvalidContentError",
   "MissingHandlerError",
+  "NamespaceError",
 ]
 
 
@@ -47,5 +48,11 @@ class InvalidContentError(Exception):
 
 class MissingHandlerError(Exception):
   """Raised when no handler is registered for an element type."""
+
+  pass
+
+
+class NamespaceError(Exception):
+  """Raised when a namespace prefix is not registered."""
 
   pass

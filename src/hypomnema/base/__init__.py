@@ -6,6 +6,7 @@ from .errors import (
   InvalidTagError,
   InvalidContentError,
   MissingHandlerError,
+  NamespaceError,
 )
 from .types import (
   # Type aliases
@@ -62,4 +63,5 @@ __all__ = [
   "InvalidTagError",
   "InvalidContentError",
   "MissingHandlerError",
+  "NamespaceError",
 ]
