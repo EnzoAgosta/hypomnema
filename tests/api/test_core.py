@@ -11,7 +11,7 @@ from hypomnema import (
   SerializationPolicy,
   PolicyValue,
 )
-from hypomnema.api import load, save
+from hypomnema.api import load, dump
 from hypomnema.api.helpers import create_tmx, create_header, create_tu, create_tuv
 
 
@@ -49,7 +49,7 @@ class TestLoadSaveHappy:
 
   def test_save_and_load_roundtrip(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file)
+    dump(self.tmx, file)
 
     loaded = load(file)
     assert isinstance(loaded, Tmx)
@@ -60,7 +60,7 @@ class TestLoadSaveHappy:
 
   def test_save_with_custom_encoding(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file, encoding="utf-8")
+    dump(self.tmx, file, encoding="utf-8")
 
     loaded = load(file)
     assert isinstance(loaded, Tmx)
@@ -68,7 +68,7 @@ class TestLoadSaveHappy:
 
   def test_load_filter_tu(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file)
+    dump(self.tmx, file)
 
     elements = list(load(file, filter="tu"))
     assert len(elements) == 2
@@ -76,7 +76,7 @@ class TestLoadSaveHappy:
 
   def test_load_filter_multiple_tags(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file)
+    dump(self.tmx, file)
 
     elements = list(load(file, filter=["tu", "header"]))
     assert len(elements) == 3  # 2 TUs + 1 header
@@ -87,14 +87,14 @@ class TestLoadSaveHappy:
 
   def test_load_filter_string(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file)
+    dump(self.tmx, file)
 
     elements = list(load(file, filter="tu"))
     assert len(elements) == 2
 
   def test_load_generator_is_lazy(self, tmp_path):
     file = tmp_path / "test.tmx"
-    save(self.tmx, file)
+    dump(self.tmx, file)
 
     gen = load(file, filter="tu")
     assert hasattr(gen, "__next__") or hasattr(gen, "__iter__")
@@ -102,11 +102,11 @@ class TestLoadSaveHappy:
   def test_save_creates_parent_directories(self, tmp_path):
     tmx = create_tmx(header=create_header(creationtool="test", srclang="en", datatype="txt"))
     path = tmp_path / "nested" / "deep"
-    save(tmx, path)
+    dump(tmx, path)
     assert path.exists()
 
   def test_save_with_lxml_backend(self):
-    save(self.tmx, "/tmp/test.tmx", backend=LxmlBackend())
+    dump(self.tmx, "/tmp/test.tmx", backend=LxmlBackend())
 
   def test_load_nonexistent_file_raises(self):
     with pytest.raises(FileNotFoundError):
@@ -120,13 +120,13 @@ class TestLoadSaveHappy:
 class TestLoadSaveError:
   def test_save_invalid_type_raises(self):
     with pytest.raises(TypeError, match="Root element is not a Tmx"):
-      save("not a tmx", "/tmp/test.tmx")  # type: ignore[arg-type]
+      dump("not a tmx", "/tmp/test.tmx")  # type: ignore[arg-type]
 
   def test_save_serializer_returns_none_raises(self, tmp_path):
     tmx = Mock(spec=Tmx)
     file = tmp_path / "test.tmx"
     with pytest.raises(XmlSerializationError, match="serializer returned None"):
-      save(tmx, file, policy=SerializationPolicy(missing_handler=PolicyValue("ignore", 10)))
+      dump(tmx, file, policy=SerializationPolicy(missing_handler=PolicyValue("ignore", 10)))
 
   def test_load_invalid_root_element_raises(self, tmp_path):
     file = tmp_path / "test.tmx"
