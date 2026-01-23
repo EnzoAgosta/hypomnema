@@ -1,14 +1,15 @@
-from hypomnema.xml.policy import XmlPolicy
-from unicodedata import category
-from pathlib import Path
-from hypomnema.base.errors import XmlSerializationError, InvalidTagError
 from codecs import lookup
 from collections.abc import Iterable
-from logging import Logger
-from typing import TypeIs, Any, Mapping, TYPE_CHECKING
 from encodings import normalize_encoding as python_normalize_encoding
+from logging import Logger
 from os import PathLike
-import re
+from pathlib import Path
+from re import IGNORECASE, compile
+from typing import TYPE_CHECKING, Any, Mapping, TypeIs
+from unicodedata import category
+
+from hypomnema.base.errors import InvalidTagError, XmlSerializationError
+from hypomnema.xml.policy import XmlPolicy
 
 if TYPE_CHECKING:
   from hypomnema.xml.qname import QNameLike
@@ -73,6 +74,7 @@ def assert_object_type[ExpectedType](
 
 def check_tag(tag: str | QNameLike, expected_tag: str, logger: Logger, policy: XmlPolicy) -> None:
   from hypomnema.xml.qname import QName, QNameLike
+
   tag = QName(tag).text if isinstance(tag, QNameLike) else tag
   if not tag == expected_tag:
     logger.log(
@@ -84,8 +86,7 @@ def check_tag(tag: str | QNameLike, expected_tag: str, logger: Logger, policy: X
 
 def make_usable_path(path: str | PathLike, *, mkdir: bool = True) -> Path:
   final_path = Path(path).expanduser()
-  if final_path.is_symlink():
-    final_path = final_path.resolve()
+  final_path = final_path.resolve()
   if mkdir:
     final_path.parent.mkdir(parents=True, exist_ok=True)
   return final_path
@@ -119,7 +120,7 @@ def is_ncname(name: str) -> bool:
 
 # RFC 3986 URI regex pattern
 # Adapted from Appendix B of RFC 3986 by Claude 4.5 Opus
-URI_PATTERN = re.compile(
+URI_PATTERN = compile(
   r"^"
   r"(?:([a-zA-Z][a-zA-Z0-9+.-]*):"  # scheme (required)
   r"(?:"
@@ -135,7 +136,7 @@ URI_PATTERN = re.compile(
   r"(?:\?([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # query
   r"(?:#([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # fragment
   r")$",
-  re.IGNORECASE,
+  IGNORECASE,
 )
 
 

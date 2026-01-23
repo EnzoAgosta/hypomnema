@@ -10,11 +10,10 @@ seconds precision, e.g. ``2025-12-31T23:59:59Z``. Language codes
 should be BCP-47.
 """
 
-from collections.abc import Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Generic, TypeVar
 
 __all__ = [
   # type aliases
@@ -156,12 +155,8 @@ class Note:
   """Original encoding (maps to `o-encoding` in TMX) (optional)."""
 
 
-IterableOfProps = TypeVar("IterableOfProps", bound=Iterable[Prop], default=list[Prop])
-IterableOfNotes = TypeVar("IterableOfNotes", bound=Iterable[Note], default=list[Note])
-
-
 @dataclass(slots=True)
-class Header(Generic[IterableOfProps, IterableOfNotes]):
+class Header:
   """
   Header element (``<header>``) per TMX 1.4b spec.
 
@@ -193,10 +188,10 @@ class Header(Generic[IterableOfProps, IterableOfNotes]):
       Last change timestamp (ISO-8601 with 'Z').
   changeid : str | None
       User that last changed the file.
-  props : IterableOfProps
-      Collection of ``<prop>`` elements.
-  notes : IterableOfNotes
-      Collection of ``<note>`` elements.
+  props : Sequence[Prop]
+      Sequence of ``<prop>`` elements.
+  notes : Sequence[Note]
+      Sequence of ``<note>`` elements.
   """
 
   creationtool: str
@@ -235,25 +230,15 @@ class Header(Generic[IterableOfProps, IterableOfNotes]):
   changeid: str | None = None
   """User that last changed the file (optional)."""
 
-  props: IterableOfProps = field(default_factory=list)
+  props: Sequence[Prop] = field(default_factory=list)
   """Container of custom properties (optional)."""
 
-  notes: IterableOfNotes = field(default_factory=list)
+  notes: Sequence[Note] = field(default_factory=list)
   """Container of notes (optional)."""
 
 
-IterableOfSubElementsAndStr = TypeVar(
-  "IterableOfSubElementsAndStr", bound=Iterable["Sub | str"], default=list["Sub | str"]
-)
-IterableOfInlineElementsAndStr = TypeVar(
-  "IterableOfInlineElementsAndStr",
-  bound=Iterable["Bpt | Ept | It | Ph | Hi | Sub | str"],
-  default=list["Bpt | Ept | It | Ph | Hi | Sub | str"],
-)
-
-
 @dataclass(slots=True)
-class Bpt(Generic[IterableOfSubElementsAndStr]):
+class Bpt:
   """
   Begin paired tag element (``<bpt>``) per TMX 1.4b spec.
 
@@ -268,7 +253,7 @@ class Bpt(Generic[IterableOfSubElementsAndStr]):
       External reference identifier.
   type : str | None
       Tag type (user-defined).
-  content : IterableOfSubElementsAndStr
+  content : Sequence[str | Sub]
       Mixed inline content (code data and ``<sub>`` elements).
   """
 
@@ -281,12 +266,12 @@ class Bpt(Generic[IterableOfSubElementsAndStr]):
   type: str | None = None
   """Tag type (user-defined) (optional)."""
 
-  content: IterableOfSubElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Sub] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class Ept(Generic[IterableOfSubElementsAndStr]):
+class Ept:
   """
   End paired tag element (``<ept>``) per TMX 1.4b spec.
 
@@ -297,19 +282,19 @@ class Ept(Generic[IterableOfSubElementsAndStr]):
   ----------
   i : int
       Unique identifier matching the corresponding ``<bpt>``.
-  content : IterableOfSubElementsAndStr
+  content : Sequence[str | Sub]
       Mixed inline content (code data and ``<sub>`` elements).
   """
 
   i: int
   """Unique identifier matching the corresponding `<bpt>`."""
 
-  content: IterableOfSubElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Sub] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class Hi(Generic[IterableOfInlineElementsAndStr]):
+class Hi:
   """
   Highlight element (``<hi>``) per TMX 1.4b spec.
 
@@ -322,7 +307,7 @@ class Hi(Generic[IterableOfInlineElementsAndStr]):
       External reference identifier.
   type : str | None
       Highlight type (user-defined).
-  content : IterableOfInlineElementsAndStr
+  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
       Mixed inline content (text and inline elements).
   """
 
@@ -332,12 +317,12 @@ class Hi(Generic[IterableOfInlineElementsAndStr]):
   type: str | None = None
   """Highlight type (user-defined) (optional)."""
 
-  content: IterableOfInlineElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class It(Generic[IterableOfSubElementsAndStr]):
+class It:
   """
   Isolated tag element (``<it>``) per TMX 1.4b spec.
 
@@ -353,7 +338,7 @@ class It(Generic[IterableOfSubElementsAndStr]):
       External reference identifier.
   type : str | None
       Tag type (user-defined).
-  content : IterableOfSubElementsAndStr
+  content : Sequence[str | Sub]
       Mixed inline content (code data and ``<sub>`` elements).
   """
 
@@ -366,12 +351,12 @@ class It(Generic[IterableOfSubElementsAndStr]):
   type: str | None = None
   """Tag type (user-defined) (optional)."""
 
-  content: IterableOfSubElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Sub] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class Ph(Generic[IterableOfSubElementsAndStr]):
+class Ph:
   """
   Placeholder element (``<ph>``) per TMX 1.4b spec.
 
@@ -386,7 +371,7 @@ class Ph(Generic[IterableOfSubElementsAndStr]):
       Placeholder type (user-defined).
   assoc : Assoc | None
       Association with surrounding text.
-  content : IterableOfSubElementsAndStr
+  content : Sequence[str | Sub]
       Mixed inline content (code data and ``<sub>`` elements).
   """
 
@@ -399,12 +384,12 @@ class Ph(Generic[IterableOfSubElementsAndStr]):
   assoc: Assoc | None = None
   """Association with surrounding text (optional)."""
 
-  content: IterableOfSubElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Sub] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class Sub(Generic[IterableOfInlineElementsAndStr]):
+class Sub:
   """
   Sub-flow element (``<sub>``) per TMX 1.4b spec.
 
@@ -417,7 +402,7 @@ class Sub(Generic[IterableOfInlineElementsAndStr]):
       Data type of the sub-flow.
   type : str | None
       Sub-flow type (user-defined).
-  content : IterableOfInlineElementsAndStr
+  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
       Mixed inline content (text and inline elements).
   """
 
@@ -427,12 +412,12 @@ class Sub(Generic[IterableOfInlineElementsAndStr]):
   type: str | None = None
   """Sub-flow type (user-defined) (optional)."""
 
-  content: IterableOfInlineElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
 @dataclass(slots=True)
-class Tuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndStr]):
+class Tuv:
   """
   Translation unit variant element (``<tuv>``) per TMX 1.4b spec.
 
@@ -465,11 +450,11 @@ class Tuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndS
       User that last changed the variant.
   o_tmf : str | None
       Original TMF format for this variant.
-  props : IterableOfProps
-      Collection of ``<prop>`` elements.
-  notes : IterableOfNotes
-      Collection of ``<note>`` elements.
-  content : IterableOfInlineElementsAndStr
+  props : Sequence[Prop]
+      Sequence of ``<prop>`` elements.
+  notes : Sequence[Note]
+      Sequence of ``<note>`` elements.
+  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
       Mixed inline content representing ``<seg>``.
   """
 
@@ -509,21 +494,18 @@ class Tuv(Generic[IterableOfProps, IterableOfNotes, IterableOfInlineElementsAndS
   o_tmf: str | None = None
   """Original TMF format (maps to `o-tmf` in TMX) (optional)."""
 
-  props: IterableOfProps = field(default_factory=list)
+  props: Sequence[Prop] = field(default_factory=list)
   """Container of custom properties (optional)."""
 
-  notes: IterableOfNotes = field(default_factory=list)
+  notes: Sequence[Note] = field(default_factory=list)
   """Container of notes (optional)."""
 
-  content: IterableOfInlineElementsAndStr = field(default_factory=list)
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Mixed inline content (optional)."""
 
 
-IterableOfTuvs = TypeVar("IterableOfTuvs", bound=Iterable[Tuv], default=list[Tuv])
-
-
 @dataclass(slots=True)
-class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
+class Tu:
   """
   Translation unit element (``<tu>``) per TMX 1.4b spec.
 
@@ -560,12 +542,12 @@ class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
       Original TMF format for this unit.
   srclang : str | None
       Source language code (BCP-47), overrides header value if specified.
-  props : IterableOfProps
-      Collection of ``<prop>`` elements.
-  notes : IterableOfNotes
-      Collection of ``<note>`` elements.
-  variants : IterableOfTuvs
-      Collection of ``<tuv>`` language variants.
+  props : Sequence[Prop]
+      Sequence of ``<prop>`` elements.
+  notes : Sequence[Note]
+      Sequence of ``<note>`` elements.
+  variants : Sequence[Tuv]
+      Sequence of ``<tuv>`` language variants.
   """
 
   tuid: str | None = None
@@ -610,21 +592,18 @@ class Tu(Generic[IterableOfNotes, IterableOfProps, IterableOfTuvs]):
   srclang: str | None = None
   """Source language code (BCP-47) when differing from header (optional)."""
 
-  props: IterableOfProps = field(default_factory=list)
+  props: Sequence[Prop] = field(default_factory=list)
   """Container of custom properties (optional)."""
 
-  notes: IterableOfNotes = field(default_factory=list)
+  notes: Sequence[Note] = field(default_factory=list)
   """Container of notes (optional)."""
 
-  variants: IterableOfTuvs = field(default_factory=list)
+  variants: Sequence[Tuv] = field(default_factory=list)
   """Container of language variants (optional)."""
 
 
-IterableOfTus = TypeVar("IterableOfTus", bound=Iterable[Tu], default=list[Tu])
-
-
 @dataclass(slots=True)
-class Tmx(Generic[IterableOfTus]):
+class Tmx:
   """
   Root TMX container element (``<tmx>``) per TMX 1.4b spec.
 
@@ -637,8 +616,8 @@ class Tmx(Generic[IterableOfTus]):
       Global metadata for the file.
   version : str
       TMX version (fixed to "1.4" per spec).
-  body : IterableOfTus
-      Collection of ``<tu>`` translation units.
+  body : Sequence[Tu]
+      Sequence of ``<tu>`` translation units.
   """
 
   header: Header
@@ -647,7 +626,7 @@ class Tmx(Generic[IterableOfTus]):
   version: str = "1.4"
   """TMX version (fixed to "1.4" for this model)."""
 
-  body: IterableOfTus = field(default_factory=list)
+  body: Sequence[Tu] = field(default_factory=list)
   """Container of translation units (optional)."""
 
 

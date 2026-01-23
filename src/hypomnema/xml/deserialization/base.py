@@ -1,10 +1,11 @@
-from enum import StrEnum
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import StrEnum
 from logging import Logger
 from typing import Callable
 
-from hypomnema.base.errors import AttributeDeserializationError, XmlDeserializationError
+from hypomnema.base.errors import (AttributeDeserializationError,
+                                   XmlDeserializationError)
 from hypomnema.base.types import BaseElement, InlineElement, Sub
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import XmlPolicy
@@ -35,8 +36,8 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
       The logging instance.
   """
 
-  def __init__(self, backend: XmlBackend, policy: XmlPolicy, logger: Logger):
-    self.backend: XmlBackend[TypeOfBackendElement] = backend
+  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
+    self.backend = backend
     self.policy = policy
     self.logger = logger
     self._emit: Callable[[TypeOfBackendElement], BaseElement | None] | None = None
@@ -147,7 +148,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
     value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
-      return
+      return None
     try:
       return datetime.fromisoformat(value)
     except ValueError as e:
@@ -161,6 +162,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
         raise AttributeDeserializationError(
           f"Cannot convert {value!r} to a datetime object for attribute {attribute}"
         ) from e
+      return None
 
   def _parse_attribute_as_int(
     self, element: TypeOfBackendElement, attribute: str, required: bool
@@ -190,7 +192,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
     value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
-      return
+      return None
     try:
       return int(value)
     except ValueError as e:
@@ -204,7 +206,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
         raise AttributeDeserializationError(
           f"Cannot convert {value!r} to an int for attribute {attribute}"
         ) from e
-      return
+      return None
 
   def _parse_attribute_as_enum[EnumType: StrEnum](
     self, element: TypeOfBackendElement, attribute: str, enum_type: type[EnumType], required: bool
@@ -237,7 +239,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
     value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
-      return
+      return None
     try:
       return enum_type(value)
     except ValueError as e:
@@ -251,7 +253,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
         raise AttributeDeserializationError(
           f"Value {value!r} is not a valid enum value for attribute {attribute}"
         ) from e
-      return
+      return None
 
   def _parse_attribute_as_str(
     self, element: TypeOfBackendElement, attribute: str, required: bool
@@ -276,7 +278,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
     value = self.backend.get_attribute(element, attribute)
     if value is None:
       self._handle_missing_attribute(element, attribute, required)
-      return
+      return None
     return value
 
   def _deserialize_content(
@@ -326,7 +328,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
         continue
       child_obj = self.emit(child)
       if child_obj is not None:
-        result.append(child_obj)
+        result.append(child_obj)  # type: ignore[arg-type]
       if (tail := self.backend.get_tail(child)) is not None:
         result.append(tail)
     if result == []:
@@ -336,4 +338,4 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
       if self.policy.empty_content.behavior == "empty":
         self.logger.log(self.policy.empty_content.log_level, "Falling back to an empty string")
         result.append("")
-    return result
+    return result  # type: ignore[return-value]
