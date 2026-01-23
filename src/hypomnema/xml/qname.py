@@ -20,10 +20,10 @@ class QName:
   def __init__(
     self, tag: str | QNameLike, *, nsmap: Mapping[str | None, str] | None = None
   ) -> None:
-    if not tag:
-      raise ValueError("tag must not be empty")
     if isinstance(tag, QNameLike):
       tag = tag.text
+    if not tag:
+      raise ValueError("tag must not be empty")
     self.prefix = None
     self.uri = None
 

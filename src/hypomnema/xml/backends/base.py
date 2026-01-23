@@ -212,7 +212,7 @@ class XmlBackend[TypeOfElement](ABC):
       root_elem = self.create_element("tmx", attributes={"version": "1.4"})
 
     root_string = self.to_bytes(root_elem, encoding, self_closing=False)
-    pos = root_string.rfind(b"</")
+    pos = root_string.rfind("</".encode(encoding))
     if pos == -1:
       raise ValueError(
         "Cannot find closing tag for root element after converting to bytes with 'self_closing=True'. Please check to_bytes() implementation.",
@@ -224,9 +224,9 @@ class XmlBackend[TypeOfElement](ABC):
 
     with ctx as output:
       if write_xml_declaration:
-        output.write(b'<?xml version="1.0" encoding="' + encoding.encode(encoding) + b'"?>\n')
+        output.write('<?xml version="1.0" encoding="'.encode(encoding) + encoding.encode(encoding) + '"?>\n'.encode(encoding))
       if write_doctype:
-        output.write(b'<!DOCTYPE tmx SYSTEM "tmx14.dtd">\n')
+        output.write('<!DOCTYPE tmx SYSTEM "tmx14.dtd">\n'.encode(encoding))
       output.write(root_string[:pos])
       for elem in elements:
         buffer.append(self.to_bytes(elem, encoding))

@@ -100,7 +100,7 @@ class LxmlBackend(XmlBackend[et._Element]):
   def parse(self, path: str | PathLike, encoding: str | None = None) -> et._Element:
     path = make_usable_path(path, mkdir=False)
     encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
-    root = et.parse(path, parser=et.XMLParser(encoding=encoding, recover=True)).getroot()
+    root = et.parse(path, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)).getroot()
     return root
 
   def write(self, element: et._Element, path: str | PathLike, encoding: str | None = None) -> None:
