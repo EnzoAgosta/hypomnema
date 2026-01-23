@@ -1,5 +1,5 @@
-import logging
 from dataclasses import dataclass, field
+from logging import DEBUG
 from typing import Literal
 
 __all__ = ["PolicyValue", "XmlPolicy"]
@@ -32,7 +32,7 @@ class PolicyValue[Behavior: str]:
 def _default[DefaultBehavior: str](
   default_behavior: DefaultBehavior,
 ) -> PolicyValue[DefaultBehavior]:
-  return field(default_factory=lambda: PolicyValue(default_behavior, logging.DEBUG))
+  return field(default_factory=lambda: PolicyValue(default_behavior, DEBUG))
 
 
 @dataclass(slots=True, kw_only=True)

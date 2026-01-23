@@ -1,8 +1,8 @@
-from hypomnema.base import NamespaceError
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
+
+from hypomnema.base.errors import NamespaceError
 from hypomnema.xml.utils import is_ncname, is_valid_uri
-from functools import cached_property
 
 __all__ = ["QName", "QNameLike"]
 
@@ -71,13 +71,13 @@ class QName:
       self.uri = None
       self.prefix = None
 
-  @cached_property
+  @property
   def qualified_name(self) -> str:
     if self.uri is None:
       return self.local_name
     return "{" + self.uri + "}" + self.local_name
 
-  @cached_property
+  @property
   def prefixed_name(self) -> str:
     if self.prefix is None:
       return self.local_name

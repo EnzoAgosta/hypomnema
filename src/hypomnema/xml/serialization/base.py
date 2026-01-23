@@ -1,11 +1,12 @@
-from enum import StrEnum
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import datetime
+from enum import StrEnum
 from logging import Logger
 
-from hypomnema.base.errors import AttributeSerializationError, XmlSerializationError
-from hypomnema.base.types import InlineElement, Tuv, BaseElement, Sub
+from hypomnema.base.errors import (AttributeSerializationError,
+                                   XmlSerializationError)
+from hypomnema.base.types import BaseElement, InlineElement, Sub, Tuv
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import XmlPolicy
 
@@ -267,7 +268,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
     Parameters
     ----------
     source : InlineElement | Tuv
-        The object containing the mixed content list.
+        The object containing the mixed content Collection.
     target : BackendElementType
         The XML element to populate.
     allowed : tuple[type[InlineElement], ...]
@@ -313,21 +314,21 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
 
   def _serialize_children[TypeofChildItem: BaseElement](
     self,
-    children: list[TypeofChildItem],
+    children: Collection[TypeofChildItem],
     target: TypeOfBackendElement,
     expected_type: type[TypeofChildItem],
   ) -> None:
     """
-    Serialize a list of child objects and append them to a target element.
+    Serialize a Collection of child objects and append them to a target element.
 
     Parameters
     ----------
-    children : list[ChildType]
-        The list of TMX objects to serialize.
+    children : Collection[ChildType]
+        The Collection of TMX objects to serialize.
     target : BackendElementType
         The parent XML element to receive the children.
     expected_type : type[ChildType]
-        The required type for objects in the children list.
+        The required type for objects in the children Collection.
 
     Raises
     ------

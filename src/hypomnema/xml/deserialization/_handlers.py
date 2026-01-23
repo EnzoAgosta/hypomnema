@@ -1,24 +1,9 @@
-from hypomnema.xml.utils import check_tag
 from hypomnema.base.errors import XmlDeserializationError
-from hypomnema.base.types import (
-  Assoc,
-  InlineElement,
-  Bpt,
-  Ept,
-  Hi,
-  It,
-  Note,
-  Ph,
-  Pos,
-  Prop,
-  Segtype,
-  Sub,
-  Tmx,
-  Tu,
-  Header,
-  Tuv,
-)
+from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, InlineElement,
+                                  It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx,
+                                  Tu, Tuv)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
+from hypomnema.xml.utils import check_tag
 
 __all__ = [
   "NoteDeserializer",
@@ -84,7 +69,7 @@ class NoteDeserializer[BackendElementType](BaseElementDeserializer[BackendElemen
         raise XmlDeserializationError(
           f"Invalid child element <{self.backend.get_tag(child)}> in <note>"
         )
-    return Note(text=text, lang=lang, o_encoding=o_encoding)  # type: ignore[arg-type]
+    return Note(text=text, lang=lang, o_encoding=o_encoding)  # type: ignore
 
 
 class PropDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Prop]):
@@ -136,7 +121,7 @@ class PropDeserializer[BackendElementType](BaseElementDeserializer[BackendElemen
         raise XmlDeserializationError(
           f"Invalid child element <{self.backend.get_tag(child)}> in <prop>"
         )
-    return Prop(text=text, type=_type, lang=lang, o_encoding=o_encoding)  # type: ignore[arg-type]
+    return Prop(text=text, type=_type, lang=lang, o_encoding=o_encoding)  # type: ignore
 
 
 class HeaderDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Header]):
@@ -208,13 +193,13 @@ class HeaderDeserializer[BackendElementType](BaseElementDeserializer[BackendElem
           raise XmlDeserializationError(f"Invalid child element <{tag}> in <header>")
 
     return Header(
-      creationtool=creationtool,  # type: ignore[arg-type]
-      creationtoolversion=creationtoolversion,  # type: ignore[arg-type]
-      segtype=segtype,  # type: ignore[arg-type]
-      o_tmf=o_tmf,  # type: ignore[arg-type]
-      adminlang=adminlang,  # type: ignore[arg-type]
-      srclang=srclang,  # type: ignore[arg-type]
-      datatype=datatype,  # type: ignore[arg-type]
+      creationtool=creationtool,  # type: ignore
+      creationtoolversion=creationtoolversion,  # type: ignore
+      segtype=segtype,  # type: ignore
+      o_tmf=o_tmf,  # type: ignore
+      adminlang=adminlang,  # type: ignore
+      srclang=srclang,  # type: ignore
+      datatype=datatype,  # type: ignore
       o_encoding=o_encoding,
       creationdate=creationdate,
       creationid=creationid,
@@ -247,7 +232,7 @@ class BptDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
     x = self._parse_attribute_as_int(element, "x", False)
     type = self._parse_attribute_as_str(element, "type", False)
     content = self._deserialize_content(element, ("sub",))
-    return Bpt(i=i, x=x, type=type, content=content)  # type: ignore[arg-type]
+    return Bpt(i=i, x=x, type=type, content=content)  # type: ignore
 
 
 class EptDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Ept]):
@@ -270,7 +255,7 @@ class EptDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
     check_tag(self.backend.get_tag(element), "ept", self.logger, self.policy)
     i = self._parse_attribute_as_int(element, "i", True)
     content = self._deserialize_content(element, ("sub",))
-    return Ept(i=i, content=content)  # type: ignore[arg-type]
+    return Ept(i=i, content=content)  # type: ignore
 
 
 class ItDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, It]):
@@ -295,7 +280,7 @@ class ItDeserializer[BackendElementType](BaseElementDeserializer[BackendElementT
     x = self._parse_attribute_as_int(element, "x", False)
     type = self._parse_attribute_as_str(element, "type", False)
     content = self._deserialize_content(element, ("sub",))
-    return It(pos=pos, x=x, type=type, content=content)  # type: ignore[arg-type]
+    return It(pos=pos, x=x, type=type, content=content)  # type: ignore
 
 
 class PhDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Ph]):
@@ -320,7 +305,7 @@ class PhDeserializer[BackendElementType](BaseElementDeserializer[BackendElementT
     assoc = self._parse_attribute_as_enum(element, "assoc", Assoc, False)
     type = self._parse_attribute_as_str(element, "type", False)
     content = self._deserialize_content(element, ("sub",))
-    return Ph(x=x, assoc=assoc, type=type, content=content)  # type: ignore[arg-type]
+    return Ph(x=x, assoc=assoc, type=type, content=content)  # type: ignore
 
 
 class SubDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Sub]):
@@ -344,7 +329,7 @@ class SubDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
     datatype = self._parse_attribute_as_str(element, "datatype", False)
     type = self._parse_attribute_as_str(element, "type", False)
     content = self._deserialize_content(element, ("bpt", "ept", "ph", "it", "hi"))
-    return Sub(datatype=datatype, type=type, content=content)
+    return Sub(datatype=datatype, type=type, content=content)  # type: ignore
 
 
 class HiDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Hi]):
@@ -368,7 +353,7 @@ class HiDeserializer[BackendElementType](BaseElementDeserializer[BackendElementT
     x = self._parse_attribute_as_int(element, "x", False)
     type = self._parse_attribute_as_str(element, "type", False)
     content = self._deserialize_content(element, ("bpt", "ept", "ph", "it", "hi"))
-    return Hi(x=x, type=type, content=content)
+    return Hi(x=x, type=type, content=content)  # type: ignore
 
 
 class TuvDeserializer[BackendElementType](BaseElementDeserializer[BackendElementType, Tuv]):
@@ -461,7 +446,7 @@ class TuvDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
         content = [""]
 
     return Tuv(
-      lang=lang,  # type: ignore[arg-type]
+      lang=lang,  # type: ignore
       o_encoding=o_encoding,
       datatype=datatype,
       usagecount=usagecount,
@@ -475,7 +460,7 @@ class TuvDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
       o_tmf=o_tmf,
       props=props,
       notes=notes,
-      content=content,  # type: ignore[arg-type]
+      content=content,  # type: ignore
     )
 
 
@@ -644,8 +629,4 @@ class TmxDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
       if self.policy.missing_header.behavior == "raise":
         raise XmlDeserializationError("Element <tmx> is missing a <header> child element")
 
-    return Tmx(
-      version=version,  # type: ignore[arg-type]
-      header=header,  # type: ignore[arg-type]
-      body=body,
-    )
+    return Tmx(version=version, header=header, body=body)  # type: ignore
