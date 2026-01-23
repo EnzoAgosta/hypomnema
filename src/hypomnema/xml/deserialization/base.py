@@ -7,7 +7,7 @@ from typing import Callable
 from hypomnema.base.errors import AttributeDeserializationError, XmlDeserializationError
 from hypomnema.base.types import BaseElement, InlineElement, Sub
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import DeserializationPolicy
+from hypomnema.xml.policy import XmlPolicy
 
 __all__ = ["BaseElementDeserializer"]
 
@@ -35,7 +35,7 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
       The logging instance.
   """
 
-  def __init__(self, backend: XmlBackend, policy: DeserializationPolicy, logger: Logger):
+  def __init__(self, backend: XmlBackend, policy: XmlPolicy, logger: Logger):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
     self.policy = policy
     self.logger = logger

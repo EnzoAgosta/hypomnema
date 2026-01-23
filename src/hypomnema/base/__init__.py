@@ -6,6 +6,7 @@ from .errors import (
   InvalidTagError,
   InvalidContentError,
   MissingHandlerError,
+  NamespaceError,
 )
 from .types import (
   # Type aliases

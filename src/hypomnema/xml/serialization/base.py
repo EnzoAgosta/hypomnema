@@ -7,7 +7,7 @@ from logging import Logger
 from hypomnema.base.errors import AttributeSerializationError, XmlSerializationError
 from hypomnema.base.types import InlineElement, Tuv, BaseElement, Sub
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import SerializationPolicy
+from hypomnema.xml.policy import XmlPolicy
 
 __all__ = ["BaseElementSerializer"]
 
@@ -35,11 +35,9 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
       The logging instance.
   """
 
-  def __init__(
-    self, backend: XmlBackend[TypeOfBackendElement], policy: SerializationPolicy, logger: Logger
-  ):
+  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
-    self.policy: SerializationPolicy = policy
+    self.policy: XmlPolicy = policy
     self.logger: Logger = logger
     self._emit: Callable[[BaseElement], TypeOfBackendElement | None] | None = None
 
@@ -156,7 +154,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
       if self.policy.invalid_attribute_type.behavior == "raise":
         raise AttributeSerializationError(f"Attribute {attribute!r} is not a datetime object")
       return
-    self.backend.set_attribute(target, attribute, value.isoformat(), unsafe=True)
+    self.backend.set_attribute(target, attribute, value.isoformat())
 
   def _set_int_attribute(
     self, target: TypeOfBackendElement, value: int | None, attribute: str, required: bool

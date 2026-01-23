@@ -20,6 +20,7 @@ from hypomnema.xml.deserialization._handlers import (
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.policy import XmlPolicy
 
+
 __all__ = ["Deserializer"]
 
 
@@ -56,12 +57,12 @@ class Deserializer[TypeofBackendElement]:
   def __init__(
     self,
     backend: XmlBackend[TypeofBackendElement],
-    policy: DeserializationPolicy | None = None,
+    policy: XmlPolicy | None = None,
     logger: Logger | None = None,
     handlers: dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]] | None = None,
   ):
     self.backend: XmlBackend[TypeofBackendElement] = backend
-    self.policy: DeserializationPolicy = policy or DeserializationPolicy()
+    self.policy: XmlPolicy = policy or XmlPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
       self.logger.info("Using default handlers")
