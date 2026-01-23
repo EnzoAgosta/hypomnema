@@ -3,23 +3,20 @@ from logging import Logger, getLogger
 from hypomnema.base.errors import MissingHandlerError
 from hypomnema.base.types import BaseElement
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.deserialization._handlers import (
-  BptDeserializer,
-  EptDeserializer,
-  HeaderDeserializer,
-  HiDeserializer,
-  ItDeserializer,
-  NoteDeserializer,
-  PhDeserializer,
-  PropDeserializer,
-  SubDeserializer,
-  TmxDeserializer,
-  TuDeserializer,
-  TuvDeserializer,
-)
+from hypomnema.xml.deserialization._handlers import (BptDeserializer,
+                                                     EptDeserializer,
+                                                     HeaderDeserializer,
+                                                     HiDeserializer,
+                                                     ItDeserializer,
+                                                     NoteDeserializer,
+                                                     PhDeserializer,
+                                                     PropDeserializer,
+                                                     SubDeserializer,
+                                                     TmxDeserializer,
+                                                     TuDeserializer,
+                                                     TuvDeserializer)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.policy import XmlPolicy
-
 
 __all__ = ["Deserializer"]
 

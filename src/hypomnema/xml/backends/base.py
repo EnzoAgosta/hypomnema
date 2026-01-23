@@ -1,21 +1,22 @@
-from typing import overload, Literal
-from hypomnema.xml.qname import QName, QNameLike
-from hypomnema.xml.policy import XmlPolicy
-import logging
-from hypomnema.base import NamespaceError
-from logging import Logger, getLogger
-from contextlib import nullcontext
-from pathlib import Path
-from io import BufferedIOBase
-from hypomnema.xml.utils import make_usable_path, normalize_encoding, is_ncname, is_valid_uri
 from abc import ABC, abstractmethod
-from collections.abc import Collection, Iterator, Generator, Iterable, Mapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from contextlib import nullcontext
+from io import BufferedIOBase
+from logging import DEBUG, Logger, getLogger
 from os import PathLike
+from pathlib import Path
+from typing import Literal, overload
+
+from hypomnema.base.errors import NamespaceError
+from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.qname import QName, QNameLike
+from hypomnema.xml.utils import (is_ncname, is_valid_uri, make_usable_path,
+                                 normalize_encoding)
 
 __all__ = ["XmlBackend"]
 
 
-class XmlBackend[TypeOfElement](ABC):
+class XmlBackend[TypeOfBackendElement](ABC):
   __slots__ = ("_nsmap", "logger", "default_encoding", "policy")
   _nsmap: dict[str | None, str]
   logger: Logger
@@ -31,8 +32,10 @@ class XmlBackend[TypeOfElement](ABC):
   ) -> None:
     self.logger = logger if logger is not None else getLogger("XmlBackendLogger")
     self._nsmap = {"xml": "http://www.w3.org/XML/1998/namespace", None: "http://www.lisa.org/tmx14"}
-    self.default_encoding = normalize_encoding(default_encoding) if default_encoding is not None else "utf-8"
-    self.logger.log(logging.DEBUG, "Initialized with default encoding %s", self.default_encoding)
+    self.default_encoding = (
+      normalize_encoding(default_encoding) if default_encoding is not None else "utf-8"
+    )
+    self.logger.log(DEBUG, "Initialized with default encoding %s", self.default_encoding)
     self.policy = policy if policy is not None else XmlPolicy()
     if nsmap is not None:
       for prefix, uri in nsmap.items():
@@ -53,7 +56,7 @@ class XmlBackend[TypeOfElement](ABC):
         self.policy.invalid_namespace.log_level, "Failed to register namespace: %s", e
       )
       if self.policy.invalid_namespace.behavior == "raise":
-        raise 
+        raise
       else:
         return
     if prefix in self._nsmap:
@@ -64,19 +67,19 @@ class XmlBackend[TypeOfElement](ABC):
         raise NamespaceError(f"Namespace {prefix} is already registered")
       elif self.policy.existing_namespace.behavior == "overwrite":
         self._nsmap[prefix] = uri
-        self.logger.log(logging.DEBUG, "Overwrote namespace: %s -> %s", prefix, uri)
+        self.logger.log(DEBUG, "Overwrote namespace: %s -> %s", prefix, uri)
         return
       else:
         return
     self._nsmap[prefix] = uri
-    self.logger.log(logging.DEBUG, "Registered namespace: %s -> %s", prefix, uri)
+    self.logger.log(DEBUG, "Registered namespace: %s -> %s", prefix, uri)
 
   def deregister_namespace(self, prefix: str) -> None:
     if prefix in ("xml", None):
       raise NamespaceError(f"{prefix} is reserved and cannot be deregistered")
     if prefix in self._nsmap:
       del self._nsmap[prefix]
-      self.logger.log(logging.DEBUG, "Deregistered namespace: %s", prefix)
+      self.logger.log(DEBUG, "Deregistered namespace: %s", prefix)
     else:
       self.logger.log(
         self.policy.missing_namespace.log_level, "Namespace %s is not registered", prefix
@@ -102,80 +105,94 @@ class XmlBackend[TypeOfElement](ABC):
     )
 
   @overload
-  def get_tag(self, element: TypeOfElement, as_qname: Literal[True]) -> QName: ...
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: TypeOfElement, as_qname: bool = False) -> str: ...
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: Literal[False] = False) -> str: ...
   @abstractmethod
-  def get_tag(self, element: TypeOfElement, as_qname: bool = False) -> str | QName: ...
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: bool = False) -> str | QName: ...
 
   @abstractmethod
   def create_element(
     self, tag: str, attributes: Mapping[str, str] | None = None
-  ) -> TypeOfElement: ...
+  ) -> TypeOfBackendElement: ...
 
   @abstractmethod
-  def append_child(self, parent: TypeOfElement, child: TypeOfElement) -> None: ...
+  def append_child(self, parent: TypeOfBackendElement, child: TypeOfBackendElement) -> None: ...
 
+  @overload
+  def get_attribute(self, element: TypeOfBackendElement, attribute_name: str) -> str | None: ...
+  @overload
+  def get_attribute[TypeOfDefault](
+    self, element: TypeOfBackendElement, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
   @abstractmethod
   def get_attribute[TypeOfDefault](
-    self, element: TypeOfElement, attribute_name: str, default: TypeOfDefault | None = None
+    self,
+    element: TypeOfBackendElement,
+    attribute_name: str,
+    *,
+    default: TypeOfDefault | None = None,
   ) -> str | TypeOfDefault | None: ...
 
   @abstractmethod
   def set_attribute(
-    self, element: TypeOfElement, attribute_name: str | QNameLike, attribute_value: str
+    self, element: TypeOfBackendElement, attribute_name: str | QNameLike, attribute_value: str
   ) -> None: ...
 
   @abstractmethod
-  def delete_attribute(self, element: TypeOfElement, attribute_name: str | QNameLike) -> None: ...
+  def delete_attribute(
+    self, element: TypeOfBackendElement, attribute_name: str | QNameLike
+  ) -> None: ...
 
   @abstractmethod
-  def get_attribute_map(self, element: TypeOfElement) -> dict[str, str]: ...
+  def get_attribute_map(self, element: TypeOfBackendElement) -> dict[str, str]: ...
 
   @abstractmethod
-  def get_text(self, element: TypeOfElement) -> str | None: ...
+  def get_text(self, element: TypeOfBackendElement) -> str | None: ...
 
   @abstractmethod
-  def set_text(self, element: TypeOfElement, text: str | None) -> None: ...
+  def set_text(self, element: TypeOfBackendElement, text: str | None) -> None: ...
 
   @abstractmethod
-  def get_tail(self, element: TypeOfElement) -> str | None: ...
+  def get_tail(self, element: TypeOfBackendElement) -> str | None: ...
 
   @abstractmethod
-  def set_tail(self, element: TypeOfElement, tail: str | None) -> None: ...
+  def set_tail(self, element: TypeOfBackendElement, tail: str | None) -> None: ...
 
   @abstractmethod
   def iter_children(
     self,
-    element: TypeOfElement,
-    tag_filter: str | QNameLike | Collection[str | QNameLike] | None = None,
-  ) -> Iterator[TypeOfElement]: ...
+    element: TypeOfBackendElement,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  ) -> Iterator[TypeOfBackendElement]: ...
 
   @abstractmethod
-  def parse(self, path: str | PathLike, encoding: str | None = None) -> TypeOfElement: ...
+  def parse(self, path: str | PathLike, encoding: str | None = None) -> TypeOfBackendElement: ...
 
   @abstractmethod
   def write(
-    self, element: TypeOfElement, path: str | PathLike, encoding: str | None = None
+    self, element: TypeOfBackendElement, path: str | PathLike, encoding: str | None = None
   ) -> None: ...
 
   @abstractmethod
-  def clear(self, element: TypeOfElement) -> None: ...
+  def clear(self, element: TypeOfBackendElement) -> None: ...
 
   @abstractmethod
   def to_bytes(
-    self, element: TypeOfElement, encoding: str | None = None, self_closing: bool = False
+    self, element: TypeOfBackendElement, encoding: str | None = None, self_closing: bool = False
   ) -> bytes: ...
 
   @abstractmethod
   def iterparse(
-    self, path: str | PathLike, tag_filter: str | Collection[str] | None = None
-  ) -> Iterator[TypeOfElement]: ...
+    self,
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  ) -> Iterator[TypeOfBackendElement]: ...
 
   def _iterparse(
-    self, ctx: Iterator[tuple[str, TypeOfElement]], tag_filter: set[str] | None
-  ) -> Generator[TypeOfElement]:
-    elements_pending_yield: list[TypeOfElement] = []
+    self, ctx: Iterator[tuple[str, TypeOfBackendElement]], tag_filter: set[str] | None
+  ) -> Generator[TypeOfBackendElement]:
+    elements_pending_yield: list[TypeOfBackendElement] = []
 
     for event, elem in ctx:
       if event == "start":
@@ -195,10 +212,10 @@ class XmlBackend[TypeOfElement](ABC):
   def iterwrite(
     self,
     path: str | PathLike | BufferedIOBase,
-    elements: Iterable[TypeOfElement],
+    elements: Iterable[TypeOfBackendElement],
     encoding: str | None = None,
     *,
-    root_elem: TypeOfElement | None = None,
+    root_elem: TypeOfBackendElement | None = None,
     max_number_of_elements_in_buffer: int = 1000,
     write_xml_declaration: bool = False,
     write_doctype: bool = False,
@@ -224,7 +241,11 @@ class XmlBackend[TypeOfElement](ABC):
 
     with ctx as output:
       if write_xml_declaration:
-        output.write('<?xml version="1.0" encoding="'.encode(encoding) + encoding.encode(encoding) + '"?>\n'.encode(encoding))
+        output.write(
+          '<?xml version="1.0" encoding="'.encode(encoding)
+          + encoding.encode(encoding)
+          + '"?>\n'.encode(encoding)
+        )
       if write_doctype:
         output.write('<!DOCTYPE tmx SYSTEM "tmx14.dtd">\n'.encode(encoding))
       output.write(root_string[:pos])

@@ -1,25 +1,22 @@
-from hypomnema.base.errors import MissingHandlerError
-from hypomnema.xml.serialization._handlers import (
-  NoteSerializer,
-  PropSerializer,
-  HeaderSerializer,
-  BptSerializer,
-  EptSerializer,
-  ItSerializer,
-  PhSerializer,
-  SubSerializer,
-  HiSerializer,
-  TuvSerializer,
-  TuSerializer,
-  TmxSerializer,
-)
-from hypomnema.xml.serialization.base import BaseElementSerializer
-from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import XmlPolicy
-from hypomnema.base.types import BaseElement, Tmx
 from collections.abc import Mapping
 from logging import Logger, getLogger
-from hypomnema.base.types import Header, Prop, Note, Tu, Tuv, Bpt, Ept, It, Ph, Sub, Hi
+
+from hypomnema.base.errors import MissingHandlerError
+from hypomnema.base.types import (BaseElement, Bpt, Ept, Header, Hi, It, Note,
+                                  Ph, Prop, Sub, Tmx, Tu, Tuv)
+from hypomnema.xml.backends.base import XmlBackend
+from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.serialization._handlers import (BptSerializer,
+                                                   EptSerializer,
+                                                   HeaderSerializer,
+                                                   HiSerializer, ItSerializer,
+                                                   NoteSerializer,
+                                                   PhSerializer,
+                                                   PropSerializer,
+                                                   SubSerializer,
+                                                   TmxSerializer, TuSerializer,
+                                                   TuvSerializer)
+from hypomnema.xml.serialization.base import BaseElementSerializer
 
 __all__ = ["Serializer"]
 

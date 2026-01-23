@@ -1,18 +1,20 @@
-from hypomnema.xml.qname import QName, QNameLike
-from hypomnema.xml.policy import XmlPolicy
-from typing import overload, Literal
-from logging import Logger
-from collections.abc import Mapping, Collection, Generator, Iterator
-from hypomnema.xml.utils import prep_tag_set, make_usable_path, normalize_encoding
-from hypomnema.xml.backends.base import XmlBackend
 import xml.etree.ElementTree as et
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from logging import Logger
 from os import PathLike
+from typing import Literal, overload
+
+from hypomnema.xml.backends.base import XmlBackend
+from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.qname import QName, QNameLike
+from hypomnema.xml.utils import (make_usable_path, normalize_encoding,
+                                 prep_tag_set)
 
 __all__ = ["StandardBackend"]
 
 
 class StandardBackend(XmlBackend[et.Element]):
-  __slots__ = tuple()
+  __slots__: tuple[str, ...] = tuple()
 
   def __init__(
     self,
@@ -24,10 +26,10 @@ class StandardBackend(XmlBackend[et.Element]):
     super().__init__(nsmap, logger, default_encoding, policy)
 
   @overload
-  def get_tag(self, element: et.Element, as_qname: Literal[True]) -> QName: ...
+  def get_tag(self, element: et.Element, *, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: et.Element, as_qname: bool = False) -> str: ...
-  def get_tag(self, element: et.Element, as_qname: bool = False) -> str | QName:
+  def get_tag(self, element: et.Element, *, as_qname: Literal[False] = False) -> str: ...
+  def get_tag(self, element: et.Element, *, as_qname: bool = False) -> str | QName:
     tag = element.tag
     result: QName
     match tag:
@@ -44,14 +46,21 @@ class StandardBackend(XmlBackend[et.Element]):
   ) -> et.Element:
     if attributes is None:
       attributes = {}
+    _attributes = {QName(key, nsmap=self.nsmap).text: value for key, value in attributes.items()}
     _tag = QName(tag, nsmap=self.nsmap)
-    return et.Element(_tag.qualified_name, attrib=dict(attributes))
+    return et.Element(_tag.qualified_name, attrib=_attributes)
 
   def append_child(self, parent: et.Element, child: et.Element) -> None:
     parent.append(child)
 
+  @overload
+  def get_attribute(self, element: et.Element, attribute_name: str) -> str | None: ...
+  @overload
   def get_attribute[TypeOfDefault](
-    self, element: et.Element, attribute_name: str | QNameLike, default: TypeOfDefault | None = None
+    self, element: et.Element, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
+  def get_attribute[TypeOfDefault](
+    self, element: et.Element, attribute_name: str, *, default: TypeOfDefault | None = None
   ) -> str | TypeOfDefault | None:
     _key = QName(attribute_name, nsmap=self.nsmap)
     return element.get(_key.text, default)
@@ -82,9 +91,7 @@ class StandardBackend(XmlBackend[et.Element]):
     element.tail = tail
 
   def iter_children(
-    self,
-    element: et.Element,
-    tag_filter: str | QNameLike | Collection[str | QNameLike] | None = None,
+    self, element: et.Element, tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None
   ) -> Generator[et.Element]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     for child in element:
@@ -115,7 +122,9 @@ class StandardBackend(XmlBackend[et.Element]):
     )
 
   def iterparse(
-    self, path: str | PathLike, tag_filter: str | Collection[str] | None = None
+    self,
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Iterator[et.Element]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
