@@ -70,14 +70,14 @@ def load(
 def dump(
   tmx: Tmx, path: PathLike | str, encoding: str | None = None, *, backend: XmlBackend | None = None
 ) -> None:
+  if not isinstance(tmx, Tmx):
+    raise TypeError(f"Root element is not a Tmx: {type(tmx)}")
+    
   _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
   _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
   _serializer = Serializer(_backend)
 
   _path = make_usable_path(path, mkdir=True)
-  if not isinstance(tmx, Tmx):
-    raise TypeError(f"Root element is not a Tmx: {type(tmx)}")
-
   xml_element = _serializer.serialize(tmx)
   if xml_element is None:
     raise XmlSerializationError("serializer returned None")
