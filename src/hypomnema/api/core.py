@@ -14,7 +14,7 @@ from collections.abc import Collection, Generator
 from typing import overload
 from os import PathLike
 
-__all__ = ["load", "save"]
+__all__ = ["load", "dump"]
 
 
 @overload
@@ -47,7 +47,7 @@ def load(
       yield _deserializer.deserialize(element)
 
   _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
-  _backend = backend if backend is not None else StandardBackend()
+  _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
   _deserializer = Deserializer(_backend)
 
   _path = make_usable_path(path, mkdir=False)
@@ -58,7 +58,7 @@ def load(
 
   if filter is not None:
     return _load_filtered(_backend, _path, filter, _deserializer)
-  root = _backend.parse(_path, encoding=_encoding)
+  root = _backend.parse(_path)
   if _backend.get_tag(root, as_qname=True).local_name != "tmx":
     raise XmlDeserializationError("Root element is not a tmx")
   tmx = _deserializer.deserialize(root)
@@ -67,12 +67,12 @@ def load(
   return tmx
 
 
-def save(
+def dump(
   tmx: Tmx, path: PathLike | str, encoding: str | None = None, *, backend: XmlBackend | None = None
 ) -> None:
-  _backend = backend if backend is not None else StandardBackend()
-  _serializer = Serializer(_backend)
   _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
+  _serializer = Serializer(_backend)
 
   _path = make_usable_path(path, mkdir=True)
   if not isinstance(tmx, Tmx):

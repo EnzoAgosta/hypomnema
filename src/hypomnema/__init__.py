@@ -33,7 +33,7 @@ from hypomnema.xml.policy import PolicyValue, XmlPolicy
 
 from hypomnema.api import (
   load,
-  save,
+  dump,
   create_tmx,
   create_header,
   create_tu,
@@ -90,7 +90,7 @@ __all__ = [
   "XmlPolicy",
   # Public API
   "load",
-  "save",
+  "dump",
   "create_tmx",
   "create_header",
   "create_tu",
