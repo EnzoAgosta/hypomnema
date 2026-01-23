@@ -1,4 +1,4 @@
-from .backends import StandardBackend, LxmlBackend, XmlBackend  # type: ignore
+from .backends import StandardBackend, LxmlBackend, XmlBackend
 from .deserialization import Deserializer
 from .serialization import Serializer
 

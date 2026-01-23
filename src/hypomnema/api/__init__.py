@@ -1,4 +1,4 @@
-from hypomnema.api.core import load, save
+from hypomnema.api.core import load, dump
 from hypomnema.api.helpers import (
   create_tmx,
   create_header,
@@ -17,7 +17,7 @@ from hypomnema.api.helpers import (
 __all__ = [
   # Core I/O
   "load",
-  "save",
+  "dump",
   # Element helpers
   "create_tmx",
   "create_header",

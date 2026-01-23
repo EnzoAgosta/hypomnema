@@ -29,11 +29,11 @@ from hypomnema.base.types import (
 from hypomnema.xml import XmlBackend, LxmlBackend, StandardBackend, Deserializer, Serializer
 
 
-from hypomnema.xml.policy import PolicyValue, DeserializationPolicy, SerializationPolicy
+from hypomnema.xml.policy import PolicyValue, XmlPolicy
 
 from hypomnema.api import (
   load,
-  save,
+  dump,
   create_tmx,
   create_header,
   create_tu,
@@ -87,11 +87,10 @@ __all__ = [
   "Serializer",
   # Policies
   "PolicyValue",
-  "DeserializationPolicy",
-  "SerializationPolicy",
+  "XmlPolicy",
   # Public API
   "load",
-  "save",
+  "dump",
   "create_tmx",
   "create_header",
   "create_tu",
