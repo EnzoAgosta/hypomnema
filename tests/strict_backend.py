@@ -1,4 +1,4 @@
-from collections.abc import Generator, Iterable, Iterator, Mapping
+from collections.abc import Collection, Generator, Iterable, Iterator, Mapping
 from copy import copy
 from io import BufferedIOBase
 from os import PathLike
@@ -17,7 +17,7 @@ class StrictBackend(XmlBackend[int]):
 
   def __init__(self, *args, **kwargs) -> None:
     super().__init__(*args, **kwargs)
-    self._store: dict[int, et.Element] = {}
+    self._store = {}
 
   def _register(self, element):
     """Register an internal element and return a handle."""
@@ -31,10 +31,10 @@ class StrictBackend(XmlBackend[int]):
     return self._store[handle]
 
   @overload
-  def get_tag(self, element: int, *, as_qname: Literal[True]) -> QName: ...
+  def get_tag(self, element: int, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: int, *, as_qname: Literal[False] = False) -> str: ...
-  def get_tag(self, element: int, *, as_qname: bool = False) -> str | QName:
+  def get_tag(self, element: int, as_qname: bool = False) -> str: ...
+  def get_tag(self, element: int, as_qname: bool = False) -> str | QName:
     _element = self._get_elem(element)
     tag = _element.tag
     result: QName
@@ -64,14 +64,8 @@ class StrictBackend(XmlBackend[int]):
     child_elem = self._get_elem(child)
     parent_elem.append(child_elem)
 
-  @overload
-  def get_attribute(self, element: int, attribute_name: str) -> str | None: ...
-  @overload
   def get_attribute[TypeOfDefault](
-    self, element: int, attribute_name: str, *, default: TypeOfDefault
-  ) -> str | TypeOfDefault: ...
-  def get_attribute[TypeOfDefault](
-    self, element: int, attribute_name: str, *, default: TypeOfDefault | None = None
+    self, element: int, attribute_name: str | QNameLike, default: TypeOfDefault | None = None
   ) -> str | TypeOfDefault | None:
     _key = QName(attribute_name, nsmap=self.nsmap)
     _element = self._get_elem(element)
@@ -84,11 +78,14 @@ class StrictBackend(XmlBackend[int]):
     _element = self._get_elem(element)
     _element.set(_key.text, attribute_value)
 
-  def set_attribute(self, element, attribute_name, attribute_value, *, nsmap=None, unsafe=False):
-    elem = self._get_elem(element)
+  def delete_attribute(self, element: int, attribute_name: str | QNameLike) -> None:
+    _key = QName(attribute_name, nsmap=self.nsmap)
+    _element = self._get_elem(element)
+    _element.attrib.pop(_key.text, None)
 
-    _nsmap = nsmap if nsmap is not None else self._global_nsmap
-    attribute_name = attribute_name if unsafe else QName(attribute_name, _nsmap).qualified_name
+  def get_attribute_map(self, element: int) -> dict[str, str]:
+    _element = self._get_elem(element)
+    return {k: v for k, v in _element.attrib.items()}
 
   def get_text(self, element: int) -> str | None:
     _element = self._get_elem(element)
@@ -107,7 +104,7 @@ class StrictBackend(XmlBackend[int]):
     _element.tail = tail
 
   def iter_children(
-    self, element: int, tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None
+    self, element: int, tag_filter: str | QNameLike | Collection[str | QNameLike] | None = None
   ) -> Generator[int]:
     _element = self._get_elem(element)
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
@@ -146,14 +143,11 @@ class StrictBackend(XmlBackend[int]):
     return et.tostring(_element, encoding=encoding, xml_declaration=False)
 
   def iterparse(
-    self,
-    path: str | PathLike,
-    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+    self, path: str | PathLike, tag_filter: str | Collection[str] | None = None
   ) -> Iterator[int]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
-    # need to ignore mypy error for same reason as in lxml backend
-    for elem in self._iterparse(ctx, tag_set):  # type: ignore[arg-type]
+    for elem in self._iterparse(ctx, tag_set):
       yield self._register(elem)
 
   def iterwrite(
@@ -162,14 +156,16 @@ class StrictBackend(XmlBackend[int]):
     elements: Iterable[int],
     encoding: str | None = None,
     *,
-    root_elem=None,
-    max_number_of_elements_in_buffer=1000,
-    write_xml_declaration=True,
-    write_doctype=True,
-  ):
-    elements = (self._get_elem(self._register(element)) for element in elements)
-    root_elem = self.create_element("tmx", attributes={"version": "1.4"})
-
+    root_elem: int | None = None,
+    max_number_of_elements_in_buffer: int = 1000,
+    write_xml_declaration: bool = False,
+    write_doctype: bool = False,
+  ) -> None:
+    _elements = (self._get_elem(element) for element in elements)
+    if root_elem is not None:
+      _root_elem = self._get_elem(root_elem)
+    else:
+      _root_elem = None
     super().iterwrite(
       path,
       _elements,

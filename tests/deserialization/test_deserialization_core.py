@@ -8,6 +8,7 @@ from hypomnema.base.types import (Bpt, Ept, Header, Hi, It, Note, Ph, Prop,
 from tests.conftest import _append_child, _deserializer, _make_elem
 
 
+@pytest.mark.backend
 def test_deserialize_prop_all_fields(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(
@@ -23,6 +24,7 @@ def test_deserialize_prop_all_fields(backend: XmlBackend):
   assert obj.o_encoding == "utf-8"
 
 
+@pytest.mark.backend
 def test_deserialize_note_all_fields(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "note", text="note", **{"xml:lang": "fr"})
@@ -34,6 +36,7 @@ def test_deserialize_note_all_fields(backend: XmlBackend):
   assert obj.lang == "fr"
 
 
+@pytest.mark.backend
 def test_deserialize_header_with_children(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(
@@ -55,6 +58,7 @@ def test_deserialize_header_with_children(backend: XmlBackend):
   assert len(obj.notes) == 1
 
 
+@pytest.mark.backend
 def test_deserialize_inline_elements(backend: XmlBackend):
   deserializer = _deserializer(backend)
 
@@ -73,6 +77,7 @@ def test_deserialize_inline_elements(backend: XmlBackend):
   assert isinstance(deserializer.deserialize(_make_elem(backend, "sub", text="s")), Sub)
 
 
+@pytest.mark.backend
 def test_deserialize_tuv_with_seg(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "tuv", **{"xml:lang": "en"})
@@ -89,6 +94,7 @@ def test_deserialize_tuv_with_seg(backend: XmlBackend):
   assert obj.content[2] == "World"
 
 
+@pytest.mark.backend
 def test_deserialize_tu_with_variants(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "tu", tuid="tu1", segtype="block", srclang="en")
@@ -104,6 +110,7 @@ def test_deserialize_tu_with_variants(backend: XmlBackend):
   assert len(obj.variants) == 1
 
 
+@pytest.mark.backend
 def test_deserialize_tmx_minimal(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "tmx", version="1.4")
@@ -135,6 +142,7 @@ def test_deserialize_tmx_minimal(backend: XmlBackend):
   assert len(obj.body) == 1
 
 
+@pytest.mark.backend
 def test_deserialize_missing_required_attribute(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "prop", text="value")
@@ -143,6 +151,7 @@ def test_deserialize_missing_required_attribute(backend: XmlBackend):
     deserializer.deserialize(element)
 
 
+@pytest.mark.backend
 def test_deserialize_invalid_child(backend: XmlBackend):
   deserializer = _deserializer(backend)
   element = _make_elem(backend, "prop", text="value", type="t")

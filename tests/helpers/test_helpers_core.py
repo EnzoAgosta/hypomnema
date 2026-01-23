@@ -1,9 +1,12 @@
+import pytest
+
 from hypomnema.api import (create_bpt, create_ept, create_header, create_hi,
                            create_it, create_note, create_ph, create_prop,
                            create_sub, create_tmx, create_tu, create_tuv)
 from hypomnema.base.types import Assoc, Pos, Segtype
 
 
+@pytest.mark.helpers
 def test_create_prop_defaults():
   prop = create_prop("value", "key")
 
@@ -12,6 +15,7 @@ def test_create_prop_defaults():
   assert prop.lang is None
 
 
+@pytest.mark.helpers
 def test_create_note_defaults():
   note = create_note("note")
 
@@ -19,6 +23,7 @@ def test_create_note_defaults():
   assert note.lang is None
 
 
+@pytest.mark.helpers
 def test_create_header_defaults():
   header = create_header()
 
@@ -27,6 +32,7 @@ def test_create_header_defaults():
   assert header.adminlang == "en"
 
 
+@pytest.mark.helpers
 def test_create_tu_defaults():
   tu = create_tu()
 
@@ -35,6 +41,7 @@ def test_create_tu_defaults():
   assert tu.props == []
 
 
+@pytest.mark.helpers
 def test_create_tuv_defaults():
   tuv = create_tuv("en")
 
@@ -42,6 +49,7 @@ def test_create_tuv_defaults():
   assert tuv.content == []
 
 
+@pytest.mark.helpers
 def test_create_inline_elements():
   bpt = create_bpt(1, content=["text"], type="bold")
   assert bpt.i == 1
@@ -63,6 +71,7 @@ def test_create_inline_elements():
   assert sub.datatype == "html"
 
 
+@pytest.mark.helpers
 def test_create_tmx_defaults():
   tmx = create_tmx()
 

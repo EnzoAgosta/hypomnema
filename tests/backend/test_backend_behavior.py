@@ -13,6 +13,7 @@ from tests.conftest import _append_child, _make_elem
 from tests.strict_backend import StrictBackend
 
 
+@pytest.mark.backend
 def test_backend_parity_serialize_deserialize_tuv(backend: XmlBackend):
   serializer = Serializer(backend, policy=XmlPolicy())
   deserializer = Deserializer(backend, policy=XmlPolicy())
@@ -24,6 +25,7 @@ def test_backend_parity_serialize_deserialize_tuv(backend: XmlBackend):
   assert result == tuv
 
 
+@pytest.mark.backend
 def test_strict_backend_missing_header(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
@@ -36,6 +38,7 @@ def test_strict_backend_missing_header(backend: XmlBackend):
     deserializer.deserialize(tmx_elem)
 
 
+@pytest.mark.backend
 def test_strict_backend_missing_seg(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
@@ -48,6 +51,7 @@ def test_strict_backend_missing_seg(backend: XmlBackend):
     deserializer.deserialize(tuv_elem)
 
 
+@pytest.mark.backend
 def test_strict_backend_missing_required_attribute(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
@@ -60,6 +64,7 @@ def test_strict_backend_missing_required_attribute(backend: XmlBackend):
     deserializer.deserialize(prop_elem)
 
 
+@pytest.mark.backend
 def test_strict_backend_invalid_attribute_value(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
@@ -79,6 +84,7 @@ def test_strict_backend_invalid_attribute_value(backend: XmlBackend):
     deserializer.deserialize(header_elem)
 
 
+@pytest.mark.backend
 def test_strict_backend_invalid_child(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
@@ -99,6 +105,7 @@ def test_strict_backend_invalid_child(backend: XmlBackend):
     deserializer.deserialize(header_elem)
 
 
+@pytest.mark.backend
 def test_strict_backend_invalid_inline_child(backend: XmlBackend):
   if not isinstance(backend, StrictBackend):
     pytest.skip("StrictBackend only")
