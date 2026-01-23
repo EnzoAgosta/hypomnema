@@ -30,7 +30,7 @@ where = ["src"]
 
 [dependency-groups]
 dev = [
-  "hypothesis>=6.151.3",
+  "hypothesis>=6.150.3",
   "isort>=7.0.0",
   "lxml>=6.0.2",
   "mypy>=1.19.1",
@@ -41,7 +41,7 @@ dev = [
   "types-lxml>=2025.11.25",
 ]
 test = [
-  "hypothesis>=6.151.3",
+  "hypothesis>=6.150.3",
   "lxml>=6.0.2",
   "pytest>=9.0.1",
   "pytest-cov>=7.0.0",

@@ -1,7 +1,21 @@
 from hypothesis import strategies as st
 
-from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, It, Note, Ph,
-                                  Pos, Prop, Segtype, Tmx, Tu, Tuv)
+from hypomnema.base.types import (
+  Assoc,
+  Bpt,
+  Ept,
+  Header,
+  Hi,
+  It,
+  Note,
+  Ph,
+  Pos,
+  Prop,
+  Segtype,
+  Tmx,
+  Tu,
+  Tuv,
+)
 
 
 def alternating_types(elements):

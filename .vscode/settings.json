@@ -1,8 +1,6 @@
 {
- "python.analysis.typeCheckingMode": "off",
- "python.REPL.enableREPLSmartSend": false,
  "python.testing.pytestArgs": [
-  "tests"
+  "new_tests"
  ],
  "python.testing.unittestEnabled": false,
  "python.testing.pytestEnabled": true
