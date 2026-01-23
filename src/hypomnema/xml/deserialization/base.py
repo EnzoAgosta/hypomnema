@@ -4,7 +4,8 @@ from enum import StrEnum
 from logging import Logger
 from typing import Callable
 
-from hypomnema.base.errors import AttributeDeserializationError, XmlDeserializationError
+from hypomnema.base.errors import (AttributeDeserializationError,
+                                   XmlDeserializationError)
 from hypomnema.base.types import BaseElement, InlineElement, Sub
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import XmlPolicy
@@ -35,8 +36,8 @@ class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElemen
       The logging instance.
   """
 
-  def __init__(self, backend: XmlBackend, policy: XmlPolicy, logger: Logger):
-    self.backend: XmlBackend[TypeOfBackendElement] = backend
+  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
+    self.backend = backend
     self.policy = policy
     self.logger = logger
     self._emit: Callable[[TypeOfBackendElement], BaseElement | None] | None = None

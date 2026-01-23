@@ -1,21 +1,5 @@
-from hypomnema.xml.utils import assert_object_type
-from hypomnema.base.types import (
-  Assoc,
-  Bpt,
-  Ept,
-  Header,
-  Hi,
-  It,
-  Note,
-  Ph,
-  Pos,
-  Prop,
-  Segtype,
-  Sub,
-  Tmx,
-  Tu,
-  Tuv,
-)
+from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, It, Note, Ph,
+                                  Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
 from hypomnema.xml.serialization.base import BaseElementSerializer
 from hypomnema.xml.utils import assert_object_type
 

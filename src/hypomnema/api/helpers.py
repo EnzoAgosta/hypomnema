@@ -1,11 +1,9 @@
-from collections.abc import Generator, Iterable
-from datetime import UTC, datetime
-from importlib.metadata import version
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Literal
 
-from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, InlineElement,
-                                  It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx,
-                                  Tu, Tuv)
+from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, It, Note, Ph,
+                                  Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
 
 __all__ = [
   "create_tmx",
@@ -74,7 +72,7 @@ def _normalize_content[T](content: Iterable[T] | str | None) -> list[T | str]:
 
 
 def create_tmx(
-  *, header: Header | None = None, body: Iterable[Tu] | None = None, version: str = "1.4"
+  *, header: Header | None = None, body: Sequence[Tu] | None = None, version: str = "1.4"
 ) -> Tmx:
   """Create a Tmx instance with common defaults.
 
@@ -82,8 +80,8 @@ def create_tmx(
   ----------
   header : Header | None, optional
       Header element. If None, creates a default header.
-  body : Iterable[Tu] | None, optional
-      Collection of translation units.
+  body : Sequence[Tu] | None, optional
+      Sequence of translation units.
   version : str, optional
       TMX version (default: "1.4").
 
@@ -96,7 +94,7 @@ def create_tmx(
     header = create_header()
   if body is None:
     body = []
-  return Tmx(header=header, body=list(body), version=version or "1.4")
+  return Tmx(header=header, body=body, version=version or "1.4")
 
 
 def create_header(
@@ -113,8 +111,8 @@ def create_header(
   creationid: str | None = None,
   changedate: datetime | None = None,
   changeid: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Sequence[Note] | None = None,
+  props: Sequence[Prop] | None = None,
 ) -> Header:
   """Create a Header instance with common defaults.
 
@@ -144,9 +142,9 @@ def create_header(
       Last modification timestamp.
   changeid : str | None, optional
       User who last modified the file.
-  notes : Iterable[Note] | None, optional
+  notes : Sequence[Note] | None, optional
       Collection of notes.
-  props : Iterable[Prop] | None, optional
+  props : Sequence[Prop] | None, optional
       Collection of properties.
 
   Returns
@@ -168,8 +166,8 @@ def create_header(
     creationid=creationid,
     changedate=changedate,
     changeid=changeid,
-    notes=notes,
-    props=props,
+    notes=notes if notes else [],
+    props=props if props else [],
   )
 
 
@@ -178,7 +176,7 @@ def create_tu(
   tuid: str | None = None,
   srclang: str | None = None,
   segtype: Segtype | str | None = None,
-  variants: Iterable[Tuv] | None = None,
+  variants: Sequence[Tuv] | None = None,
   o_encoding: str | None = None,
   datatype: str | None = None,
   usagecount: int | None = None,
@@ -190,8 +188,8 @@ def create_tu(
   changedate: datetime | None = None,
   changeid: str | None = None,
   o_tmf: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Sequence[Note] | None = None,
+  props: Sequence[Prop] | None = None,
 ) -> Tu:
   """Create a Tu instance with common defaults.
 
@@ -203,7 +201,7 @@ def create_tu(
       Source language (BCP-47).
   segtype : Segtype | str | None, optional
       Segmentation level override.
-  variants : Iterable[Tuv] | None, optional
+  variants : Sequence[Tuv] | None, optional
       Collection of language variants.
   o_encoding : str | None, optional
       Original encoding.
@@ -227,9 +225,9 @@ def create_tu(
       User who last modified the unit.
   o_tmf : str | None, optional
       Original TMF format.
-  notes : Iterable[Note] | None, optional
+  notes : Sequence[Note] | None, optional
       Collection of notes.
-  props : Iterable[Prop] | None, optional
+  props : Sequence[Prop] | None, optional
       Collection of properties.
 
   Returns
@@ -241,8 +239,8 @@ def create_tu(
   return Tu(
     tuid=tuid,
     srclang=srclang,
-    segtype=segtype,
-    variants=variants,
+    segtype=segtype_enum,
+    variants=variants if variants else [],
     o_encoding=o_encoding,
     datatype=datatype,
     usagecount=usagecount,
@@ -254,15 +252,15 @@ def create_tu(
     changedate=changedate,
     changeid=changeid,
     o_tmf=o_tmf,
-    notes=notes,
-    props=props,
+    notes=notes if notes else [],
+    props=props if props else [],
   )
 
 
 def create_tuv(
   lang: str,
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] | None = None,
   o_encoding: str | None = None,
   datatype: str | None = None,
   usagecount: int | None = None,
@@ -274,8 +272,8 @@ def create_tuv(
   changedate: datetime | None = None,
   changeid: str | None = None,
   o_tmf: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Sequence[Note] | None = None,
+  props: Sequence[Prop] | None = None,
 ) -> Tuv:
   """Create a Tuv instance with common defaults.
 
@@ -283,7 +281,7 @@ def create_tuv(
   ----------
   lang : str
       Language code (BCP-47, required).
-  content : Iterable[str | InlineElement] | None, optional
+  content : Sequence[str | InlineElement] | None, optional
       Segment content (text and inline elements).
   o_encoding : str | None, optional
       Original encoding.
@@ -307,9 +305,9 @@ def create_tuv(
       User who last modified the variant.
   o_tmf : str | None, optional
       Original TMF format.
-  notes : Iterable[Note] | None, optional
+  notes : Sequence[Note] | None, optional
       Collection of notes.
-  props : Iterable[Prop] | None, optional
+  props : Sequence[Prop] | None, optional
       Collection of properties.
 
   Returns
@@ -319,7 +317,7 @@ def create_tuv(
   """
   return Tuv(
     lang=lang,
-    content=content,
+    content=content if content else [],
     o_encoding=o_encoding,
     datatype=datatype,
     usagecount=usagecount,
@@ -331,8 +329,8 @@ def create_tuv(
     changedate=changedate,
     changeid=changeid,
     o_tmf=o_tmf,
-    notes=notes,
-    props=props,
+    notes=notes if notes else [],
+    props=props if props else [],
   )
 
 
@@ -383,7 +381,7 @@ def create_prop(
 def create_bpt(
   i: int,
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Sequence[str | Sub] | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> Bpt:
@@ -393,7 +391,7 @@ def create_bpt(
   ----------
   i : int
       Unique identifier matching the corresponding Ept (required).
-  content : Iterable[str | Sub] | None, optional
+  content : Sequence[str | Sub] | None, optional
       Mixed inline content.
   x : int | None, optional
       External reference identifier.
@@ -405,17 +403,17 @@ def create_bpt(
   Bpt
       A new Begin Paired Tag instance.
   """
-  return Bpt(i=i, x=x, type=type, content=list(content) if content else [])
+  return Bpt(i=i, x=x, type=type, content=content if content else [])
 
 
-def create_ept(i: int, *, content: Iterable[str | Sub] | None = None) -> Ept:
+def create_ept(i: int, *, content: Sequence[str | Sub] | None = None) -> Ept:
   """Create an Ept (End Paired Tag) instance.
 
   Parameters
   ----------
   i : int
       Unique identifier matching the corresponding Bpt (required).
-  content : Iterable[str | Sub] | None, optional
+  content : Sequence[str | Sub] | None, optional
       Mixed inline content.
 
   Returns
@@ -423,13 +421,13 @@ def create_ept(i: int, *, content: Iterable[str | Sub] | None = None) -> Ept:
   Ept
       A new End Paired Tag instance.
   """
-  return Ept(i=i, content=list(content) if content else [])
+  return Ept(i=i, content=content if content else [])
 
 
 def create_it(
   pos: Pos | Literal["begin", "end"],
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Sequence[str | Sub] | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> It:
@@ -439,7 +437,7 @@ def create_it(
   ----------
   pos : Pos | str
       Position: "begin" for opening, "end" for closing (required).
-  content : Iterable[str | Sub] | None, optional
+  content : Sequence[str | Sub] | None, optional
       Mixed inline content.
   x : int | None, optional
       External reference identifier.
@@ -452,12 +450,12 @@ def create_it(
       A new Isolated Tag instance.
   """
   pos_enum = Pos(pos) if isinstance(pos, str) else pos
-  return It(pos=pos_enum, x=x, type=type, content=list(content) if content else [])
+  return It(pos=pos_enum, x=x, type=type, content=content if content else [])
 
 
 def create_ph(
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Sequence[str | Sub] | None = None,
   x: int | None = None,
   assoc: Assoc | Literal["p", "f", "b"] | None = None,
   type: str | None = None,
@@ -466,7 +464,7 @@ def create_ph(
 
   Parameters
   ----------
-  content : Iterable[str | Sub] | None, optional
+  content : Sequence[str | Sub] | None, optional
       Mixed inline content.
   x : int | None, optional
       External reference identifier.
@@ -481,12 +479,12 @@ def create_ph(
       A new Placeholder instance.
   """
   assoc_enum = Assoc(assoc) if isinstance(assoc, str) else assoc
-  return Ph(x=x, assoc=assoc_enum, type=type, content=list(content) if content else [])
+  return Ph(x=x, assoc=assoc_enum, type=type, content=content if content else [])
 
 
 def create_hi(
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> Hi:
@@ -494,7 +492,7 @@ def create_hi(
 
   Parameters
   ----------
-  content : Iterable[str | InlineElement] | None, optional
+  content : Sequence[str | Bpt | Ept | It | Ph | Hi] | None, optional
       Mixed inline content.
   x : int | None, optional
       External reference identifier.
@@ -506,12 +504,12 @@ def create_hi(
   Hi
       A new Highlight instance.
   """
-  return Hi(x=x, type=type, content=list(content) if content else [])
+  return Hi(x=x, type=type, content=content if content else [])
 
 
 def create_sub(
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Sequence[str | Bpt | Ept | It | Ph | Hi] | None = None,
   datatype: str | None = None,
   type: str | None = None,
 ) -> Sub:
@@ -519,7 +517,7 @@ def create_sub(
 
   Parameters
   ----------
-  content : Iterable[str | InlineElement] | None, optional
+  content : Sequence[str | Bpt | Ept | It | Ph | Hi] | None, optional
       Mixed inline content.
   datatype : str | None, optional
       Data type of the sub-flow.
@@ -531,4 +529,4 @@ def create_sub(
   Sub
       A new Sub-flow instance.
   """
-  return Sub(datatype=datatype, type=type, content=list(content) if content else [])
+  return Sub(datatype=datatype, type=type, content=content if content else [])

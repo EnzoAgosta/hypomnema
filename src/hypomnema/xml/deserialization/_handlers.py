@@ -1,22 +1,7 @@
 from hypomnema.base.errors import XmlDeserializationError
-from hypomnema.base.types import (
-  Assoc,
-  InlineElement,
-  Bpt,
-  Ept,
-  Hi,
-  It,
-  Note,
-  Ph,
-  Pos,
-  Prop,
-  Segtype,
-  Sub,
-  Tmx,
-  Tu,
-  Header,
-  Tuv,
-)
+from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, InlineElement,
+                                  It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx,
+                                  Tu, Tuv)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.utils import check_tag
 

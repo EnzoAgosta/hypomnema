@@ -4,8 +4,9 @@ from datetime import datetime
 from enum import StrEnum
 from logging import Logger
 
-from hypomnema.base.errors import AttributeSerializationError, XmlSerializationError
-from hypomnema.base.types import InlineElement, Tuv, BaseElement, Sub
+from hypomnema.base.errors import (AttributeSerializationError,
+                                   XmlSerializationError)
+from hypomnema.base.types import BaseElement, InlineElement, Sub, Tuv
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import XmlPolicy
 
@@ -313,7 +314,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
 
   def _serialize_children[TypeofChildItem: BaseElement](
     self,
-    children: list[TypeofChildItem],
+    children: Collection[TypeofChildItem],
     target: TypeOfBackendElement,
     expected_type: type[TypeofChildItem],
   ) -> None:

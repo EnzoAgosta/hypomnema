@@ -1,52 +1,16 @@
-from hypomnema.base.errors import (
-  XmlSerializationError,
-  XmlDeserializationError,
-  AttributeSerializationError,
-  AttributeDeserializationError,
-  InvalidTagError,
-  InvalidContentError,
-  MissingHandlerError,
-)
-from hypomnema.base.types import (
-  BaseElement,
-  InlineElement,
-  Bpt,
-  Ept,
-  It,
-  Ph,
-  Sub,
-  Hi,
-  Tuv,
-  Tu,
-  Tmx,
-  Header,
-  Prop,
-  Note,
-  Assoc,
-  Pos,
-  Segtype,
-)
-from hypomnema.xml import XmlBackend, LxmlBackend, StandardBackend, Deserializer, Serializer
-
-
+from hypomnema.api import (create_bpt, create_ept, create_header, create_hi,
+                           create_it, create_note, create_ph, create_prop,
+                           create_sub, create_tmx, create_tu, create_tuv, dump,
+                           load)
+from hypomnema.base import (Assoc, AttributeDeserializationError,
+                            AttributeSerializationError, BaseElement, Bpt, Ept,
+                            Header, Hi, InlineElement, InvalidContentError,
+                            InvalidTagError, It, MissingHandlerError, Note, Ph,
+                            Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv,
+                            XmlDeserializationError, XmlSerializationError)
+from hypomnema.xml import (Deserializer, LxmlBackend, Serializer,
+                           StandardBackend, XmlBackend)
 from hypomnema.xml.policy import PolicyValue, XmlPolicy
-
-from hypomnema.api import (
-  load,
-  dump,
-  create_tmx,
-  create_header,
-  create_tu,
-  create_tuv,
-  create_note,
-  create_prop,
-  create_bpt,
-  create_ept,
-  create_it,
-  create_ph,
-  create_hi,
-  create_sub,
-)
 
 __all__ = [
   # Type aliases

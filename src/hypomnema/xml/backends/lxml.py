@@ -1,12 +1,6 @@
-from hypomnema.xml.qname import QName, QNameLike
-from hypomnema.xml.policy import XmlPolicy
+from collections.abc import Generator, Iterable, Iterator, Mapping
 from copy import copy
-from typing import overload, Literal
 from logging import Logger
-from collections.abc import Mapping, Collection, Generator, Iterator
-from hypomnema.xml.utils import prep_tag_set, make_usable_path, normalize_encoding
-from hypomnema.xml.backends.base import XmlBackend
-import lxml.etree as et
 from os import PathLike
 from typing import Literal, overload
 
@@ -22,7 +16,7 @@ __all__ = ["LxmlBackend"]
 
 
 class LxmlBackend(XmlBackend[et._Element]):
-  __slots__ = tuple()
+  __slots__: tuple[str, ...] = tuple()
 
   def __init__(
     self,
@@ -34,10 +28,10 @@ class LxmlBackend(XmlBackend[et._Element]):
     super().__init__(nsmap, logger, default_encoding, policy)
 
   @overload
-  def get_tag(self, element: et._Element, as_qname: Literal[True]) -> QName: ...
+  def get_tag(self, element: et._Element, *, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: et._Element, as_qname: bool = False) -> str: ...
-  def get_tag(self, element: et._Element, as_qname: bool = False) -> str | QName:
+  def get_tag(self, element: et._Element, *, as_qname: Literal[False] = False) -> str: ...
+  def get_tag(self, element: et._Element, *, as_qname: bool = False) -> str | QName:
     tag = element.tag
     result: QName
     match tag:
@@ -56,17 +50,21 @@ class LxmlBackend(XmlBackend[et._Element]):
   ) -> et._Element:
     if attributes is None:
       attributes = {}
+    _attributes = {QName(key, nsmap=self.nsmap).text: value for key, value in attributes.items()}
     _tag = QName(tag, nsmap=self.nsmap)
-    return et.Element(_tag.qualified_name, attrib=attributes)
+    return et.Element(_tag.qualified_name, attrib=_attributes)
 
   def append_child(self, parent: et._Element, child: et._Element) -> None:
     parent.append(child)
 
+  @overload
+  def get_attribute(self, element: et._Element, attribute_name: str) -> str | None: ...
+  @overload
   def get_attribute[TypeOfDefault](
-    self,
-    element: et._Element,
-    attribute_name: str | QNameLike,
-    default: TypeOfDefault | None = None,
+    self, element: et._Element, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
+  def get_attribute[TypeOfDefault](
+    self, element: et._Element, attribute_name: str, *, default: TypeOfDefault | None = None
   ) -> str | TypeOfDefault | None:
     _key = QName(attribute_name, nsmap=self.nsmap)
     return element.get(_key.text, default)
@@ -99,7 +97,7 @@ class LxmlBackend(XmlBackend[et._Element]):
   def iter_children(
     self,
     element: et._Element,
-    tag_filter: str | QNameLike | Collection[str | QNameLike] | None = None,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Generator[et._Element]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     for child in element:
@@ -109,7 +107,9 @@ class LxmlBackend(XmlBackend[et._Element]):
   def parse(self, path: str | PathLike, encoding: str | None = None) -> et._Element:
     path = make_usable_path(path, mkdir=False)
     encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
-    root = et.parse(path, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)).getroot()
+    root = et.parse(
+      path, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
+    ).getroot()
     return root
 
   def write(self, element: et._Element, path: str | PathLike, encoding: str | None = None) -> None:
@@ -132,7 +132,9 @@ class LxmlBackend(XmlBackend[et._Element]):
     return et.tostring(element, encoding=encoding, xml_declaration=False)
 
   def iterparse(
-    self, path: str | PathLike, tag_filter: str | Collection[str] | None = None
+    self,
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Iterator[et._Element]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
