@@ -1,7 +1,7 @@
 from hypomnema.api import (create_bpt, create_ept, create_header, create_hi,
                            create_it, create_note, create_ph, create_prop,
                            create_sub, create_tmx, create_tu, create_tuv, dump,
-                           load)
+                           iter_text, load)
 from hypomnema.base import (Assoc, AttributeDeserializationError,
                             AttributeSerializationError, BaseElement, Bpt, Ept,
                             Header, Hi, InlineElement, InvalidContentError,
@@ -55,6 +55,7 @@ __all__ = [
   # Public API
   "load",
   "dump",
+  "iter_text",
   "create_tmx",
   "create_header",
   "create_tu",
