@@ -190,7 +190,9 @@ class XmlBackend[TypeOfBackendElement](ABC):
   ) -> Iterator[TypeOfBackendElement]: ...
 
   def _iterparse(
-    self, ctx: Iterator[tuple[str, TypeOfBackendElement]], tag_filter: set[str] | None
+    self,
+    ctx: Iterator[tuple[Literal["start", "end"], TypeOfBackendElement]],
+    tag_filter: set[str] | None,
   ) -> Generator[TypeOfBackendElement]:
     elements_pending_yield: list[TypeOfBackendElement] = []
 
