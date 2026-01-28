@@ -1,4 +1,4 @@
-from collections.abc import Collection, Generator, Iterable, Iterator, Mapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
 from copy import copy
 from io import BufferedIOBase
 from os import PathLike
@@ -17,7 +17,7 @@ class StrictBackend(XmlBackend[int]):
 
   def __init__(self, *args, **kwargs) -> None:
     super().__init__(*args, **kwargs)
-    self._store = {}
+    self._store: dict[int, et.Element] = {}
 
   def _register(self, element):
     """Register an internal element and return a handle."""
@@ -31,10 +31,10 @@ class StrictBackend(XmlBackend[int]):
     return self._store[handle]
 
   @overload
-  def get_tag(self, element: int, as_qname: Literal[True]) -> QName: ...
+  def get_tag(self, element: int, *, as_qname: Literal[True]) -> QName: ...
   @overload
-  def get_tag(self, element: int, as_qname: bool = False) -> str: ...
-  def get_tag(self, element: int, as_qname: bool = False) -> str | QName:
+  def get_tag(self, element: int, *, as_qname: Literal[False] = False) -> str: ...
+  def get_tag(self, element: int, *, as_qname: bool = False) -> str | QName:
     _element = self._get_elem(element)
     tag = _element.tag
     result: QName
@@ -64,8 +64,14 @@ class StrictBackend(XmlBackend[int]):
     child_elem = self._get_elem(child)
     parent_elem.append(child_elem)
 
+  @overload
+  def get_attribute(self, element: int, attribute_name: str) -> str | None: ...
+  @overload
   def get_attribute[TypeOfDefault](
-    self, element: int, attribute_name: str | QNameLike, default: TypeOfDefault | None = None
+    self, element: int, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
+  def get_attribute[TypeOfDefault](
+    self, element: int, attribute_name: str, *, default: TypeOfDefault | None = None
   ) -> str | TypeOfDefault | None:
     _key = QName(attribute_name, nsmap=self.nsmap)
     _element = self._get_elem(element)
@@ -104,7 +110,7 @@ class StrictBackend(XmlBackend[int]):
     _element.tail = tail
 
   def iter_children(
-    self, element: int, tag_filter: str | QNameLike | Collection[str | QNameLike] | None = None
+    self, element: int, tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None
   ) -> Generator[int]:
     _element = self._get_elem(element)
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
@@ -143,11 +149,14 @@ class StrictBackend(XmlBackend[int]):
     return et.tostring(_element, encoding=encoding, xml_declaration=False)
 
   def iterparse(
-    self, path: str | PathLike, tag_filter: str | Collection[str] | None = None
+    self,
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Iterator[int]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
-    for elem in self._iterparse(ctx, tag_set):
+    # need to ignore mypy error for same reason as in lxml backend
+    for elem in self._iterparse(ctx, tag_set):  # type: ignore[arg-type]
       yield self._register(elem)
 
   def iterwrite(
