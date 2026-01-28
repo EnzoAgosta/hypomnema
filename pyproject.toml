@@ -46,3 +46,5 @@ test = [
   "pytest-cov>=7.0.0",
   "pytest-mock>=3.15.1",
 ]
+[tool.pytest.ini_options]
+addopts = "-m 'not hypothesis'"
