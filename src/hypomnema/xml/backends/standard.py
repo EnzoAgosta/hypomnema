@@ -128,4 +128,7 @@ class StandardBackend(XmlBackend[et.Element]):
   ) -> Iterator[et.Element]:
     tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
-    yield from self._iterparse(ctx, tag_set)
+    # need to ignore mypy error here because standard typing
+    # doesn't narrow to only "start" and "end" events even
+    # when setting events to ("start", "end")
+    yield from self._iterparse(ctx, tag_set)  # type: ignore[arg-type]
