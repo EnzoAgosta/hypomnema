@@ -1,8 +1,8 @@
-import logging
 from dataclasses import dataclass, field
+from logging import DEBUG
 from typing import Literal
 
-__all__ = ["DeserializationPolicy", "SerializationPolicy", "PolicyValue"]
+__all__ = ["PolicyValue", "XmlPolicy"]
 
 
 @dataclass(slots=True)
@@ -32,80 +32,64 @@ class PolicyValue[Behavior: str]:
 def _default[DefaultBehavior: str](
   default_behavior: DefaultBehavior,
 ) -> PolicyValue[DefaultBehavior]:
-  return field(default_factory=lambda: PolicyValue(default_behavior, logging.DEBUG))
+  return field(default_factory=lambda: PolicyValue(default_behavior, DEBUG))
 
 
 @dataclass(slots=True, kw_only=True)
-class DeserializationPolicy:
+class XmlPolicy:
   """
-  Configuration policy for TMX to Python object conversion.
-
-  Attributes
-  ----------
-  missing_handler : PolicyValue[Literal["raise", "ignore", "default"]]
-      Action when no handler is registered for a TMX element.
-      "default" attempts fallback to internal library handlers.
-  invalid_tag : PolicyValue[Literal["raise", "ignore"]]
-      Action when an unexpected XML tag is encountered.
-  required_attribute_missing : PolicyValue[Literal["raise", "ignore"]]
-      Action when a mandatory TMX attribute is absent.
-  invalid_attribute_value : PolicyValue[Literal["raise", "ignore"]]
-      Action when an attribute value violates TMX specifications.
-  extra_text : PolicyValue[Literal["raise", "ignore"]]
-      Action when unexpected non-whitespace text is found within elements.
-  invalid_child_element : PolicyValue[Literal["raise", "ignore"]]
-      Action when a child element is not permitted by TMX structure.
-  multiple_headers : PolicyValue[Literal["raise", "keep_first", "keep_last"]]
-      Action when more than one `<header>` element exists in `<tmx>`.
-  missing_header : PolicyValue[Literal["raise", "ignore"]]
-      Action when the mandatory `<header>` element is missing.
-  missing_seg : PolicyValue[Literal["raise", "ignore"]]
-      Action when a `<tu>` or `<tuv>` is missing the required `<seg>` element.
-  multiple_seg : PolicyValue[Literal["raise", "keep_first", "keep_last"]]
-      Action when a `<tuv>` contains more than one `<seg>` element.
-  empty_content : PolicyValue[Literal["raise", "ignore", "empty"]]
-      Action when an element has no text content. "empty" converts
-      None to an empty string.
+  Configuration policy for XML serialization and deserialization.
   """
 
-  missing_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default("raise")
+  # Namespace related items
+  existing_namespace: PolicyValue[Literal["raise", "ignore", "overwrite"]] = _default("raise")
+  """Action trying to register a namespace that is already registered."""
+  missing_namespace: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when trying to deregister a namespace that is not registered."""
+  invalid_namespace: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when trying to register a namespace with an invalid URI or prefix."""
+
+  # Deserialization items
+  missing_deserialization_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default(
+    "raise"
+  )
+  """Action when no handler is registered for a TMX element.
+  `default` will attempt fallback to internal library handlers."""
   invalid_tag: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when an unexpected XML tag is encountered."""
   required_attribute_missing: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when a mandatory TMX attribute is absent or its value is None in the case of a dataclass."""
   invalid_attribute_value: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when an attribute value violates TMX specifications."""
   extra_text: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when unexpected non-whitespace text is found within elements."""
   invalid_child_element: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when a child element is not permitted or allowed in that context by the TMX spec."""
   multiple_headers: PolicyValue[Literal["raise", "keep_first", "keep_last"]] = _default("raise")
+  """Action when more than one `<header>` element exists in `<tmx>`.
+  `keep_first` and `keep_last` will keep the first or last header encountered respectively."""
   missing_header: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when the mandatory `<header>` element is missing."""
   missing_seg: PolicyValue[Literal["raise", "ignore", "empty"]] = _default("raise")
+  """Action when a `<tuv>` is missing the required `<seg>` element.
+  `empty` will default to an empty list instead of None."""
   multiple_seg: PolicyValue[Literal["raise", "keep_first", "keep_last"]] = _default("raise")
+  """Action when a `<tuv>` contains more than one `<seg>` element.
+  `keep_first` and `keep_last` will keep the first or last seg encountered respectively."""
   empty_content: PolicyValue[Literal["raise", "ignore", "empty"]] = _default("raise")
+  """Action when an element has no text content.
+  `empty` will fall back to an empty list instead of None."""
 
-
-@dataclass(slots=True, kw_only=True)
-class SerializationPolicy:
-  """
-  Configuration policy for Python object to TMX XML conversion.
-
-  Attributes
-  ----------
-  required_attribute_missing : PolicyValue[Literal["raise", "ignore"]]
-      Action when a mandatory dataclass field is None.
-  invalid_attribute_type : PolicyValue[Literal["raise", "ignore"]]
-      Action when a field type is incompatible with XML attribute standards.
-  invalid_content_type : PolicyValue[Literal["raise", "ignore"]]
-      Action when element text content is not a string.
-  missing_handler : PolicyValue[Literal["raise", "ignore", "default"]]
-      Action when no Serializer class is found for a specific dataclass.
-      "default" attempts fallback to internal library serializers.
-  invalid_object_type : PolicyValue[Literal["raise", "ignore"]]
-      Action when a handler receives an unexpected object type.
-  invalid_child_element : PolicyValue[Literal["raise", "ignore"]]
-      Action when a child object is not valid for the parent TMX element.
-  """
-
-  required_attribute_missing: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  invalid_attribute_type: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  invalid_content_type: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  missing_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default("raise")
+  # Serialization items
+  missing_serialization_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default(
+    "raise"
+  )
+  """Action when no handler is registered for a TMX element.
+  `default` will attempt fallback to internal library handlers."""
+  invalid_attribute_type: PolicyValue[Literal["raise", "ignore", "coerce"]] = _default("raise")
+  """Action when a field type is incompatible with XML attribute standards.
+  `coerce` will attempt to coerce the field to a correct type."""
+  invalid_content_element: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when element text content is not a string."""
   invalid_object_type: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  invalid_child_element: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
+  """Action when a handler receives an unexpected object type."""

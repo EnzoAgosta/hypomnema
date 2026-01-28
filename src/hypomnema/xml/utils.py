@@ -1,39 +1,58 @@
-from unicodedata import category
-from pathlib import Path
-from hypomnema.base.errors import XmlSerializationError, InvalidTagError
-from hypomnema.xml.policy import SerializationPolicy, DeserializationPolicy
 from codecs import lookup
-from collections.abc import Mapping, Iterable
-from logging import Logger
-from typing import TypeIs, Any
+from collections.abc import Iterable
 from encodings import normalize_encoding as python_normalize_encoding
+from logging import Logger
 from os import PathLike
+from pathlib import Path
+from re import IGNORECASE, compile
+from typing import TYPE_CHECKING, Any, Mapping, TypeIs
+from unicodedata import category
+
+from hypomnema.base.errors import InvalidTagError, XmlSerializationError
+from hypomnema.xml.policy import XmlPolicy
+
+if TYPE_CHECKING:
+  from hypomnema.xml.qname import QNameLike
+
+__all__ = [
+  "prep_tag_set",
+  "make_usable_path",
+  "normalize_encoding",
+  "is_ncname",
+  "is_valid_uri",
+  "check_tag",
+]
 
 
-def normalize_encoding(encoding: str | None) -> str:
-  """Normalize an encoding name to its canonical Python codec name.
+def normalize_encoding(encoding: str) -> str:
+  """Normalize and validate an encoding name.
 
-  This function:
-  - Defaults to ``"utf-8"`` if ``encoding`` is None.
-  - Converts "unicode" to "utf-8".
-  - Uses Python's codec normalization for alias resolution.
-  - Validates the encoding is known to Python.
+  Converts the encoding name to a standard form and validates
+  that it is a valid Python codec.
+
+  Special case for "unicode", which gets converted to "utf-8".
 
   Parameters
   ----------
-  encoding : str | None
-      The encoding name to normalize. Can be a codec name, alias, or None.
+  encoding : str
+      The encoding name to normalize.
 
   Returns
   -------
   str
-      The canonical encoding name (lowercase).
+      The normalized encoding name.
 
   Raises
   ------
   ValueError
-      If the encoding is not recognized by Python's codec registry.
+      If the encoding is not recognized.
 
+  Examples
+  --------
+  .. code-block:: python
+
+      normalize_encoding("UTF-8")  # "utf-8"
+      normalize_encoding("unicode")  # "utf-8"
   """
   normalized_encoding = python_normalize_encoding(encoding or "utf-8").lower()
   if encoding == "unicode":
@@ -46,81 +65,77 @@ def normalize_encoding(encoding: str | None) -> str:
 
 
 def prep_tag_set(
-  tags: str | QName | Iterable[str | QName] | None, nsmap: Mapping[str | None, str]
-) -> set[str] | None:
-  """Convert tag names to a set of fully qualified names.
+  tags: str | QNameLike | Iterable[str | QNameLike],
+  *,
+  nsmap: Mapping[str | None, str] | None = None,
+) -> set[str]:
+  """Prepare a set of qualified tag names.
 
-  This function normalizes tag names and converts them to their fully
-  qualified form (Clark notation) using the provided namespace map.
+  Converts tags (strings or QNameLike objects) into their qualified
+  form and returns as a set for efficient lookup.
 
   Parameters
   ----------
-  tags : str | Collection[str] | None
-      A single tag name, a collection of tag names, or None.
-      Tag names can be local names, prefixed names (``prefix:localname``),
-      or fully qualified names (``{uri}localname``).
-  nsmap : dict[str | None, str] | None, optional
-      Namespace map from prefix to URI. Used to resolve prefixed names.
-      Defaults to an empty dictionary.
+  tags : str | QNameLike | Iterable[str | QNameLike]
+      Tag(s) to prepare. Can be a single tag or iterable of tags.
+  nsmap : Mapping[str | None, str] | None
+      Namespace prefix to URI mapping for resolving prefixes.
 
   Returns
   -------
-  set[str] | None
-      A set of fully qualified tag names, or None if ``tags`` was None
-      or empty.
+  set[str]
+      Set of qualified tag names.
 
+  Examples
+  --------
+  .. code-block:: python
+
+      nsmap = {"ns": "http://example.com"}
+      tags = prep_tag_set(["ns:tag1", "ns:tag2"], nsmap=nsmap)
+      # {\"{http://example.com}tag1\", \"{http://example.com}tag2\"}
   """
-  _nsmap = dict() if nsmap is None else nsmap
-  if not tags:
-    return None
+  from hypomnema.xml.qname import QName, QNameLike
+
   if isinstance(tags, str):
-    qname = QName(tags, _nsmap)
+    qname = QName(tags, nsmap=nsmap)
     return {qname.qualified_name}
-  elif isinstance(tags, QName):
-    return {tags.qualified_name}
+  elif isinstance(tags, QNameLike):
+    return {QName(tags, nsmap=nsmap).text}
   else:
-    result = set()
+    result: set[str] = set()
     for tag in tags:
-      if isinstance(tag, str):
-        qname = QName(tag, _nsmap)
-        result.add(qname.qualified_name)
-      elif isinstance(tag, QName):
-        result.add(tag.qualified_name)
-      else:
-        raise TypeError(f"Unexpected tag type: {type(tag)}")
+      result.update(prep_tag_set(tag, nsmap=nsmap))
     return result
 
 
 def assert_object_type[ExpectedType](
-  obj: Any, expected_type: type[ExpectedType], *, logger: Logger, policy: SerializationPolicy
+  obj: Any, expected_type: type[ExpectedType], *, logger: Logger, policy: XmlPolicy
 ) -> TypeIs[ExpectedType]:
   """Assert that an object is of the expected type.
 
-  This function checks the type of an object against an expected type,
-  logs a diagnostic message if mismatched, and optionally raises an
-  exception based on the policy.
+  Checks if an object is an instance of the expected type and
+  handles the result according to the configured policy.
 
   Parameters
   ----------
   obj : Any
       The object to check.
   expected_type : type[ExpectedType]
-      The expected type of the object.
+      The expected type.
   logger : Logger
-      Logger instance for diagnostic messages.
-  policy : SerializationPolicy
-      Policy object controlling behavior when types mismatch.
+      Logger for error messages.
+  policy : XmlPolicy
+      Policy for handling type mismatches.
 
   Returns
   -------
   TypeIs[ExpectedType]
-      True if the object is of the expected type, False otherwise.
+      True if obj is of expected_type, False otherwise.
 
   Raises
   ------
   XmlSerializationError
-      If ``policy.invalid_object_type.behavior`` is ``"raise"``.
-
+      If the object type is incorrect and policy is "raise".
   """
   if not isinstance(obj, expected_type):
     logger.log(
@@ -137,30 +152,28 @@ def assert_object_type[ExpectedType](
   return True
 
 
-def check_tag(tag: str, expected_tag: str, logger: Logger, policy: DeserializationPolicy) -> None:
+def check_tag(tag: str | QNameLike, expected_tag: str, logger: Logger, policy: XmlPolicy) -> None:
   """Check if a tag matches the expected tag.
-
-  This function compares a tag against an expected value, logs a
-  diagnostic message if mismatched, and optionally raises an exception
-  based on the policy.
 
   Parameters
   ----------
-  tag : str
-      The actual tag name found.
+  tag : str | QNameLike
+      The tag to check.
   expected_tag : str
       The expected tag name.
   logger : Logger
-      Logger instance for diagnostic messages.
-  policy : DeserializationPolicy
-      Policy object controlling behavior when tags mismatch.
+      Logger for error messages.
+  policy : XmlPolicy
+      Policy for handling tag mismatches.
 
   Raises
   ------
   InvalidTagError
-      If ``policy.invalid_tag.behavior`` is ``"raise"``.
-
+      If tags don't match and policy is "raise".
   """
+  from hypomnema.xml.qname import QName, QNameLike
+
+  tag = QName(tag).text if isinstance(tag, QNameLike) else tag
   if not tag == expected_tag:
     logger.log(
       policy.invalid_tag.log_level, "Incorrect tag: expected %s, got %s", expected_tag, tag
@@ -169,33 +182,33 @@ def check_tag(tag: str, expected_tag: str, logger: Logger, policy: Deserializati
       raise InvalidTagError(f"Incorrect tag: expected {expected_tag}, got {tag}")
 
 
-def make_usable_path(path: str | bytes | PathLike, *, mkdir: bool = True) -> Path:
-  """Convert a path to a normalized, usable Path object.
+def make_usable_path(path: str | PathLike, *, mkdir: bool = True) -> Path:
+  """Convert a path to an absolute, usable Path object.
 
-  This function normalizes paths by:
-  - Decoding bytes paths to strings.
-  - Expanding user home directory shortcuts (``~``).
-  - Resolving symbolic links to their actual path.
-  - Optionally creating parent directories.
+  Expands user directories, resolves to absolute path, and
+  optionally creates parent directories.
 
   Parameters
   ----------
-  path : str | bytes | PathLike
-      The path to normalize.
-  mkdir : bool, optional
-      If True (default), create any missing parent directories.
-      If False, only return the normalized path without creating directories.
+  path : str | PathLike
+      The path to convert.
+  mkdir : bool
+      If True, create parent directories. Default True.
 
   Returns
   -------
   Path
-      A normalized Path object ready for file operations.
+      The usable Path object.
 
+  Examples
+  --------
+  .. code-block:: python
+
+      path = make_usable_path("~/documents/file.txt")
+      # Returns: Path("/home/user/documents/file.txt")
   """
-  path = path.decode() if isinstance(path, bytes) else path
   final_path = Path(path).expanduser()
-  if final_path.is_symlink():
-    final_path = final_path.resolve()
+  final_path = final_path.resolve()
   if mkdir:
     final_path.parent.mkdir(parents=True, exist_ok=True)
   return final_path
@@ -206,7 +219,6 @@ _NAME_CHAR_CATEGORIES = _NAME_START_CATEGORIES | {"Nd", "Mc", "Mn", "Pc"}
 
 
 def _is_letter(char: str) -> bool:
-  """True if char is an XML 1.0 Letter (Name-start)."""
   cat = category(char)
   if cat in _NAME_START_CATEGORIES:
     return True
@@ -214,7 +226,6 @@ def _is_letter(char: str) -> bool:
 
 
 def _is_ncname_char(char: str) -> bool:
-  """True if char is allowed anywhere in an NCName after the first char."""
   cat = category(char)
   if cat in _NAME_CHAR_CATEGORIES:
     return True
@@ -222,11 +233,12 @@ def _is_ncname_char(char: str) -> bool:
 
 
 def is_ncname(name: str) -> bool:
-  """Return True if *name* is a valid XML 1.0 NCName.
+  """Check if a string is a valid NCName (non-colonized name).
 
-  An NCName (non-colonized name) is a name that cannot contain a colon.
-  It must start with a letter or underscore, and subsequent characters
-  can be letters, digits, underscores, hyphens, or periods.
+  Validates that the name follows XML NCName rules:
+  - Must start with a letter or underscore
+  - Subsequent characters can be letters, digits, underscores,
+    hyphens, periods, or combining characters
 
   Parameters
   ----------
@@ -236,23 +248,16 @@ def is_ncname(name: str) -> bool:
   Returns
   -------
   bool
-      True if the name is a valid NCName, False otherwise.
+      True if valid NCName, False otherwise.
 
-  Notes
-  -----
-  This implements the NCName production from XML Namespaces 1.0:
-  NCName ::= NameStartChar (NameChar)*
-
-  The ASCII underscore (``_``) is explicitly allowed as a NameStartChar
-  even though it's not a Letter category in Unicode.
-
-  See Also
+  Examples
   --------
-  _is_letter : Check if a character is a valid XML NameStartChar.
-  _is_ncname_char : Check if a character is a valid XML NameChar.
+  .. code-block:: python
 
+      is_ncname("validName")  # True
+      is_ncname("invalid:name")  # False
+      is_ncname("123name")  # False
   """
-  """Return True if *name* is a valid XML 1.0 NCName."""
   if not name:
     return False
   if not _is_letter(name[0]):
@@ -260,172 +265,53 @@ def is_ncname(name: str) -> bool:
   return all(_is_ncname_char(ch) for ch in name[1:])
 
 
-def _split_qualified_tag(
-  tag: str, nsmap: Mapping[str | None, str]
-) -> tuple[str | None, str | None, str]:
-  uri, localname = tag[1:].split("}", 1)
-  if not is_ncname(localname):
-    raise ValueError(f"NCName {localname} is not a valid xml localname")
-  if uri == "http://www.w3.org/XML/1998/namespace":
-    return uri, "xml", localname
-  for prefix, value in nsmap.items():
-    if value == uri:
-      return uri, prefix, localname
-  return uri, None, localname
+# RFC 3986 URI regex pattern
+# Adapted from Appendix B of RFC 3986 by Claude 4.5 Opus
+URI_PATTERN = compile(
+  r"^"
+  r"(?:([a-zA-Z][a-zA-Z0-9+.-]*):"  # scheme (required)
+  r"(?:"
+  r"//(?:"  # authority (optional)
+  r"(?:[a-zA-Z0-9._~%!$&'()*+,;=:-]*)@)?"  # userinfo
+  r"(?:"  # host
+  r"\[(?:[a-fA-F0-9:.]+)\]|"  # IPv6
+  r"[a-zA-Z0-9._~%!$&'()*+,;=-]*"  # reg-name or IPv4
+  r")"
+  r"(?::[0-9]*)?"  # port
+  r")?"
+  r"([a-zA-Z0-9._~%!$&'()*+,;=:@/-]*)"  # path
+  r"(?:\?([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # query
+  r"(?:#([a-zA-Z0-9._~%!$&'()*+,;=:@/?-]*))?"  # fragment
+  r")$",
+  IGNORECASE,
+)
 
 
-def _split_prefixed_tag(
-  tag: str, nsmap: Mapping[str | None, str]
-) -> tuple[str | None, str | None, str]:
-  prefix, localname = tag.split(":", 1)
-  if not is_ncname(localname):
-    raise ValueError(f"NCName {localname} is not a valid xml localname")
-  if not is_ncname(prefix):
-    raise ValueError(f"NCName {prefix} is not a valid xml prefix")
-  if prefix == "xml":
-    return "http://www.w3.org/XML/1998/namespace", prefix, localname
-  return nsmap.get(prefix), prefix, localname
+def is_valid_uri(uri: str) -> bool:
+  """Check if a string is a valid URI according to RFC 3986.
 
+  Validates that the string conforms to URI syntax rules
+  including scheme, authority, path, query, and fragment.
 
-class QName:
-  """Represents a qualified XML name with namespace information.
-
-  This class parses and stores the components of a qualified XML name,
-  supporting both Clark notation (``{uri}localname``) and prefixed
-  notation (``prefix:localname``).
-
-  Attributes
+  Parameters
   ----------
-  uri : str | None
-      The namespace URI, or None if no namespace is declared.
-  prefix : str | None
-      The namespace prefix, or None if using default namespace or no namespace.
-  local_name : str
-      The local (unqualified) name component.
+  uri : str
+      The URI to validate.
 
-  Notes
-  -----
-  When a tag is provided in prefixed form (``prefix:localname``), the class
-  looks up the URI from the provided namespace map. If the prefix is not
-  found in the map, the prefix is preserved as-is and URI remains None.
+  Returns
+  -------
+  bool
+      True if valid URI, False otherwise.
 
   Examples
   --------
-  >>> nsmap = {"tmx": "http://www.lisa.org/TMX14"}
-  >>> q = QName("{http://www.lisa.org/TMX14}header", nsmap)
-  >>> q.uri
-  'http://www.lisa.org/TMX14'
-  >>> q.local_name
-  'header'
-  >>> q.qualified_name
-  '{http://www.lisa.org/TMX14}header'
+  .. code-block:: python
 
-  >>> q2 = QName("tmx:header", nsmap)
-  >>> q2.uri
-  'http://www.lisa.org/TMX14'
-  >>> q2.prefixed_name
-  'tmx:header'
-
+      is_valid_uri("http://example.com/path")  # True
+      is_valid_uri("urn:isbn:0451450523")  # True
+      is_valid_uri("not a uri")  # False
   """
+  if not uri or not isinstance(uri, str):
+    return False
 
-  uri: str | None
-  """The namespace URI."""
-  prefix: str | None
-  """The namespace prefix."""
-  local_name: str
-  """The local name."""
-
-  def __init__(
-    self,
-    tag: str | bytes | bytearray | QName,
-    nsmap: Mapping[str | None, str],
-    encoding: str = "utf-8",
-  ) -> None:
-    """Initialize a QName from a tag string and namespace map.
-
-    Parameters
-    ----------
-    tag : str | bytes | bytearray
-        The tag name to parse. Can be in Clark notation (``{uri}localname``),
-        prefixed notation (``prefix:localname``), or a plain local name.
-    nsmap : Mapping[str | None, str]
-        Namespace map from prefix to URI. Used to resolve prefixed names.
-    encoding : str, optional
-        Encoding to use when decoding bytes or bytearray tags.
-        Defaults to ``"utf-8"``.
-
-    Raises
-    ------
-    TypeError
-        If ``tag`` is not a str, bytes, or bytearray.
-    ValueError
-        If the local name or prefix is not a valid NCName.
-
-    """
-    if isinstance(tag, str):
-      tag = tag
-    elif isinstance(tag, (bytes, bytearray)):
-      tag = tag.decode(encoding)
-    elif isinstance(tag, QName):
-      self.uri, self.prefix, self.local_name = tag.uri, tag.prefix, tag.local_name
-      return
-    else:
-      raise TypeError(f"Unexpected tag type: {type(tag)}")
-
-    if tag[0] == "{":
-      self.uri, self.prefix, self.local_name = _split_qualified_tag(tag, nsmap)
-    elif ":" in tag:
-      self.uri, self.prefix, self.local_name = _split_prefixed_tag(tag, nsmap)
-    else:
-      self.uri, self.prefix, self.local_name = None, None, tag
-
-  @property
-  def qualified_name(self) -> str:
-    """The fully qualified name in Clark notation.
-
-    Returns
-    -------
-    str
-        If a namespace URI is set, returns ``{uri}local_name``.
-        Otherwise, returns just the ``local_name``.
-
-    Examples
-    --------
-    >>> nsmap = {"tmx": "http://www.lisa.org/TMX14"}
-    >>> QName("{http://www.lisa.org/TMX14}header", nsmap).qualified_name
-    '{http://www.lisa.org/TMX14}header'
-    >>> QName("header", nsmap).qualified_name
-    'header'
-
-    """
-    if self.uri is None:
-      return self.local_name
-    return f"{{{self.uri}}}{self.local_name}"
-
-  @property
-  def prefixed_name(self) -> str:
-    """The prefixed name using the registered prefix.
-
-    Returns
-    -------
-    str
-        If a prefix is set, returns ``prefix:local_name``.
-        Otherwise, returns just the ``local_name``.
-
-    Notes
-    -----
-    This property uses the prefix that was looked up from the namespace
-    map, not necessarily the prefix that was in the original tag string.
-
-    Examples
-    --------
-    >>> nsmap = {"tmx": "http://www.lisa.org/TMX14"}
-    >>> QName("{http://www.lisa.org/TMX14}header", nsmap).prefixed_name
-    'tmx:header'
-    >>> QName("header", nsmap).prefixed_name
-    'header'
-
-    """
-    if self.prefix is None:
-      return self.local_name
-    return f"{self.prefix}:{self.local_name}"
+  return bool(URI_PATTERN.match(uri))

@@ -1,13 +1,14 @@
-from enum import StrEnum
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import datetime
+from enum import StrEnum
 from logging import Logger
 
-from hypomnema.base.errors import AttributeSerializationError, XmlSerializationError
-from hypomnema.base.types import InlineElement, Tuv, BaseElement, Sub
+from hypomnema.base.errors import (AttributeSerializationError,
+                                   XmlSerializationError)
+from hypomnema.base.types import BaseElement, InlineElement, Sub, Tuv
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import SerializationPolicy
+from hypomnema.xml.policy import XmlPolicy
 
 __all__ = ["BaseElementSerializer"]
 
@@ -20,7 +21,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
   ----------
   backend : XMLBackend[BackendElementType]
       The XML library wrapper used to create and manipulate elements.
-  policy : SerializationPolicy
+  policy : XmlPolicy
       The configuration for handling errors and logging during serialization.
   logger : Logger
       The logging instance for reporting policy violations.
@@ -29,17 +30,15 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
   ----------
   backend : XMLBackend[BackendElementType]
       The XML library wrapper.
-  policy : SerializationPolicy
+  policy : XmlPolicy
       The serialization configuration.
   logger : Logger
       The logging instance.
   """
 
-  def __init__(
-    self, backend: XmlBackend[TypeOfBackendElement], policy: SerializationPolicy, logger: Logger
-  ):
+  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
-    self.policy: SerializationPolicy = policy
+    self.policy: XmlPolicy = policy
     self.logger: Logger = logger
     self._emit: Callable[[BaseElement], TypeOfBackendElement | None] | None = None
 
@@ -156,7 +155,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
       if self.policy.invalid_attribute_type.behavior == "raise":
         raise AttributeSerializationError(f"Attribute {attribute!r} is not a datetime object")
       return
-    self.backend.set_attribute(target, attribute, value.isoformat(), unsafe=True)
+    self.backend.set_attribute(target, attribute, value.isoformat())
 
   def _set_int_attribute(
     self, target: TypeOfBackendElement, value: int | None, attribute: str, required: bool
@@ -269,7 +268,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
     Parameters
     ----------
     source : InlineElement | Tuv
-        The object containing the mixed content list.
+        The object containing the mixed content Collection.
     target : BackendElementType
         The XML element to populate.
     allowed : tuple[type[InlineElement], ...]
@@ -299,13 +298,13 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
       else:
         allowed_names = ", ".join(x.__name__ for x in allowed)
         self.logger.log(
-          self.policy.invalid_content_type.log_level,
+          self.policy.invalid_content_element.log_level,
           "Incorrect child element in %s: expected one of %s, got %r",
           source.__class__.__name__,
           allowed_names,
           item.__class__.__name__,
         )
-        if self.policy.invalid_content_type.behavior == "raise":
+        if self.policy.invalid_content_element.behavior == "raise":
           raise XmlSerializationError(
             f"Incorrect child element in {source.__class__.__name__}:"
             f" expected one of {allowed_names},"
@@ -315,21 +314,21 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement]
 
   def _serialize_children[TypeofChildItem: BaseElement](
     self,
-    children: list[TypeofChildItem],
+    children: Collection[TypeofChildItem],
     target: TypeOfBackendElement,
     expected_type: type[TypeofChildItem],
   ) -> None:
     """
-    Serialize a list of child objects and append them to a target element.
+    Serialize a Collection of child objects and append them to a target element.
 
     Parameters
     ----------
-    children : list[ChildType]
-        The list of TMX objects to serialize.
+    children : Collection[ChildType]
+        The Collection of TMX objects to serialize.
     target : BackendElementType
         The parent XML element to receive the children.
     expected_type : type[ChildType]
-        The required type for objects in the children list.
+        The required type for objects in the children Collection.
 
     Raises
     ------

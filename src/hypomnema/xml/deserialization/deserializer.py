@@ -3,23 +3,20 @@ from logging import Logger, getLogger
 from hypomnema.base.errors import MissingHandlerError
 from hypomnema.base.types import BaseElement
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.deserialization._handlers import (
-  BptDeserializer,
-  EptDeserializer,
-  HeaderDeserializer,
-  HiDeserializer,
-  ItDeserializer,
-  NoteDeserializer,
-  PhDeserializer,
-  PropDeserializer,
-  SubDeserializer,
-  TmxDeserializer,
-  TuDeserializer,
-  TuvDeserializer,
-)
+from hypomnema.xml.deserialization._handlers import (BptDeserializer,
+                                                     EptDeserializer,
+                                                     HeaderDeserializer,
+                                                     HiDeserializer,
+                                                     ItDeserializer,
+                                                     NoteDeserializer,
+                                                     PhDeserializer,
+                                                     PropDeserializer,
+                                                     SubDeserializer,
+                                                     TmxDeserializer,
+                                                     TuDeserializer,
+                                                     TuvDeserializer)
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
-from hypomnema.xml.policy import DeserializationPolicy
-
+from hypomnema.xml.policy import XmlPolicy
 
 __all__ = ["Deserializer"]
 
@@ -32,9 +29,9 @@ class Deserializer[TypeofBackendElement]:
   ----------
   backend : XMLBackend
       The XML library wrapper used for element inspection.
-  policy : DeserializationPolicy | None, optional
+  policy : XmlPolicy | None, optional
       The configuration for error handling and logging. Defaults to a standard
-      DeserializationPolicy.
+      XmlPolicy.
   logger : Logger | None, optional
       The logger for reporting operations and policy violations. Defaults to
        the module-level logger.
@@ -46,7 +43,7 @@ class Deserializer[TypeofBackendElement]:
   ----------
   backend : XMLBackend
       The XML library wrapper.
-  policy : DeserializationPolicy
+  policy : XmlPolicy
       The active deserialization policy.
   logger : Logger
       The active logger.
@@ -57,12 +54,12 @@ class Deserializer[TypeofBackendElement]:
   def __init__(
     self,
     backend: XmlBackend[TypeofBackendElement],
-    policy: DeserializationPolicy | None = None,
+    policy: XmlPolicy | None = None,
     logger: Logger | None = None,
     handlers: dict[str, BaseElementDeserializer[TypeofBackendElement, BaseElement]] | None = None,
   ):
     self.backend: XmlBackend[TypeofBackendElement] = backend
-    self.policy: DeserializationPolicy = policy or DeserializationPolicy()
+    self.policy: XmlPolicy = policy or XmlPolicy()
     self.logger: Logger = logger or getLogger(str(self))
     if handlers is None:
       self.logger.info("Using default handlers")
@@ -126,14 +123,18 @@ class Deserializer[TypeofBackendElement]:
     self.logger.debug("Deserializing <%s>", tag)
     handler = self.handlers.get(tag)
     if handler is None:
-      self.logger.log(self.policy.missing_handler.log_level, "Missing handler for <%s>", tag)
-      if self.policy.missing_handler.behavior == "raise":
+      self.logger.log(
+        self.policy.missing_deserialization_handler.log_level, "Missing handler for <%s>", tag
+      )
+      if self.policy.missing_deserialization_handler.behavior == "raise":
         raise MissingHandlerError(f"Missing handler for <{tag}>") from None
-      elif self.policy.missing_handler.behavior == "ignore":
+      elif self.policy.missing_deserialization_handler.behavior == "ignore":
         return None
       else:
         self.logger.log(
-          self.policy.missing_handler.log_level, "Falling back to default handler for <%s>", tag
+          self.policy.missing_deserialization_handler.log_level,
+          "Falling back to default handler for <%s>",
+          tag,
         )
         handler = self._get_default_handlers().get(tag)
         if handler is None:

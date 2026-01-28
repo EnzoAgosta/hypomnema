@@ -1,590 +1,545 @@
-from typing import overload, Literal
-from logging import Logger, getLogger
-from contextlib import nullcontext
-from pathlib import Path
-from io import BufferedIOBase
-from hypomnema.xml.utils import make_usable_path, normalize_encoding, is_ncname, QName
 from abc import ABC, abstractmethod
-from collections.abc import Collection, Iterator, Generator, Iterable, Mapping, MutableMapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from contextlib import nullcontext
+from io import BufferedIOBase
+from logging import DEBUG, Logger, getLogger
 from os import PathLike
+from pathlib import Path
+from typing import Literal, overload
+
+from hypomnema.base.errors import NamespaceError
+from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.qname import QName, QNameLike
+from hypomnema.xml.utils import (is_ncname, is_valid_uri, make_usable_path,
+                                 normalize_encoding)
 
 __all__ = ["XmlBackend"]
 
 
-class XmlBackend[TypeOfElement](ABC):
-  """Abstract base class for XML document manipulation backends.
+class XmlBackend[TypeOfBackendElement](ABC):
+  """Abstract base class for XML backend implementations.
 
-  This class defines the interface for creating, reading, modifying, and writing
-  XML elements. Concrete implementations provide backend-specific logic using
-  different XML libraries (e.g., stdlib ElementTree, lxml).
+  Provides a unified interface for XML operations across different
+  XML libraries (e.g., stdlib xml.etree, lxml). Subclasses must
+  implement all abstract methods.
 
-  All implementations handle namespace resolution consistently, supporting
-  both Clark notation ``{uri}localname`` and prefixed notation ``prefix:localname``.
+  Parameters
+  ----------
+  nsmap : Mapping[str, str] | None
+      Custom namespace prefix to URI mappings to register.
+  logger : Logger | None
+      Logger instance for debug and error messages.
+  default_encoding : str | None
+      Default encoding for XML operations. Defaults to "utf-8".
+  policy : XmlPolicy | None
+      Policy configuration for error handling behavior.
 
   Attributes
   ----------
+  nsmap : dict[str | None, str]
+      Read-only mapping of namespace prefixes to URIs.
+      Use register_namespace() and deregister_namespace() to modify.
   logger : Logger
-      Logger instance for diagnostic messages. Defaults to ``"XmlBackendLogger"``.
+      Logger instance for debug and error messages.
+  default_encoding : str
+      Default encoding for XML operations.
+  policy : XmlPolicy
+      Policy configuration for error handling.
 
+  Examples
+  --------
+  .. code-block:: python
+
+      from hypomnema.xml.backends.standard import StandardBackend
+
+      backend = StandardBackend(default_encoding="utf-8")
+      elem = backend.create_element("tmx", attributes={"version": "1.4"})
+      backend.set_text(elem, "Hello World")
   """
 
-  __slots__ = ("_global_nsmap", "logger")
-  _global_nsmap: MutableMapping[str | None, str]
+  __slots__ = ("_nsmap", "logger", "default_encoding", "policy")
+  _nsmap: dict[str | None, str]
   logger: Logger
+  default_encoding: str
+  policy: XmlPolicy
 
   def __init__(
-    self, nsmap: Mapping[str | None, str] | None = None, *, logger: Logger | None = None
+    self,
+    nsmap: Mapping[str, str] | None = None,
+    logger: Logger | None = None,
+    default_encoding: str | None = None,
+    policy: XmlPolicy | None = None,
   ) -> None:
-    """Initialize the backend with an optional namespace map.
+    """Initialize the XML backend.
+
+    Sets up default namespace mappings (xml and TMX namespaces),
+    configures encoding, and registers any custom namespaces.
 
     Parameters
     ----------
-    nsmap : Mapping[str | None, str] | None, optional
-        Initial namespace mappings from prefix to URI. Each prefix will be
-        registered via ``register_namespace``.
-    logger : Logger | None, optional
-        Custom logger instance. If not provided, a default logger named
-        ``"XmlBackendLogger"`` is used.
-
+    nsmap : Mapping[str, str] | None
+        Custom namespace prefix to URI mappings.
+    logger : Logger | None
+        Logger instance. Creates default logger if None.
+    default_encoding : str | None
+        Default encoding for XML operations.
+    policy : XmlPolicy | None
+        Policy for error handling behavior.
     """
     self.logger = logger if logger is not None else getLogger("XmlBackendLogger")
-    self._global_nsmap = {"xml": "http://www.w3.org/XML/1998/namespace"}
+    self._nsmap = {"xml": "http://www.w3.org/XML/1998/namespace", None: "http://www.lisa.org/tmx14"}
+    self.default_encoding = (
+      normalize_encoding(default_encoding) if default_encoding is not None else "utf-8"
+    )
+    self.logger.log(DEBUG, "Initialized with default encoding %s", self.default_encoding)
+    self.policy = policy if policy is not None else XmlPolicy()
     if nsmap is not None:
       for prefix, uri in nsmap.items():
         self.register_namespace(prefix, uri)
 
-  @overload
-  @abstractmethod
-  def get_tag(
-    self,
-    element: TypeOfElement,
-    *,
-    as_qname: Literal[True],
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> QName: ...
-  @overload
-  @abstractmethod
-  def get_tag(
-    self,
-    element: TypeOfElement,
-    *,
-    as_qname: bool = False,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> str: ...
-  @abstractmethod
-  def get_tag(
-    self,
-    element: TypeOfElement,
-    *,
-    as_qname: bool = False,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> str | QName:
-    """Return the tag name of an element.
+  def register_namespace(self, prefix: str, uri: str) -> None:
+    """Register a namespace prefix to URI mapping.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose tag to retrieve.
-    as_qname : bool, optional
-        If True, return a ``QName`` object containing namespace information.
-        If False (default), return the fully qualified tag name as a string
-        (e.g., ``{http://example.com}element``).
-    nsmap : Mapping[str | None, str] | None, optional
-        Namespace map to use for resolving prefixes. If not provided,
-        uses the element's intrinsic namespace map if available or the
-        backend's global namespace map if not.
+    prefix : str
+        Namespace prefix to register.
+    uri : str
+        URI associated with the prefix.
+
+    Raises
+    ------
+    NamespaceError
+        If prefix or URI is reserved, invalid, or already registered
+        (depending on policy configuration).
+
+    Examples
+    --------
+    .. code-block:: python
+
+        backend.register_namespace("xhtml", "http://www.w3.org/1999/xhtml")
+    """
+    if prefix in ("xml", None):
+      raise NamespaceError(f"{prefix} is a reserved prefix and cannot be registered again")
+    if uri in ("http://www.w3.org/XML/1998/namespace", "http://www.lisa.org/tmx14"):
+      raise NamespaceError(f"{uri} is reserved URI and cannot be registered again")
+    try:
+      if not is_ncname(prefix):
+        raise NamespaceError(f"{prefix} is not a valid xml prefix")
+      if not is_valid_uri(uri):
+        raise NamespaceError(f"{uri} is not a valid xml uri")
+    except NamespaceError as e:
+      self.logger.log(
+        self.policy.invalid_namespace.log_level, "Failed to register namespace: %s", e
+      )
+      if self.policy.invalid_namespace.behavior == "raise":
+        raise
+      else:
+        return
+    if prefix in self._nsmap:
+      self.logger.log(
+        self.policy.existing_namespace.log_level, "Namespace %s already registered", prefix
+      )
+      if self.policy.existing_namespace.behavior == "raise":
+        raise NamespaceError(f"Namespace {prefix} is already registered")
+      elif self.policy.existing_namespace.behavior == "overwrite":
+        self._nsmap[prefix] = uri
+        self.logger.log(DEBUG, "Overwrote namespace: %s -> %s", prefix, uri)
+        return
+      else:
+        return
+    self._nsmap[prefix] = uri
+    self.logger.log(DEBUG, "Registered namespace: %s -> %s", prefix, uri)
+
+  def deregister_namespace(self, prefix: str) -> None:
+    """Remove a namespace prefix registration.
+
+    Parameters
+    ----------
+    prefix : str
+        Namespace prefix to deregister.
+
+    Raises
+    ------
+    NamespaceError
+        If prefix is reserved or not registered (depending on policy).
+
+    Examples
+    --------
+    .. code-block:: python
+
+        backend.deregister_namespace("custom")
+    """
+    if prefix in ("xml", None):
+      raise NamespaceError(f"{prefix} is reserved and cannot be deregistered")
+    if prefix in self._nsmap:
+      del self._nsmap[prefix]
+      self.logger.log(DEBUG, "Deregistered namespace: %s", prefix)
+    else:
+      self.logger.log(
+        self.policy.missing_namespace.log_level, "Namespace %s is not registered", prefix
+      )
+      if self.policy.missing_namespace.behavior == "ignore":
+        return
+      raise NamespaceError(f"{prefix} is not registered and cannot be deregistered")
+
+  @property
+  def nsmap(self) -> dict[str | None, str]:
+    """Shallow copy of the internal namespace map."""
+    return {k: v for k, v in self._nsmap.items()}
+
+  @nsmap.setter
+  def nsmap(self, value: dict[str | None, str]) -> None:
+    raise AttributeError(
+      "nsmap is read-only. Use register_namespace() and deregister_namespace() instead."
+    )
+
+  @nsmap.deleter
+  def nsmap(self) -> None:
+    raise AttributeError(
+      "nsmap is read-only. Use register_namespace() and deregister_namespace() instead."
+    )
+
+  @overload
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: Literal[True]) -> QName: ...
+  @overload
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: Literal[False] = False) -> str: ...
+  @abstractmethod
+  def get_tag(self, element: TypeOfBackendElement, *, as_qname: bool = False) -> str | QName:
+    """Get the tag name of an element.
+
+    Parameters
+    ----------
+    element : TypeOfBackendElement
+        The XML element.
+    as_qname : bool
+        If True, return QName object. If False, return string.
 
     Returns
     -------
     str | QName
-        The tag name, either as a string or ``QName`` object depending on
-        ``as_qname``.
-
+        The tag name of the element.
     """
     ...
 
   @abstractmethod
-  def create_element[TagType, KeyType, ValueType](
-    self,
-    tag: TagType,
-    attributes: Mapping[KeyType, ValueType] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> TypeOfElement:
-    """Create a new element with the given tag and attributes.
+  def create_element(
+    self, tag: str, attributes: Mapping[str, str] | None = None
+  ) -> TypeOfBackendElement:
+    """Create a new XML element.
 
     Parameters
     ----------
-    tag : str | QName
-        The tag name for the new element. Can be a plain local name,
-        a prefixed name (``prefix:localname``), or a Clark-notation name
-        (``{uri}localname``). If a ``QName`` is provided, its namespace
-        information is used directly.
-    attributes : TAttributes | None, optional
-        A mapping of attribute names to values. Attribute names follow the
-        same resolution rules as tags.
-    nsmap : Mapping[str | None, str] | None, optional
-        Namespace map to use for resolving the tag and any prefixed attributes.
-        If not provided, uses the element's intrinsic namespace map if available
-        or the backend's global namespace map if not.
+    tag : str
+        Tag name for the element.
+    attributes : Mapping[str, str] | None
+        Optional attribute name-value pairs.
 
     Returns
     -------
-    T_Element
-        A newly created element with the specified tag and attributes.
-
-    Notes
-    -----
-    The created element is not attached to any parent. Use ``append_child``
-    to add it to an existing element tree.
-
+    TypeOfBackendElement
+        The created element.
     """
     ...
 
   @abstractmethod
-  def append_child(self, parent: TypeOfElement, child: TypeOfElement) -> None:
-    """Attach a child element to a parent element.
+  def append_child(self, parent: TypeOfBackendElement, child: TypeOfBackendElement) -> None:
+    """Append a child element to a parent.
 
     Parameters
     ----------
-    parent : T_Element
-        The parent element to which the child will be attached.
-    child : T_Element
-        The child element to attach. The child becomes a direct child
-        of the parent and is removed from its previous location if any.
-
-    Raises
-    ------
-    TypeError
-        If either ``parent`` or ``child`` is not a valid element type
-        for this backend.
-
+    parent : TypeOfBackendElement
+        Parent element.
+    child : TypeOfBackendElement
+        Child element to append.
     """
     ...
 
+  @overload
+  def get_attribute(self, element: TypeOfBackendElement, attribute_name: str) -> str | None: ...
+  @overload
+  def get_attribute[TypeOfDefault](
+    self, element: TypeOfBackendElement, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
   @abstractmethod
   def get_attribute[TypeOfDefault](
     self,
-    element: TypeOfElement,
+    element: TypeOfBackendElement,
     attribute_name: str,
-    default: TypeOfDefault | None = None,
     *,
-    nsmap: Mapping[str | None, str] | None = None,
+    default: TypeOfDefault | None = None,
   ) -> str | TypeOfDefault | None:
-    """Retrieve the value of an attribute.
+    """Get an attribute value from an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element from which to retrieve the attribute.
-    attribute_name : T_AttributeKey
-        The name of the attribute. Can be a local name, prefixed name,
-        or Clark-notation name.
-    default : T_AttributeValue | None, optional
-        Value to return if the attribute does not exist. Defaults to None.
-    nsmap : Mapping[str | None, str] | None, optional
-        Namespace map to use for resolving prefixed attribute names.
-        If not provided, uses the element's intrinsic namespace map.
+    element : TypeOfBackendElement
+        The XML element.
+    attribute_name : str
+        Name of the attribute.
+    default : TypeOfDefault | None
+        Default value if attribute is not present.
 
     Returns
     -------
-    T_AttributeValue
-        The attribute value if found, otherwise ``default``.
-
+    str | TypeOfDefault | None
+        The attribute value, or default if not found.
     """
     ...
 
   @abstractmethod
   def set_attribute(
-    self,
-    element: TypeOfElement,
-    attribute_name: str,
-    attribute_value: str | None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
-    unsafe: bool = False,
+    self, element: TypeOfBackendElement, attribute_name: str | QNameLike, attribute_value: str
   ) -> None:
-    """Set or remove an attribute on an element.
+    """Set an attribute on an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element on which to set the attribute.
-    attribute_name : T_AttributeKey
-        The name of the attribute. Can be a local name, prefixed name,
-        or Clark-notation name.
-    attribute_value : T_AttributeValue | None
-        The value to set. If None, the attribute is removed if it exists.
-    nsmap : Mapping[str | None, str] | None, optional
-        Namespace map to use for resolving prefixed attribute names.
-        If not provided, uses the element's intrinsic namespace map
-        if available or the backend's global namespace map if not.
-
-    Notes
-    -----
-    If the attribute already exists, its value is replaced. If ``attribute_value``
-    is None, the attribute is removed entirely in the defaults backend implementation
-    as it is not possible to have a None value for an attribute in XML.
-
+    element : TypeOfBackendElement
+        The XML element.
+    attribute_name : str | QNameLike
+        Name of the attribute (can be QName for namespaced attributes).
+    attribute_value : str
+        Value to set.
     """
     ...
 
   @abstractmethod
-  def get_attribute_map(self, element: TypeOfElement) -> dict[str, str]:
-    """Return all attributes of an element as a mapping.
+  def delete_attribute(
+    self, element: TypeOfBackendElement, attribute_name: str | QNameLike
+  ) -> None:
+    """Delete an attribute from an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose attributes to retrieve.
+    element : TypeOfBackendElement
+        The XML element.
+    attribute_name : str | QNameLike
+        Name of the attribute to delete.
+    """
+    ...
+
+  @abstractmethod
+  def get_attribute_map(self, element: TypeOfBackendElement) -> dict[str, str]:
+    """Get all attributes of an element as a dictionary.
+
+    Parameters
+    ----------
+    element : TypeOfBackendElement
+        The XML element.
 
     Returns
     -------
-    TAttributes
-        A mapping of attribute names to values. The returned mapping is
-        typically a live view of the element's attributes, but this
-        depends on the backend implementation.
-
+    dict[str, str]
+        Mapping of attribute names to values.
     """
     ...
 
   @abstractmethod
-  def get_text(self, element: TypeOfElement) -> str | None:
-    """Return the text content of an element.
+  def get_text(self, element: TypeOfBackendElement) -> str | None:
+    """Get text content of an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose text to retrieve.
+    element : TypeOfBackendElement
+        The XML element.
 
     Returns
     -------
     str | None
-        The text content between the element's opening tag and its first
-        child element, or None if no text exists.
-
-    Notes
-    -----
-    This retrieves only the text before the first child element. To get
-    text after child elements, use ``get_tail``.
-
-    See Also
-    --------
-    set_text : Set the text content of an element.
-    get_tail : Get trailing text after an element.
-
+        Text content, or None if empty.
     """
     ...
 
   @abstractmethod
-  def set_text(self, element: TypeOfElement, text: str | None) -> None:
-    """Set the text content of an element.
+  def set_text(self, element: TypeOfBackendElement, text: str | None) -> None:
+    """Set text content of an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose text to set.
+    element : TypeOfBackendElement
+        The XML element.
     text : str | None
-        The text content to set. If None, any existing text is removed.
-
-    Notes
-    -----
-    This sets only the text before the first child element. To set
-    text after an element, use ``set_tail``.
-
-    See Also
-    --------
-    get_text : Get the text content of an element.
-    set_tail : Set trailing text after an element.
-
+        Text content to set.
     """
     ...
 
   @abstractmethod
-  def get_tail(self, element: TypeOfElement) -> str | None:
-    """Return the trailing text of an element.
+  def get_tail(self, element: TypeOfBackendElement) -> str | None:
+    """Get tail text (text after element's closing tag).
 
     Parameters
     ----------
-    element : T_Element
-        The element whose tail text to retrieve.
+    element : TypeOfBackendElement
+        The XML element.
 
     Returns
     -------
     str | None
-        The text appearing after the element's closing tag and before
-        the next sibling element's opening tag, or None if no tail exists.
-
-    See Also
-    --------
-    set_tail : Set trailing text after an element.
-    get_text : Get text content before child elements.
-
+        Tail text, or None if empty.
     """
     ...
 
   @abstractmethod
-  def set_tail(self, element: TypeOfElement, tail: str | None) -> None:
-    """Set the trailing text of an element.
+  def set_tail(self, element: TypeOfBackendElement, tail: str | None) -> None:
+    """Set tail text of an element.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose tail text to set.
+    element : TypeOfBackendElement
+        The XML element.
     tail : str | None
-        The tail text to set. If None, any existing tail is removed.
-
-    See Also
-    --------
-    get_tail : Get trailing text after an element.
-    set_text : Set text content before child elements.
-
+        Tail text to set.
     """
     ...
 
   @abstractmethod
   def iter_children(
     self,
-    element: TypeOfElement,
-    tag_filter: str | QName | Collection[str | QName] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> Iterator[TypeOfElement]:
-    """Iterate over direct child elements.
+    element: TypeOfBackendElement,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  ) -> Iterator[TypeOfBackendElement]:
+    """Iterate over child elements.
 
     Parameters
     ----------
-    element : T_Element
-        The element whose children to iterate.
-    tag_filter : str | Collection[str] | None, optional
-        If provided, only yield children with matching tags. Supports
-        a single tag string or a collection of tags for multiple matches.
-        Tag names follow the same resolution rules as ``get_tag``.
-    nsmap : Mapping[str, str] | None, optional
-        Namespace map to use for resolving prefixed tag names in the filter.
-        If not provided, uses the element's intrinsic namespace map if available
-        or the backend's global namespace map if not.
+    element : TypeOfBackendElement
+        Parent element.
+    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
+        Optional tag filter(s) to match.
 
-    Yields
-    ------
-    T_Element
-        Each direct child element matching the filter.
-
-    Notes
-    -----
-    This method only yields direct (immediate) children, not nested descendants.
-    Use recursive iteration or multiple calls to traverse deeper levels.
-    If the tag filter is None, all elements are yielded.
-
+    Returns
+    -------
+    Iterator[TypeOfBackendElement]
+        Iterator over matching child elements.
     """
     ...
 
   @abstractmethod
-  def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> TypeOfElement:
+  def parse(self, path: str | PathLike, encoding: str | None = None) -> TypeOfBackendElement:
     """Parse an XML file and return the root element.
 
     Parameters
     ----------
-    path : str | bytes | PathLike
-        The path to the XML file to parse. Can be a string, bytes path,
-        or PathLike object.
-    encoding : str, optional
-        The encoding to use when reading the file. Defaults to ``"utf-8"``.
+    path : str | PathLike
+        Path to the XML file.
+    encoding : str | None
+        Optional encoding override.
 
     Returns
     -------
-    T_Element
-        The root element of the parsed XML document.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file does not exist.
-    ValueError
-        If the file is not valid XML.
-    TypeError
-        If ``path`` is not a valid path type.
-
+    TypeOfBackendElement
+        Root element of the parsed document.
     """
     ...
 
   @abstractmethod
   def write(
-    self, element: TypeOfElement, path: str | bytes | PathLike, encoding: str = "utf-8"
+    self, element: TypeOfBackendElement, path: str | PathLike, encoding: str | None = None
   ) -> None:
-    """Write an element tree to an XML file.
+    """Write an element to a file.
 
     Parameters
     ----------
-    element : T_Element
-        The root element to write.
-    path : str | bytes | PathLike
-        The destination path for the XML file.
-    encoding : str, optional
-        The encoding to use when writing the file. Defaults to ``"utf-8"``.
-
-    Raises
-    ------
-    TypeError
-        If ``element`` is not a valid element type for this backend.
-    OSError
-        If the file cannot be written (e.g., permission denied, invalid path).
-
-    Notes
-    -----
-    The implementation determines whether an XML declaration is written.
-    Some backends may include additional headers or formatting.
-
+    element : TypeOfBackendElement
+        Root element to write.
+    path : str | PathLike
+        Path to write the file.
+    encoding : str | None
+        Optional encoding override.
     """
     ...
 
   @abstractmethod
-  def clear(self, element: TypeOfElement) -> None:
-    """Clear an element's text, attributes, tail and children.
+  def clear(self, element: TypeOfBackendElement) -> None:
+    """Clear element content and free memory.
 
     Parameters
     ----------
-    element : T_Element
-        The element to clear.
-
-    Notes
-    -----
-    This method removes all child elements and resets attributes.
-    The element itself remains in place.
-
+    element : TypeOfBackendElement
+        Element to clear.
     """
     ...
 
   @abstractmethod
   def to_bytes(
-    self, element: TypeOfElement, encoding: str = "utf-8", self_closing: bool = False
+    self, element: TypeOfBackendElement, encoding: str | None = None, self_closing: bool = False
   ) -> bytes:
-    """Convert an element to its XML byte representation.
+    """Serialize an element to bytes.
 
     Parameters
     ----------
-    element : T_Element
-        The element to serialize.
-    encoding : str, optional
-        The encoding to use. Defaults to ``"utf-8"``.
-    self_closing : bool, optional
-        If True, empty elements are written as self-closing tags
-        (e.g., ``<element/>``). If False (default), empty elements
-        have explicit opening and closing tags (``<element></element>``).
+    element : TypeOfBackendElement
+        Element to serialize.
+    encoding : str | None
+        Optional encoding override.
+    self_closing : bool
+        If True, output as self-closing tag if empty.
 
     Returns
     -------
     bytes
-        The XML representation of the element as bytes.
-
-    Raises
-    ------
-    TypeError
-        If ``element`` is not a valid element type for this backend.
-
+        Serialized XML as bytes.
     """
     ...
-
-  def register_namespace(self, prefix: str | None, uri: str) -> None:
-    """Register a namespace mapping for use in tag and attribute resolution.
-
-    Parameters
-    ----------
-    prefix : str | None
-        The namespace prefix to register. Can be None for the default
-        namespace (no prefix required). Must be a valid NCName.
-    uri : str
-        The namespace URI to associate with the prefix.
-
-    Raises
-    ------
-    TypeError
-        If ``prefix`` or ``uri`` is not a string.
-    ValueError
-        If ``prefix`` is not a valid NCName.
-
-    Notes
-    -----
-    Registered namespaces are stored in the backend's global namespace map
-    and used for resolving prefixed tag and attribute names when no explicit
-    ``nsmap`` is provided. Namespace prefixes must be unique within a backend.
-
-    """
-    if not isinstance(uri, str):
-      raise TypeError(f"given uri is not a str: {uri}")
-    if prefix is not None and not isinstance(prefix, str):
-      raise TypeError(f"given prefix is not a str: {prefix}")
-    if prefix is not None and not is_ncname(prefix):
-      raise ValueError(f"NCName {prefix} is not a valid xml prefix")
-    if prefix == "xml":
-      raise ValueError(f"NCName {prefix} is reserved for the xml namespace")
-    self._global_nsmap[prefix] = uri
 
   @abstractmethod
   def iterparse(
     self,
-    path: str | bytes | PathLike,
-    tag_filter: str | Collection[str] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> Iterator[TypeOfElement]:
-    """Iteratively parse an XML file, yielding elements as they are closed.
-
-    This method provides memory-efficient parsing of large XML files by
-    processing elements incrementally rather than loading the entire
-    document into memory.
-
-    It yields elements Depth-First and in document order. It is also intended
-    to be as memory-efficient as possible, as such as soon as an element that
-    has been yielded is deemed safe to clear (e.g., all its possible ancestors
-    have also been yielded), it is cleared to free up memory.
-
-    This means that the caller must be careful to not keep references to
-    elements yielded by this method as they may be cleared at any time
-    and without warning.
-
-    It also **strongly** recommended that a ``tag_filter`` is provided
-    and for it to be as narrow as possible so as to not defeat the
-    memory efficiency benefits of this method.
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  ) -> Iterator[TypeOfBackendElement]:
+    """Parse XML incrementally, yielding matching elements.
 
     Parameters
     ----------
-    path : str | bytes | PathLike
-        The path to the XML file to parse.
-    tag_filter : str | Collection[str] | None, optional
-        If provided, only yield elements with matching tags. This can
-        significantly reduce memory usage when only specific elements
-        are needed. Tag names follow the same resolution rules as ``get_tag``.
-    nsmap : Mapping[str, str] | None, optional
-        Namespace map to use for resolving prefixed tag names in the filter.
-        If not provided, uses the backend's global namespace map.
+    path : str | PathLike
+        Path to the XML file.
+    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
+        Tag(s) to match and yield.
 
-    Yields
-    ------
-    T_Element
-        Each element that matches ``tag_filter`` as it is fully parsed.
+    Returns
+    -------
+    Iterator[TypeOfBackendElement]
+        Iterator over matching elements.
 
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file does not exist.
-    ValueError
-        If the file is not valid XML.
+    Examples
+    --------
+    .. code-block:: python
 
-    Notes
-    -----
-    If the tag filter is None, all elements are yielded and the entire
-    tree will slowly be built into memory.
-    namespaces are NOT automatically registered to the backend's global
-    namespace map as they encountered
-
+        for tu in backend.iterparse("large.tmx", "tu"):
+          process(tu)
     """
     ...
 
   def _iterparse(
-    self, ctx: Iterator[tuple[str, TypeOfElement]], tag_filter: set[str] | None
-  ) -> Generator[TypeOfElement]:
-    elements_pending_yield: list[TypeOfElement] = []
+    self,
+    ctx: Iterator[tuple[Literal["start", "end"], TypeOfBackendElement]],
+    tag_filter: set[str] | None,
+  ) -> Generator[TypeOfBackendElement]:
+    """Internal helper for incremental parsing.
+
+    Processes start/end events from the underlying XML parser
+    and yields elements matching the tag filter.
+
+    Parameters
+    ----------
+    ctx : Iterator[tuple[Literal["start", "end"], TypeOfBackendElement]]
+        Iterator yielding (event, element) tuples.
+    tag_filter : set[str] | None
+        Set of tag names to match.
+
+    Yields
+    ------
+    TypeOfBackendElement
+        Elements matching the filter.
+
+    Notes
+    -----
+    This is an internal method used by concrete backend implementations.
+    Clears elements from memory after yielding to reduce memory usage.
+    """
+    elements_pending_yield: list[TypeOfBackendElement] = []
 
     for event, elem in ctx:
       if event == "start":
@@ -603,84 +558,68 @@ class XmlBackend[TypeOfElement](ABC):
 
   def iterwrite(
     self,
-    path: str | bytes | PathLike | BufferedIOBase,
-    elements: Iterable[TypeOfElement],
-    encoding: str = "utf-8",
+    path: str | PathLike | BufferedIOBase,
+    elements: Iterable[TypeOfBackendElement],
+    encoding: str | None = None,
     *,
-    root_elem: TypeOfElement | None = None,
+    root_elem: TypeOfBackendElement | None = None,
     max_number_of_elements_in_buffer: int = 1000,
-    write_xml_declaration: bool = True,
-    write_doctype: bool = True,
+    write_xml_declaration: bool = False,
+    write_doctype: bool = False,
   ) -> None:
-    """Iteratively write elements to an XML file with streaming.
+    """Write elements incrementally to a file.
 
-    This method provides memory-efficient writing of large XML files by
-    buffering elements and writing them incrementally.
-
-    Also useful any BufferedIOBase objects, making it suitable for streaming
-    to a network socket or other streaming destination.
+    Efficiently writes large XML files by buffering elements
+    and writing them in batches. Creates a root element wrapper
+    and inserts serialized elements into it.
 
     Parameters
     ----------
-    path : str | bytes | PathLike | BufferedIOBase
-        The destination path or file-like object for the XML output.
-        If a PathLike or string, the file is created (or overwritten).
-        If a BufferedIOBase, it must be opened in binary write mode.
-    elements : Iterable[T_Element]
-        The elements to write. Elements are processed lazily and buffered
-        to minimize memory usage.
-    encoding : str, optional
-        The encoding to use for the output file. Defaults to ``"utf-8"``.
-    root_elem : T_Element | None, optional
-        A custom root element to wrap the output. If not provided, a
-        default ``<tmx version="1.4">`` element is created.
-        If provided, the elements are written as children of this element.
-    max_number_of_elements_in_buffer : int, optional
-        The number of elements to buffer before flushing.
-        Larger values may improve performance but increase memory usage.
-        Must be at least 1. Defaults to 1000.
-    write_declaration : bool, optional
-        If True (default), include the xml declaration.
-    write_doctype : bool, optional
-        If True (default), include the TMX DOCTYPE declaration.
+    path : str | PathLike | BufferedIOBase
+        Path or file handle to write to.
+    elements : Iterable[TypeOfBackendElement]
+        Elements to serialize and write.
+    encoding : str | None
+        Optional encoding override. Defaults to backend encoding.
+    root_elem : TypeOfBackendElement | None
+        Root element wrapper. Creates a <tmx version="1.4"> if None.
+    max_number_of_elements_in_buffer : int
+        Number of elements to buffer before writing. Default 1000.
+    write_xml_declaration : bool
+        If True, write XML declaration at start.
+    write_doctype : bool
+        If True, write DOCTYPE declaration.
 
     Raises
     ------
     ValueError
-        If ``max_number_of_elements_in_buffer`` is less than 1.
-    OSError
-        If the file cannot be written.
+        If buffer size is less than 1.
 
-    Notes
-    -----
-    The output format is::
+    Examples
+    --------
+    .. code-block:: python
 
-        <?xml version="1.0" encoding="..."?>
-        <!DOCTYPE tmx SYSTEM "tmx14.dtd">
-        <root_elem>
-            <elem1/>
-            <elem2/>
-            ...
-        </root_elem>
-
-    Elements are written as self-closing tags (e.g., ``<elem/>``) when
-    they have no text content.
-
+        backend.iterwrite(
+          "output.tmx",
+          elements,
+          root_elem=backend.create_element("tmx", {"version": "1.4"}),
+          write_xml_declaration=True,
+        )
     """
     if max_number_of_elements_in_buffer < 1:
       raise ValueError("buffer_size must be >= 1")
-    if isinstance(path, (str, bytes, PathLike)):
+    if isinstance(path, (str, PathLike)):
       path = make_usable_path(path)
-    _encoding = normalize_encoding(encoding)
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
     if root_elem is None:
       root_elem = self.create_element("tmx", attributes={"version": "1.4"})
 
-    root_string = self.to_bytes(root_elem, _encoding, self_closing=False)
-    pos = root_string.rfind(b"</")
+    root_string = self.to_bytes(root_elem, encoding, self_closing=False)
+    pos = root_string.rfind("</".encode(encoding))
     if pos == -1:
       raise ValueError(
         "Cannot find closing tag for root element after converting to bytes with 'self_closing=True'. Please check to_bytes() implementation.",
-        root_string.decode(_encoding),
+        root_string.decode(encoding),
       )
 
     buffer = []
@@ -688,12 +627,16 @@ class XmlBackend[TypeOfElement](ABC):
 
     with ctx as output:
       if write_xml_declaration:
-        output.write(b'<?xml version="1.0" encoding="' + _encoding.encode(_encoding) + b'"?>\n')
+        output.write(
+          '<?xml version="1.0" encoding="'.encode(encoding)
+          + encoding.encode(encoding)
+          + '"?>\n'.encode(encoding)
+        )
       if write_doctype:
-        output.write(b'<!DOCTYPE tmx SYSTEM "tmx14.dtd">\n')
+        output.write('<!DOCTYPE tmx SYSTEM "tmx14.dtd">\n'.encode(encoding))
       output.write(root_string[:pos])
       for elem in elements:
-        buffer.append(self.to_bytes(elem, _encoding))
+        buffer.append(self.to_bytes(elem, encoding))
         if len(buffer) == max_number_of_elements_in_buffer:
           output.write(b"".join(buffer))
           buffer.clear()

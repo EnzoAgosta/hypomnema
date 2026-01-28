@@ -1,365 +1,391 @@
-from typing import overload, Literal
-from collections.abc import Mapping, Collection, Generator, Iterator
-from hypomnema.xml.utils import QName, prep_tag_set, make_usable_path, normalize_encoding
-from hypomnema.xml.backends.base import XmlBackend
-import lxml.etree as et
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from copy import copy
+from logging import Logger
 from os import PathLike
+from typing import Literal, overload
+
+import lxml.etree as et
+
+from hypomnema.xml.backends.base import XmlBackend
+from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.qname import QName, QNameLike
+from hypomnema.xml.utils import (make_usable_path, normalize_encoding,
+                                 prep_tag_set)
 
 __all__ = ["LxmlBackend"]
 
-type LxmlTagType = str | bytes | bytearray | et.QName | QName
-type LxmlKeyValType = str | bytes | et.QName | QName
-
-
-def _normalize_to_str(
-  value: LxmlTagType,
-  nsmap: Mapping[str | None, str],
-  encoding: str = "utf-8",
-  no_bytearray: bool = False,
-) -> str:
-  match value:
-    case et.QName():
-      return value.text
-    case bytearray():
-      if no_bytearray:
-        raise TypeError(f"Unexpected bytearray value: {value!r}")
-      return value.decode(normalize_encoding("utf-8"))
-    case bytes():
-      return value.decode(normalize_encoding("utf-8"))
-    case QName():
-      return value.qualified_name
-    case str():
-      return QName(value, nsmap).qualified_name
-    case _:
-      raise TypeError(f"Unexpected value type: {type(value)}")
-  return value
-
 
 class LxmlBackend(XmlBackend[et._Element]):
-  """XML backend using the lxml library.
+  """XML backend using lxml for improved performance.
 
-  This backend provides higher performance and additional features compared
-  to the standard library implementation, including better XPath support
-  and more efficient memory handling for large documents.
+  This backend provides XML operations using the lxml library,
+  which is significantly faster than the standard library for
+  large files. Requires lxml to be installed.
 
-  The backend uses ``lxml.etree._Element`` for element representation and
-  ``lxml._types._AttrMapping`` for attribute dictionaries.
+  Parameters
+  ----------
+  nsmap : Mapping[str, str] | None
+      Custom namespace prefix to URI mappings.
+  logger : Logger | None
+      Logger instance for debug and error messages.
+  default_encoding : str | None
+      Default encoding for XML operations. Defaults to "utf-8".
+  policy : XmlPolicy | None
+      Policy configuration for error handling behavior.
 
-  Notes
-  -----
-  When ``get_tag`` encounters bytes or bytearray tags (as lxml may return
-  for certain encodings), it decodes them using the specified encoding.
+  Examples
+  --------
+  .. code-block:: python
 
-  The ``get_attribute`` and ``set_attribute`` methods accept ``lxml.etree.QName``
-  objects in addition to strings for the ``attribute_name`` parameter.
+      from hypomnema.xml.backends.lxml import LxmlBackend
 
+      backend = LxmlBackend()
+      root = backend.parse("input.xml")
+      print(backend.get_tag(root))
   """
 
-  __slots__ = tuple()
+  __slots__: tuple[str, ...] = tuple()
 
-  @overload
-  def get_tag(
+  def __init__(
     self,
-    element: et._Element,
-    *,
-    encoding: str = "utf-8",
-    as_qname: Literal[True],
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> QName: ...
-  @overload
-  def get_tag(
-    self,
-    element: et._Element,
-    *,
-    encoding: str = "utf-8",
-    as_qname: bool = False,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> str: ...
-  def get_tag(
-    self,
-    element: et._Element,
-    *,
-    encoding: str = "utf-8",
-    as_qname: bool = False,
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> str | QName:
-    """Return the tag name of an element.
-
-    This implementation handles lxml's internal QName representation
-    and decodes byte/bytearray tags when necessary.
+    nsmap: Mapping[str, str] | None = None,
+    logger: Logger | None = None,
+    default_encoding: str | None = None,
+    policy: XmlPolicy | None = None,
+  ):
+    """Initialize the LxmlBackend.
 
     Parameters
     ----------
-    encoding : str, optional
-        Encoding to use when decoding bytearray tags. Defaults to ``"utf-8"``.
-        This parameter is specific to the lxml backend.
-    as_qname : bool, optional
-        If True, return a ``QName`` object. If False (default), return
-        the fully qualified tag name as a string.
-    nsmap : Mapping[str | None, str] | None, optional
-        Namespace map for resolution. Defaults to the element's intrinsic
-        namespace map.
+    nsmap : Mapping[str, str] | None
+        Custom namespace prefix to URI mappings.
+    logger : Logger | None
+        Logger instance.
+    default_encoding : str | None
+        Default encoding for XML operations.
+    policy : XmlPolicy | None
+        Policy for error handling.
+    """
+    super().__init__(nsmap, logger, default_encoding, policy)
+
+  @overload
+  def get_tag(self, element: et._Element, *, as_qname: Literal[True]) -> QName: ...
+  @overload
+  def get_tag(self, element: et._Element, *, as_qname: Literal[False] = False) -> str: ...
+  def get_tag(self, element: et._Element, *, as_qname: bool = False) -> str | QName:
+    """Get the tag name of an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    as_qname : bool
+        If True, return QName object. If False, return string.
 
     Returns
     -------
     str | QName
-        The tag name as a string or ``QName`` object.
-
+        The tag name of the element.
     """
-    _encoding = normalize_encoding(encoding)
-    tag = _normalize_to_str(element.tag, element.nsmap, _encoding)
-    if as_qname:
-      return QName(tag, nsmap if nsmap is not None else element.nsmap, encoding=_encoding)
-    return tag
+    tag = element.tag
+    result: QName
+    match tag:
+      case et.QName():
+        result = QName(tag.text, nsmap=self.nsmap)
+      case bytearray() | bytes():
+        result = QName(tag.decode(self.default_encoding), nsmap=self.nsmap)
+      case str():
+        result = QName(tag, nsmap=self.nsmap)
+      case _:
+        raise TypeError(f"Unexpected tag type: {type(tag)}")
+    return result if as_qname else result.text
 
   def create_element(
-    self,
-    tag: LxmlTagType,
-    attributes: Mapping[LxmlKeyValType, str] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
-    encoding: str = "utf-8",
+    self, tag: str | QNameLike, attributes: Mapping[str, str] | None = None
   ) -> et._Element:
-    _nsmap = nsmap if nsmap is not None else self._global_nsmap
-    _tag = _normalize_to_str(tag, _nsmap, encoding)
-    _attributes = {}
-    if attributes is not None:
-      for key, value in attributes.items():
-        normalized_key = _normalize_to_str(key, _nsmap, encoding, no_bytearray=True)
-        if not isinstance(value, str):
-          raise TypeError(f"Unexpected value type: {type(value)}")
-        _attributes[normalized_key] = value
-    return et.Element(_tag, attrib=_attributes)
-
-  def append_child(self, parent: et._Element, child: et._Element) -> None:
-    if not isinstance(parent, et._Element):
-      raise TypeError(f"Parent is not an lxml.etree._Element: {type(parent)}")
-    if not isinstance(child, et._Element):
-      raise TypeError(f"Child is not an lxml.etree._Element: {type(child)}")
-    parent.append(child)
-
-  def get_attribute[T](
-    self,
-    element: et._Element,
-    attribute_name: LxmlKeyValType,
-    default: T | None = None,
-    *,
-    encoding: str = "utf-8",
-    nsmap: Mapping[str | None, str] | None = None,
-  ) -> LxmlKeyValType | T | None:
-    """Retrieve the value of an attribute.
-
-    This implementation accepts ``lxml.etree.QName`` objects for
-    ``attribute_name`` and handles bytes/bytearray attribute names.
+    """Create a new XML element.
 
     Parameters
     ----------
-    attribute_name : str | bytes | QName
-        The attribute name. Can be a string, bytes, bytearray, or
-        ``lxml.etree.QName`` object.
-    encoding : str, optional
-        Encoding to use when decoding bytearray attribute names.
-        Defaults to ``"utf-8"``. Specific to lxml backend.
-    default : str | None, optional
-        Value to return if the attribute does not exist.
+    tag : str | QNameLike
+        Tag name for the element.
+    attributes : Mapping[str, str] | None
+        Optional attribute name-value pairs.
+
+    Returns
+    -------
+    et._Element
+        The created element.
+    """
+    if attributes is None:
+      attributes = {}
+    _attributes = {QName(key, nsmap=self.nsmap).text: value for key, value in attributes.items()}
+    _tag = QName(tag, nsmap=self.nsmap)
+    return et.Element(_tag.qualified_name, attrib=_attributes)
+
+  def append_child(self, parent: et._Element, child: et._Element) -> None:
+    """Append a child element to a parent.
+
+    Parameters
+    ----------
+    parent : et._Element
+        Parent element.
+    child : et._Element
+        Child element to append.
+    """
+    parent.append(child)
+
+  @overload
+  def get_attribute(self, element: et._Element, attribute_name: str) -> str | None: ...
+  @overload
+  def get_attribute[TypeOfDefault](
+    self, element: et._Element, attribute_name: str, *, default: TypeOfDefault
+  ) -> str | TypeOfDefault: ...
+  def get_attribute[TypeOfDefault](
+    self, element: et._Element, attribute_name: str, *, default: TypeOfDefault | None = None
+  ) -> str | TypeOfDefault | None:
+    """Get an attribute value from an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    attribute_name : str
+        Name of the attribute.
+    default : TypeOfDefault | None
+        Default value if attribute is not present.
+
+    Returns
+    -------
+    str | TypeOfDefault | None
+        The attribute value, or default if not found.
+    """
+    _key = QName(attribute_name, nsmap=self.nsmap)
+    return element.get(_key.text, default)
+
+  def set_attribute(
+    self, element: et._Element, attribute_name: str | QNameLike, attribute_value: str
+  ) -> None:
+    """Set an attribute on an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    attribute_name : str | QNameLike
+        Name of the attribute.
+    attribute_value : str
+        Value to set.
+    """
+    _key = QName(attribute_name, nsmap=self.nsmap)
+    element.set(_key.text, attribute_value)
+
+  def delete_attribute(self, element: et._Element, attribute_name: str | QNameLike) -> None:
+    """Delete an attribute from an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    attribute_name : str | QNameLike
+        Name of the attribute to delete.
+    """
+    _key = QName(attribute_name, nsmap=self.nsmap)
+    element.attrib.pop(_key.text, None)
+
+  def get_attribute_map(self, element: et._Element) -> dict[str, str]:
+    """Get all attributes of an element as a dictionary.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of attribute names to values.
+    """
+    return {k: v for k, v in element.attrib.items()}
+
+  def get_text(self, element: et._Element) -> str | None:
+    """Get text content of an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
 
     Returns
     -------
     str | None
-        The attribute value or ``default``.
-
+        Text content, or None if empty.
     """
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
-
-    attribute_name = _normalize_to_str(
-      attribute_name, nsmap if nsmap is not None else element.nsmap, encoding
-    )
-    return element.get(attribute_name, default)
-
-  def set_attribute(
-    self,
-    element: et._Element,
-    attribute_name: LxmlKeyValType,
-    attribute_value: LxmlKeyValType | None,
-    *,
-    encoding: str = "utf-8",
-    nsmap: Mapping[str | None, str] | None = None,
-    unsafe: bool = False,
-  ) -> None:
-    """Set or remove an attribute on an element.
-
-    This implementation accepts ``lxml.etree.QName`` objects for
-    ``attribute_name`` and handles bytes/bytearray attribute names.
-    Silently ignores KeyError when removing non-existent attributes.
-
-    Parameters
-    ----------
-    attribute_name : str | bytes | bytearray | QName
-        The attribute name. Can be a string, bytes, bytearray, or
-        ``lxml.etree.QName`` object.
-    attribute_value : str | None
-        The value to set. If None, the attribute is removed.
-    encoding : str, optional
-        Encoding to use when decoding bytearray attribute names.
-        Defaults to ``"utf-8"``. Specific to lxml backend.
-
-    """
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}") from None
-    _nsmap = nsmap if nsmap is not None else element.nsmap
-    attribute_name = (
-      attribute_name
-      if unsafe
-      else _normalize_to_str(attribute_name, _nsmap, encoding, no_bytearray=True)
-    )
-    if attribute_value is None:
-      if attribute_name in element.attrib:
-        element.attrib.pop(attribute_name)  # type: ignore
-    else:
-      attribute_value = (
-        attribute_value
-        if unsafe
-        else _normalize_to_str(attribute_value, _nsmap, encoding, no_bytearray=True)
-      )
-      element.attrib[attribute_name] = attribute_value  # type: ignore
-
-  def get_attribute_map(self, element: et._Element) -> dict[str, str]:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
-    _attrib = {}
-    for key, value in element.attrib.items():
-      normalized_key = _normalize_to_str(key, element.nsmap)
-      normalized_value = _normalize_to_str(value, element.nsmap)
-      _attrib[normalized_key] = normalized_value
-    return _attrib
-
-  def get_text(self, element: et._Element) -> str | None:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
     return element.text
 
   def set_text(self, element: et._Element, text: str | None) -> None:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
+    """Set text content of an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    text : str | None
+        Text content to set.
+    """
     element.text = text
 
   def get_tail(self, element: et._Element) -> str | None:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
+    """Get tail text (text after element's closing tag).
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+
+    Returns
+    -------
+    str | None
+        Tail text, or None if empty.
+    """
     return element.tail
 
   def set_tail(self, element: et._Element, tail: str | None) -> None:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
+    """Set tail text of an element.
+
+    Parameters
+    ----------
+    element : et._Element
+        The XML element.
+    tail : str | None
+        Tail text to set.
+    """
     element.tail = tail
 
   def iter_children(
     self,
     element: et._Element,
-    tag_filter: LxmlTagType | Collection[LxmlTagType] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Generator[et._Element]:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
-    _nsmap = nsmap if nsmap is not None else element.nsmap
-    match tag_filter:
-      case None:
-        tag_filter = None
-      case str() | bytes() | bytearray() | et.QName() | QName() | None:
-        tag_filter = prep_tag_set(
-          _normalize_to_str(tag_filter, _nsmap), nsmap if nsmap is not None else element.nsmap
-        )
-      case Collection():
-        tag_filter = prep_tag_set((_normalize_to_str(tag, _nsmap) for tag in tag_filter), _nsmap)
-      case _:
-        raise TypeError(f"Unexpected tag filter type: {type(tag_filter)}")
-    for child in element:
-      if tag_filter is None or child.tag in tag_filter:
-        yield child
-
-  def parse(self, path: str | bytes | PathLike, encoding: str = "utf-8") -> et._Element:
-    """Parse an XML file and return the root element.
-
-    This implementation uses lxml's XMLParser with ``recover=True``,
-    allowing parsing of malformed XML where possible.
-
-    Parameters
-    ----------
-    path : str | bytes | PathLike
-        The path to the XML file to parse.
-    encoding : str, optional
-        The encoding to use when reading the file. Defaults to ``"utf-8"``.
-
-    Returns
-    -------
-    et._Element
-        The root element of the parsed XML document.
-
-    """
-    path = make_usable_path(path, mkdir=False)
-    root = et.parse(
-      path, parser=et.XMLParser(encoding=normalize_encoding(encoding), recover=True)
-    ).getroot()
-    return root
-
-  def write(
-    self, element: et._Element, path: str | bytes | PathLike, encoding: str = "utf-8"
-  ) -> None:
-    """Write an element tree to an XML file.
-
-    This implementation uses lxml's ``xmlfile`` context manager for
-    efficient writing with proper XML declaration handling.
+    """Iterate over child elements.
 
     Parameters
     ----------
     element : et._Element
-        The root element to write.
-    path : str | bytes | PathLike
-        The destination path for the XML file.
-    encoding : str, optional
-        The encoding to use when writing the file. Defaults to ``"utf-8"``.
+        Parent element.
+    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
+        Optional tag filter(s) to match.
 
+    Returns
+    -------
+    Generator[et._Element]
+        Generator yielding matching child elements.
     """
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
+    tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
+    for child in element:
+      if tag_set is None or child.tag in tag_set:
+        yield child
+
+  def parse(self, path: str | PathLike, encoding: str | None = None) -> et._Element:
+    """Parse an XML file and return the root element.
+
+    Uses a parser with recover=True and resolve_entities=False
+    for security and robustness.
+
+    Parameters
+    ----------
+    path : str | PathLike
+        Path to the XML file.
+    encoding : str | None
+        Optional encoding override.
+
+    Returns
+    -------
+    et._Element
+        Root element of the parsed document.
+    """
+    path = make_usable_path(path, mkdir=False)
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    root = et.parse(
+      path, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
+    ).getroot()
+    return root
+
+  def write(self, element: et._Element, path: str | PathLike, encoding: str | None = None) -> None:
+    """Write an element to a file.
+
+    Parameters
+    ----------
+    element : et._Element
+        Root element to write.
+    path : str | PathLike
+        Path to write the file.
+    encoding : str | None
+        Optional encoding override.
+    """
     path = make_usable_path(path, mkdir=True)
-    with et.xmlfile(path, encoding=normalize_encoding(encoding)) as f:
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    with et.xmlfile(path, encoding=encoding) as f:
       f.write_declaration()
       f.write(element)
 
   def clear(self, element: et._Element) -> None:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
+    """Clear element content and free memory.
+
+    Parameters
+    ----------
+    element : et._Element
+        Element to clear.
+    """
     element.clear()
 
   def to_bytes(
-    self, element: et._Element, encoding: str = "utf-8", self_closing: bool = False
+    self, element: et._Element, encoding: str | None = None, self_closing: bool = False
   ) -> bytes:
-    if not isinstance(element, et._Element):
-      raise TypeError(f"Element is not an lxml.etree._Element: {type(element)}")
-    if not self_closing and not element.text:
+    """Serialize an element to bytes.
+
+    Parameters
+    ----------
+    element : et._Element
+        Element to serialize.
+    encoding : str | None
+        Optional encoding override.
+    self_closing : bool
+        If True, output as self-closing tag if empty.
+
+    Returns
+    -------
+    bytes
+        Serialized XML as bytes.
+    """
+    if not self_closing and element.text is None:
+      element = copy(element)
       element.text = ""
-    return et.tostring(element, encoding=normalize_encoding(encoding), xml_declaration=False)
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    return et.tostring(element, encoding=encoding, xml_declaration=False)
 
   def iterparse(
     self,
-    path: str | bytes | PathLike,
-    tag_filter: LxmlTagType | Collection[LxmlTagType] | None = None,
-    *,
-    nsmap: Mapping[str | None, str] | None = None,
+    path: str | PathLike,
+    tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Iterator[et._Element]:
-    _nsmap = nsmap if nsmap is not None else self._global_nsmap
-    match tag_filter:
-      case None:
-        tag_filter = None
-      case str() | bytes() | bytearray() | et.QName() | QName():
-        tag_filter = prep_tag_set(_normalize_to_str(tag_filter, _nsmap), _nsmap)
-      case Collection():
-        tag_filter = prep_tag_set((_normalize_to_str(tag, _nsmap) for tag in tag_filter), _nsmap)
-      case _:
-        raise TypeError(f"Unexpected tag filter type: {type(tag_filter)}")
-    path = make_usable_path(path, mkdir=False)
+    """Parse XML incrementally, yielding matching elements.
+
+    Parameters
+    ----------
+    path : str | PathLike
+        Path to the XML file.
+    tag_filter : str | QNameLike | Iterable[str | QNameLike] | None
+        Tag(s) to match and yield.
+
+    Returns
+    -------
+    Iterator[et._Element]
+        Iterator over matching elements.
+    """
+    tag_set = prep_tag_set(tag_filter, nsmap=self.nsmap) if tag_filter is not None else None
     ctx = et.iterparse(path, events=("start", "end"))
-    yield from self._iterparse(ctx, tag_filter)
+    # need to ignore mypy error here because lxml typing
+    # doesn't narrow to only "start" and "end" events even
+    # when setting events to ("start", "end")
+    yield from self._iterparse(ctx, tag_set)  # type: ignore[arg-type]

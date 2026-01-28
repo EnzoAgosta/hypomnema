@@ -1,5 +1,5 @@
 {
- "python.analysis.typeCheckingMode": "standard",
+ "python.analysis.typeCheckingMode": "off",
  "python.REPL.enableREPLSmartSend": false,
  "python.testing.pytestArgs": [
   "tests"
