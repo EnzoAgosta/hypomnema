@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 __all__ = [
   # type aliases
@@ -237,8 +238,31 @@ class Header:
   """Container of notes (optional)."""
 
 
+class TextMixin:
+  """Mixin for text content."""
+
+  content: Sequence[str | Any]
+
+  @property
+  def text(self) -> str:
+    """
+    Return the visible text content of this element.
+    
+    This property is read-only and is meant to be a
+    convenience method for quick text search.
+    
+    It naively concatenates all strings in the content
+    property into a single string and returns it.
+    
+    If you need to recurse into sub-flows or code
+    containers, use the iter_text() method instead
+    or iterate over the content property directly.
+    """
+    return "".join(item for item in self.content if isinstance(item, str))
+
+
 @dataclass(slots=True)
-class Bpt:
+class Bpt(TextMixin):
   """
   Begin paired tag element (``<bpt>``) per TMX 1.4b spec.
 
@@ -271,7 +295,7 @@ class Bpt:
 
 
 @dataclass(slots=True)
-class Ept:
+class Ept(TextMixin):
   """
   End paired tag element (``<ept>``) per TMX 1.4b spec.
 
@@ -294,7 +318,7 @@ class Ept:
 
 
 @dataclass(slots=True)
-class Hi:
+class Hi(TextMixin):
   """
   Highlight element (``<hi>``) per TMX 1.4b spec.
 
@@ -322,7 +346,7 @@ class Hi:
 
 
 @dataclass(slots=True)
-class It:
+class It(TextMixin):
   """
   Isolated tag element (``<it>``) per TMX 1.4b spec.
 
@@ -356,7 +380,7 @@ class It:
 
 
 @dataclass(slots=True)
-class Ph:
+class Ph(TextMixin):
   """
   Placeholder element (``<ph>``) per TMX 1.4b spec.
 
@@ -389,7 +413,7 @@ class Ph:
 
 
 @dataclass(slots=True)
-class Sub:
+class Sub(TextMixin):
   """
   Sub-flow element (``<sub>``) per TMX 1.4b spec.
 
@@ -417,7 +441,7 @@ class Sub:
 
 
 @dataclass(slots=True)
-class Tuv:
+class Tuv(TextMixin):
   """
   Translation unit variant element (``<tuv>``) per TMX 1.4b spec.
 
