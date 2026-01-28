@@ -1,19 +1,21 @@
 import pytest
 from hypothesis import given
 
+from hypomnema.base.types import Tmx
 from hypomnema.xml.backends.lxml import LxmlBackend
 from hypomnema.xml.backends.standard import StandardBackend
 from hypomnema.xml.deserialization.deserializer import Deserializer
 from hypomnema.xml.serialization.serializer import Serializer
-from hypomnema.base.types import Tmx
 from tests.hypothesis.strategies import tmx
 from tests.strict_backend import StrictBackend
 
 
 @pytest.fixture(
-  scope="session", params=["StandardBackend", "LxmlBackend", "StrictBackend"], ids=["Standard", "Lxml", "Strict"]
+  scope="session",
+  params=["StandardBackend", "LxmlBackend", "StrictBackend"],
+  ids=["Standard", "Lxml", "Strict"],
 )
-def backend(request): 
+def backend(request):
   match request.param:
     case "StandardBackend":
       yield StandardBackend()
