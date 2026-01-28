@@ -247,13 +247,13 @@ class TextMixin:
   def text(self) -> str:
     """
     Return the visible text content of this element.
-    
+
     This property is read-only and is meant to be a
     convenience method for quick text search.
-    
+
     It naively concatenates all strings in the content
     property into a single string and returns it.
-    
+
     If you need to recurse into sub-flows or code
     containers, use the iter_text() method instead
     or iterate over the content property directly.

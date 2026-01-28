@@ -3,15 +3,11 @@ from logging import DEBUG
 import pytest
 
 from hypomnema import XmlBackend
-from hypomnema.base.errors import (
-  AttributeDeserializationError,
-  AttributeSerializationError,
-  InvalidTagError,
-  MissingHandlerError,
-  NamespaceError,
-  XmlDeserializationError,
-  XmlSerializationError,
-)
+from hypomnema.base.errors import (AttributeDeserializationError,
+                                   AttributeSerializationError,
+                                   InvalidTagError, MissingHandlerError,
+                                   NamespaceError, XmlDeserializationError,
+                                   XmlSerializationError)
 from hypomnema.base.types import Bpt, Header, Note, Prop, Tmx, Tuv
 from hypomnema.xml.deserialization.deserializer import Deserializer
 from hypomnema.xml.policy import PolicyValue, XmlPolicy
@@ -40,7 +36,6 @@ def _make_tuv_elem(backend: XmlBackend, text: str):
   return tuv_elem
 
 
-@pytest.mark.policy
 def test_policy_existing_namespace_ignore(backend: XmlBackend):
   policy = XmlPolicy(existing_namespace=PolicyValue("ignore", DEBUG))
   backend.policy = policy
@@ -51,7 +46,6 @@ def test_policy_existing_namespace_ignore(backend: XmlBackend):
   assert backend.nsmap["ex"] == "http://example.com"
 
 
-@pytest.mark.policy
 def test_policy_existing_namespace_overwrite(backend: XmlBackend):
   policy = XmlPolicy(existing_namespace=PolicyValue("overwrite", DEBUG))
   backend.policy = policy
@@ -62,7 +56,6 @@ def test_policy_existing_namespace_overwrite(backend: XmlBackend):
   assert backend.nsmap["ex"] == "http://other.example.com"
 
 
-@pytest.mark.policy
 def test_policy_existing_namespace_raise(backend: XmlBackend):
   backend.register_namespace("ex", "http://example.com")
 
@@ -70,7 +63,6 @@ def test_policy_existing_namespace_raise(backend: XmlBackend):
     backend.register_namespace("ex", "http://other.example.com")
 
 
-@pytest.mark.policy
 def test_policy_missing_namespace_ignore(backend: XmlBackend):
   policy = XmlPolicy(missing_namespace=PolicyValue("ignore", DEBUG))
   backend.policy = policy
@@ -78,13 +70,11 @@ def test_policy_missing_namespace_ignore(backend: XmlBackend):
   backend.deregister_namespace("missing")
 
 
-@pytest.mark.policy
 def test_policy_missing_namespace_raise(backend: XmlBackend):
   with pytest.raises(NamespaceError):
     backend.deregister_namespace("missing")
 
 
-@pytest.mark.policy
 def test_policy_invalid_namespace_ignore(backend: XmlBackend):
   policy = XmlPolicy(invalid_namespace=PolicyValue("ignore", DEBUG))
   backend.policy = policy
@@ -94,20 +84,17 @@ def test_policy_invalid_namespace_ignore(backend: XmlBackend):
   assert "1bad" not in backend.nsmap
 
 
-@pytest.mark.policy
 def test_policy_invalid_namespace_raise(backend: XmlBackend):
   with pytest.raises(NamespaceError):
     backend.register_namespace("1bad", "http://example.com")
 
 
-@pytest.mark.policy
 def test_policy_invalid_tag_ignore(test_logger):
   policy = XmlPolicy(invalid_tag=PolicyValue("ignore", DEBUG))
 
   check_tag("note", "prop", test_logger, policy)
 
 
-@pytest.mark.policy
 def test_policy_invalid_tag_raise(test_logger):
   policy = XmlPolicy(invalid_tag=PolicyValue("raise", DEBUG))
 
@@ -115,7 +102,6 @@ def test_policy_invalid_tag_raise(test_logger):
     check_tag("note", "prop", test_logger, policy)
 
 
-@pytest.mark.policy
 def test_policy_missing_deserialization_handler_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_deserialization_handler=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger, handlers={})
@@ -125,7 +111,6 @@ def test_policy_missing_deserialization_handler_ignore(backend: XmlBackend, test
   assert deserializer.deserialize(element) is None
 
 
-@pytest.mark.policy
 def test_policy_missing_deserialization_handler_default(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_deserialization_handler=PolicyValue("default", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger, handlers={})
@@ -137,7 +122,6 @@ def test_policy_missing_deserialization_handler_default(backend: XmlBackend, tes
   assert isinstance(result, Prop)
 
 
-@pytest.mark.policy
 def test_policy_missing_deserialization_handler_raise(backend: XmlBackend, test_logger):
   deserializer = Deserializer(backend, logger=test_logger, handlers={})
 
@@ -147,7 +131,6 @@ def test_policy_missing_deserialization_handler_raise(backend: XmlBackend, test_
     deserializer.deserialize(element)
 
 
-@pytest.mark.policy
 def test_policy_required_attribute_missing_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(required_attribute_missing=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -160,7 +143,6 @@ def test_policy_required_attribute_missing_ignore(backend: XmlBackend, test_logg
   assert result.type is None
 
 
-@pytest.mark.policy
 def test_policy_required_attribute_missing_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(required_attribute_missing=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -171,7 +153,6 @@ def test_policy_required_attribute_missing_raise(backend: XmlBackend, test_logge
     deserializer.deserialize(element)
 
 
-@pytest.mark.policy
 def test_policy_invalid_attribute_value_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_attribute_value=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -191,7 +172,6 @@ def test_policy_invalid_attribute_value_ignore(backend: XmlBackend, test_logger)
   assert result.segtype is None
 
 
-@pytest.mark.policy
 def test_policy_invalid_attribute_value_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_attribute_value=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -209,7 +189,6 @@ def test_policy_invalid_attribute_value_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(header_elem)
 
 
-@pytest.mark.policy
 def test_policy_extra_text_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(extra_text=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -222,7 +201,6 @@ def test_policy_extra_text_ignore(backend: XmlBackend, test_logger):
   assert result.creationtool == "tool"
 
 
-@pytest.mark.policy
 def test_policy_extra_text_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(extra_text=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -233,7 +211,6 @@ def test_policy_extra_text_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(element)
 
 
-@pytest.mark.policy
 def test_policy_invalid_child_element_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_child_element=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -246,7 +223,6 @@ def test_policy_invalid_child_element_ignore(backend: XmlBackend, test_logger):
   assert isinstance(result, Prop)
 
 
-@pytest.mark.policy
 def test_policy_invalid_child_element_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_child_element=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -258,7 +234,6 @@ def test_policy_invalid_child_element_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(element)
 
 
-@pytest.mark.policy
 def test_policy_multiple_headers_keep_first(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_headers=PolicyValue("keep_first", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -273,7 +248,6 @@ def test_policy_multiple_headers_keep_first(backend: XmlBackend, test_logger):
   assert result.header.creationtool == "first"
 
 
-@pytest.mark.policy
 def test_policy_multiple_headers_keep_last(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_headers=PolicyValue("keep_last", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -288,7 +262,6 @@ def test_policy_multiple_headers_keep_last(backend: XmlBackend, test_logger):
   assert result.header.creationtool == "second"
 
 
-@pytest.mark.policy
 def test_policy_multiple_headers_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_headers=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -301,7 +274,6 @@ def test_policy_multiple_headers_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(tmx_elem)
 
 
-@pytest.mark.policy
 def test_policy_missing_header_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_header=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -314,7 +286,6 @@ def test_policy_missing_header_ignore(backend: XmlBackend, test_logger):
   assert result.header is None
 
 
-@pytest.mark.policy
 def test_policy_missing_header_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_header=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -325,7 +296,6 @@ def test_policy_missing_header_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(tmx_elem)
 
 
-@pytest.mark.policy
 def test_policy_missing_seg_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_seg=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -338,7 +308,6 @@ def test_policy_missing_seg_ignore(backend: XmlBackend, test_logger):
   assert result.content == []
 
 
-@pytest.mark.policy
 def test_policy_missing_seg_empty(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_seg=PolicyValue("empty", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -351,7 +320,6 @@ def test_policy_missing_seg_empty(backend: XmlBackend, test_logger):
   assert result.content == [""]
 
 
-@pytest.mark.policy
 def test_policy_missing_seg_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_seg=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -362,7 +330,6 @@ def test_policy_missing_seg_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(tuv_elem)
 
 
-@pytest.mark.policy
 def test_policy_multiple_seg_keep_first(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_seg=PolicyValue("keep_first", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -377,7 +344,6 @@ def test_policy_multiple_seg_keep_first(backend: XmlBackend, test_logger):
   assert result.content == ["first"]
 
 
-@pytest.mark.policy
 def test_policy_multiple_seg_keep_last(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_seg=PolicyValue("keep_last", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -392,7 +358,6 @@ def test_policy_multiple_seg_keep_last(backend: XmlBackend, test_logger):
   assert result.content == ["second"]
 
 
-@pytest.mark.policy
 def test_policy_multiple_seg_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(multiple_seg=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -405,7 +370,6 @@ def test_policy_multiple_seg_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(tuv_elem)
 
 
-@pytest.mark.policy
 def test_policy_empty_content_empty(backend: XmlBackend, test_logger):
   policy = XmlPolicy(empty_content=PolicyValue("empty", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -418,7 +382,6 @@ def test_policy_empty_content_empty(backend: XmlBackend, test_logger):
   assert result.text == ""
 
 
-@pytest.mark.policy
 def test_policy_empty_content_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(empty_content=PolicyValue("ignore", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -431,7 +394,6 @@ def test_policy_empty_content_ignore(backend: XmlBackend, test_logger):
   assert note.text is None
 
 
-@pytest.mark.policy
 def test_policy_empty_content_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(empty_content=PolicyValue("raise", DEBUG))
   deserializer = Deserializer(backend, policy=policy, logger=test_logger)
@@ -442,7 +404,6 @@ def test_policy_empty_content_raise(backend: XmlBackend, test_logger):
     deserializer.deserialize(element)
 
 
-@pytest.mark.policy
 def test_policy_missing_serialization_handler_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_serialization_handler=PolicyValue("ignore", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger, handlers={})
@@ -452,7 +413,6 @@ def test_policy_missing_serialization_handler_ignore(backend: XmlBackend, test_l
   assert result is None
 
 
-@pytest.mark.policy
 def test_policy_missing_serialization_handler_default(backend: XmlBackend, test_logger):
   policy = XmlPolicy(missing_serialization_handler=PolicyValue("default", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger, handlers={})
@@ -462,7 +422,6 @@ def test_policy_missing_serialization_handler_default(backend: XmlBackend, test_
   assert result is not None
 
 
-@pytest.mark.policy
 def test_policy_missing_serialization_handler_raise(backend: XmlBackend, test_logger):
   serializer = Serializer(backend, logger=test_logger, handlers={})
 
@@ -470,7 +429,6 @@ def test_policy_missing_serialization_handler_raise(backend: XmlBackend, test_lo
     serializer.serialize(Prop(text="value", type="key"))
 
 
-@pytest.mark.policy
 def test_policy_invalid_attribute_type_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_attribute_type=PolicyValue("ignore", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -482,7 +440,6 @@ def test_policy_invalid_attribute_type_ignore(backend: XmlBackend, test_logger):
   assert backend.get_attribute(element, "type") is None
 
 
-@pytest.mark.policy
 def test_policy_invalid_attribute_type_coerce(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_attribute_type=PolicyValue("coerce", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -494,7 +451,6 @@ def test_policy_invalid_attribute_type_coerce(backend: XmlBackend, test_logger):
   assert backend.get_attribute(element, "type") is None
 
 
-@pytest.mark.policy
 def test_policy_invalid_attribute_type_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_attribute_type=PolicyValue("raise", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -505,7 +461,6 @@ def test_policy_invalid_attribute_type_raise(backend: XmlBackend, test_logger):
     serializer.serialize(prop)
 
 
-@pytest.mark.policy
 def test_policy_invalid_content_element_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_content_element=PolicyValue("ignore", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -515,7 +470,6 @@ def test_policy_invalid_content_element_ignore(backend: XmlBackend, test_logger)
   assert result is not None
 
 
-@pytest.mark.policy
 def test_policy_invalid_content_element_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_content_element=PolicyValue("raise", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -524,7 +478,6 @@ def test_policy_invalid_content_element_raise(backend: XmlBackend, test_logger):
     serializer.serialize(Bpt(i=1, content=[Prop(text="value", type="key")]))  # type: ignore[list-item]
 
 
-@pytest.mark.policy
 def test_policy_invalid_object_type_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_object_type=PolicyValue("ignore", DEBUG))
   serializer = Serializer(
@@ -539,7 +492,6 @@ def test_policy_invalid_object_type_ignore(backend: XmlBackend, test_logger):
   assert result is None
 
 
-@pytest.mark.policy
 def test_policy_invalid_object_type_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(invalid_object_type=PolicyValue("raise", DEBUG))
   serializer = Serializer(
@@ -553,7 +505,6 @@ def test_policy_invalid_object_type_raise(backend: XmlBackend, test_logger):
     serializer.serialize(Prop(text="value", type="key"))
 
 
-@pytest.mark.policy
 def test_policy_required_attribute_missing_serialization_ignore(backend: XmlBackend, test_logger):
   policy = XmlPolicy(required_attribute_missing=PolicyValue("ignore", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)
@@ -565,7 +516,6 @@ def test_policy_required_attribute_missing_serialization_ignore(backend: XmlBack
   assert backend.get_attribute(element, "type") is None
 
 
-@pytest.mark.policy
 def test_policy_required_attribute_missing_serialization_raise(backend: XmlBackend, test_logger):
   policy = XmlPolicy(required_attribute_missing=PolicyValue("raise", DEBUG))
   serializer = Serializer(backend, policy=policy, logger=test_logger)

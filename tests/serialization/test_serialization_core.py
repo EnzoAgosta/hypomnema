@@ -11,10 +11,9 @@ from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, It, Note, Ph,
                                   Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
 from hypomnema.xml.policy import PolicyValue
 from tests.conftest import (_assert_attr, _assert_children, _assert_tag,
-                                _assert_text, _serializer)
+                            _assert_text, _serializer)
 
 
-@pytest.mark.backend
 def test_serialize_prop_all_fields(backend: XmlBackend):
   serializer = _serializer(backend)
   prop = Prop(text="value", type="x-key", lang="en", o_encoding="utf-8")
@@ -28,7 +27,6 @@ def test_serialize_prop_all_fields(backend: XmlBackend):
   _assert_text(backend, element, "value")
 
 
-@pytest.mark.backend
 def test_serialize_note_all_fields(backend: XmlBackend):
   serializer = _serializer(backend)
   note = Note(text="note", lang="fr", o_encoding="latin-1")
@@ -41,7 +39,6 @@ def test_serialize_note_all_fields(backend: XmlBackend):
   _assert_text(backend, element, "note")
 
 
-@pytest.mark.backend
 def test_serialize_header_with_children(backend: XmlBackend):
   serializer = _serializer(backend)
   dt = datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -72,7 +69,6 @@ def test_serialize_header_with_children(backend: XmlBackend):
   _assert_children(backend, element, 1, tag_filter="prop")
 
 
-@pytest.mark.backend
 def test_serialize_tuv_with_seg(backend: XmlBackend):
   serializer = _serializer(backend)
   dt = datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -110,7 +106,6 @@ def test_serialize_tuv_with_seg(backend: XmlBackend):
   assert backend.get_tail(ph) == "World"
 
 
-@pytest.mark.backend
 def test_serialize_tu_with_variants(backend: XmlBackend):
   serializer = _serializer(backend)
   tu = Tu(
@@ -132,7 +127,6 @@ def test_serialize_tu_with_variants(backend: XmlBackend):
   _assert_children(backend, element, 2, tag_filter="tuv")
 
 
-@pytest.mark.backend
 def test_serialize_tmx_minimal(backend: XmlBackend):
   serializer = _serializer(backend)
   header = Header(
@@ -155,7 +149,6 @@ def test_serialize_tmx_minimal(backend: XmlBackend):
   _assert_children(backend, body, 2, tag_filter="tu")
 
 
-@pytest.mark.backend
 def test_serialize_inline_elements(backend: XmlBackend):
   serializer = _serializer(backend)
 
@@ -188,7 +181,6 @@ def test_serialize_inline_elements(backend: XmlBackend):
   _assert_attr(backend, sub, "datatype", "html")
 
 
-@pytest.mark.backend
 def test_serialize_missing_required_attribute(backend: XmlBackend):
   serializer = _serializer(backend)
   prop = Prop(text="value", type=None)  # type: ignore[arg-type]
@@ -197,7 +189,6 @@ def test_serialize_missing_required_attribute(backend: XmlBackend):
     serializer.serialize(prop)
 
 
-@pytest.mark.backend
 def test_serialize_invalid_child_type(backend: XmlBackend):
   serializer = _serializer(backend)
   header = Header(
@@ -215,7 +206,6 @@ def test_serialize_invalid_child_type(backend: XmlBackend):
     serializer.serialize(header)
 
 
-@pytest.mark.backend
 def test_serialize_invalid_inline_child(backend: XmlBackend):
   serializer = _serializer(backend)
   serializer.policy.invalid_content_element = PolicyValue("raise", logging.DEBUG)

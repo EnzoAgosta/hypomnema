@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-import pytest
-
 from hypomnema import XmlBackend
 from hypomnema.base.types import (Bpt, Header, Hi, It, Note, Ph, Pos, Prop,
                                   Segtype, Sub, Tmx, Tu, Tuv)
@@ -19,8 +17,6 @@ def _deserializer(backend: XmlBackend) -> Deserializer:
   return Deserializer(backend, policy=XmlPolicy())
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_prop(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -32,8 +28,6 @@ def test_roundtrip_serialize_deserialize_prop(backend: XmlBackend):
   assert result == prop
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_note(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -45,8 +39,6 @@ def test_roundtrip_serialize_deserialize_note(backend: XmlBackend):
   assert result == note
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_header(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -71,8 +63,6 @@ def test_roundtrip_serialize_deserialize_header(backend: XmlBackend):
   assert result == header
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_tuv(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -100,8 +90,6 @@ def test_roundtrip_serialize_deserialize_tuv(backend: XmlBackend):
   assert result == tuv
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_tu(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -121,8 +109,6 @@ def test_roundtrip_serialize_deserialize_tu(backend: XmlBackend):
   assert result == tu
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_serialize_deserialize_tmx(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
@@ -144,8 +130,6 @@ def test_roundtrip_serialize_deserialize_tmx(backend: XmlBackend):
   assert result == tmx
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_deserialize_serialize_xml(backend: XmlBackend):
   deserializer = _deserializer(backend)
   serializer = _serializer(backend)
@@ -176,8 +160,6 @@ def test_roundtrip_deserialize_serialize_xml(backend: XmlBackend):
   assert xml_equal(root, serialized, backend)
 
 
-@pytest.mark.roundtrip
-@pytest.mark.backend
 def test_roundtrip_inline_elements(backend: XmlBackend):
   serializer = _serializer(backend)
   deserializer = _deserializer(backend)
