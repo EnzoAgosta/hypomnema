@@ -1,25 +1,11 @@
 from collections.abc import Generator, Iterable
 from datetime import UTC, datetime
-from typing import Literal, Type
+from importlib.metadata import version
+from typing import Literal
 
-from hypomnema.base.types import (
-  Assoc,
-  Bpt,
-  Ept,
-  Header,
-  Hi,
-  InlineElement,
-  It,
-  Note,
-  Ph,
-  Pos,
-  Prop,
-  Segtype,
-  Sub,
-  Tmx,
-  Tu,
-  Tuv,
-)
+from hypomnema.base.types import (Assoc, Bpt, Ept, Header, Hi, InlineElement,
+                                  It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx,
+                                  Tu, Tuv)
 
 __all__ = [
   "create_tmx",
@@ -39,7 +25,7 @@ __all__ = [
 
 
 def iter_text(
-  source: Tuv | InlineElement, *, ignore: Iterable[Type[InlineElement]] | None = None
+  source: Tuv | InlineElement, *, ignore: Iterable[type[InlineElement]] | None = None
 ) -> Generator[str]:
   """
   Iterate over text content recursively.
@@ -65,14 +51,26 @@ def iter_text(
   str
       Text segments found in the tree.
   """
+
+  def _iter_text(
+    _source: InlineElement | Tuv, _ignore: tuple[type[InlineElement], ...]
+  ) -> Generator[str]:
+    for item in _source.content:
+      if isinstance(item, str):
+        if not isinstance(_source, _ignore):
+          yield item
+      else:
+        yield from _iter_text(item, _ignore=_ignore)
+
   ignore = tuple(ignore) if ignore else ()
-  is_visible = not isinstance(source, ignore)
-  for item in source.content:
-    if isinstance(item, str):
-      if is_visible:
-        yield item
-    else:
-      yield from iter_text(item, ignore=ignore)
+  yield from _iter_text(source, _ignore=ignore)
+
+
+def _normalize_content[T](content: Iterable[T] | str | None) -> list[T | str]:
+  """Normalize content parameter to a list."""
+  if isinstance(content, str):
+    return [content]
+  return list(content) if content is not None else []
 
 
 def create_tmx(
@@ -104,7 +102,7 @@ def create_tmx(
 def create_header(
   *,
   creationtool: str = "hypomnema",
-  creationtoolversion: str = "0.5.0",
+  creationtoolversion: str = version("hypomnema"),
   segtype: Segtype | Literal["block", "paragraph", "sentence", "phrase"] = Segtype.BLOCK,
   o_tmf: str = "tmx",
   adminlang: str = "en",
@@ -244,7 +242,7 @@ def create_tu(
       A new Translation Unit instance.
   """
   segtype = Segtype(segtype) if isinstance(segtype, str) else segtype
-  variants = list(variants) if variants else []
+  variants = list(variants) if variants is not None else []
   notes = list(notes) if notes is not None else []
   props = list(props) if props is not None else []
   creationdate = creationdate if creationdate is not None else datetime.now(UTC)
@@ -328,10 +326,7 @@ def create_tuv(
   Tuv
       A new Translation Unit Variant instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   notes = list(notes) if notes is not None else []
   props = list(props) if props is not None else []
 
@@ -423,10 +418,7 @@ def create_bpt(
   Bpt
       A new Begin Paired Tag instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   return Bpt(i=i, x=x, type=type, content=content)
 
 
@@ -445,10 +437,7 @@ def create_ept(i: int, *, content: Iterable[str | Sub] | str | None = None) -> E
   Ept
       A new End Paired Tag instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   return Ept(i=i, content=content)
 
 
@@ -477,10 +466,7 @@ def create_it(
   It
       A new Isolated Tag instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   pos = Pos(pos) if isinstance(pos, str) else pos
   return It(pos=pos, x=x, type=type, content=content)
 
@@ -510,10 +496,7 @@ def create_ph(
   Ph
       A new Placeholder instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   assoc = Assoc(assoc) if isinstance(assoc, str) else assoc
   return Ph(x=x, assoc=assoc, type=type, content=content)
 
@@ -540,10 +523,7 @@ def create_hi(
   Hi
       A new Highlight instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   return Hi(x=x, type=type, content=content)
 
 
@@ -569,8 +549,5 @@ def create_sub(
   Sub
       A new Sub-flow instance.
   """
-  if isinstance(content, str):
-    content = [content]
-  else:
-    content = list(content) if content else []
+  content = _normalize_content(content)
   return Sub(datatype=datatype, type=type, content=content)
