@@ -1,95 +1,240 @@
-from dataclasses import dataclass, field
+"""Policy configuration for deserialization and serialization.
+
+This module provides policy-driven error handling for TMX parsing and generation.
+Policies allow users to configure how the library responds to various error
+conditions (raise exceptions, ignore, use defaults, etc.).
+
+Each policy consists of an action (from an ActionEnum) and an optional log level.
+Actions control the behavior, while log levels determine logging verbosity.
+
+Available Actions:
+    RAISE: Raise an exception (strictest behavior).
+    IGNORE: Silently ignore the error and continue.
+    NONE: Use None as the value.
+    KEEP: Keep the original value as-is.
+    DEFAULT: Use a default value.
+    FORCE: Force the operation through.
+    OVERWRITE: Overwrite existing values.
+    DELETE: Delete the problematic element.
+
+Example:
+    >>> from hypomnema.xml.policy import XmlDeserializationPolicy, Behavior, RaiseIgnore
+    >>> policy = XmlDeserializationPolicy(
+    ...   missing_seg=Behavior(RaiseIgnore.IGNORE), extra_text=Behavior(RaiseIgnore.IGNORE)
+    ... )
+"""
+
+from dataclasses import dataclass
+from enum import Enum, auto
 from logging import DEBUG
-from typing import Literal
-
-__all__ = ["PolicyValue", "XmlPolicy"]
 
 
-@dataclass(slots=True)
-class PolicyValue[Behavior: str]:
+class ActionEnum:
+  """Base class for policy action enums."""
+
+  pass
+
+
+class RaiseIgnore(ActionEnum, Enum):
+  """Actions for raise-or-ignore policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  IGNORE = auto()
+  """Silently ignore."""
+
+
+class RaiseNoneKeep(ActionEnum, Enum):
+  """Actions for raise-none-keep policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  NONE = auto()
+  """Use None as the value."""
+
+  KEEP = auto()
+  """Keep the original string value."""
+
+
+class RaiseIgnoreDefault(ActionEnum, Enum):
+  """Actions for raise-ignore-default policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  IGNORE = auto()
+  """Silently ignore."""
+
+  DEFAULT = auto()
+  """Use a default value."""
+
+
+class DuplicateChildAction(ActionEnum, Enum):
+  """Actions for handling duplicate child elements."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  KEEP_FIRST = auto()
+  """Use the first occurrence."""
+
+  KEEP_LAST = auto()
+  """Use the last occurrence."""
+
+
+class RaiseIgnoreOverwrite(ActionEnum, Enum):
+  """Actions for raise-ignore-overwrite policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  IGNORE = auto()
+  """Silently ignore."""
+
+  OVERWRITE = auto()
+  """Overwrite the existing value."""
+
+
+class RaiseIgnoreDelete(ActionEnum, Enum):
+  """Actions for raise-ignore-delete policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  IGNORE = auto()
+  """Silently ignore."""
+
+  DELETE = auto()
+  """Delete the problematic element."""
+
+
+class RaiseIgnoreForce(ActionEnum, Enum):
+  """Actions for raise-ignore-force policies."""
+
+  RAISE = auto()
+  """Raise an exception."""
+
+  IGNORE = auto()
+  """Silently ignore."""
+
+  FORCE = auto()
+  """Force the operation through."""
+
+
+@dataclass(frozen=True, slots=True)
+class Behavior[T: ActionEnum]:
+  """Policy behavior configuration.
+
+  Combines an action with an optional log level.
+
+  Example:
+      >>> Behavior(RaiseIgnore.RAISE, DEBUG)
+      Behavior(action=<RaiseIgnore.RAISE: 1>, log_level=10)
+      >>> Behavior(RaiseIgnore.IGNORE)
+      Behavior(action=<RaiseIgnore.IGNORE: 2>, log_level=None)
   """
-  Container for policy behavior and logging configuration.
 
-  Parameters
-  ----------
-  behavior : Behavior
-      The action to execute when a policy condition is met.
-  log_level : int
-      The logging level to use before executing the behavior.
+  action: T
+  """The action to take (from an ActionEnum)."""
 
-  Attributes
-  ----------
-  behavior : Behavior
-      The action to execute when a policy condition is met.
-  log_level : int
-      The logging level to use before executing the behavior.
+  log_level: int | None = None
+  """Logging level for this behavior (None disables logging)."""
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class XmlDeserializationPolicy:
+  """Policy configuration for TMX deserialization.
+
+  Controls error handling behavior during XML parsing and object construction.
   """
 
-  behavior: Behavior
-  log_level: int
+  invalid_child_tag: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for unexpected child elements."""
 
+  missing_text_content: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for elements missing required text."""
 
-def _default[DefaultBehavior: str](
-  default_behavior: DefaultBehavior,
-) -> PolicyValue[DefaultBehavior]:
-  return field(default_factory=lambda: PolicyValue(default_behavior, DEBUG))
+  invalid_tag: Behavior[RaiseIgnoreForce] = Behavior(RaiseIgnoreForce.RAISE, DEBUG)
+  """Action for unexpected element tags."""
 
+  extra_text: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for unexpected text content."""
 
-@dataclass(slots=True, kw_only=True)
-class XmlPolicy:
-  """
-  Configuration policy for XML serialization and deserialization.
-  """
+  required_attribute_missing: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for missing required attributes."""
 
-  # Namespace related items
-  existing_namespace: PolicyValue[Literal["raise", "ignore", "overwrite"]] = _default("raise")
-  """Action trying to register a namespace that is already registered."""
-  missing_namespace: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when trying to deregister a namespace that is not registered."""
-  invalid_namespace: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when trying to register a namespace with an invalid URI or prefix."""
+  multiple_seg: Behavior[DuplicateChildAction] = Behavior(DuplicateChildAction.RAISE, DEBUG)
+  """Action for multiple <seg> elements in <tuv>."""
 
-  # Deserialization items
-  missing_deserialization_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default(
-    "raise"
+  multiple_headers: Behavior[DuplicateChildAction] = Behavior(DuplicateChildAction.RAISE, DEBUG)
+  """Action for multiple <header> elements."""
+
+  invalid_datetime_value: Behavior[RaiseNoneKeep] = Behavior(RaiseNoneKeep.RAISE, DEBUG)
+  """Action for unparsable datetime values."""
+
+  invalid_enum_value: Behavior[RaiseNoneKeep] = Behavior(RaiseNoneKeep.RAISE, DEBUG)
+  """Action for invalid enum values."""
+
+  invalid_int_value: Behavior[RaiseNoneKeep] = Behavior(RaiseNoneKeep.RAISE, DEBUG)
+  """Action for unparsable integer values."""
+
+  missing_deserialization_handler: Behavior[RaiseIgnoreDefault] = Behavior(
+    RaiseIgnoreDefault.RAISE, DEBUG
   )
-  """Action when no handler is registered for a TMX element.
-  `default` will attempt fallback to internal library handlers."""
-  invalid_tag: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when an unexpected XML tag is encountered."""
-  required_attribute_missing: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when a mandatory TMX attribute is absent or its value is None in the case of a dataclass."""
-  invalid_attribute_value: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when an attribute value violates TMX specifications."""
-  extra_text: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when unexpected non-whitespace text is found within elements."""
-  invalid_child_element: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when a child element is not permitted or allowed in that context by the TMX spec."""
-  multiple_headers: PolicyValue[Literal["raise", "keep_first", "keep_last"]] = _default("raise")
-  """Action when more than one `<header>` element exists in `<tmx>`.
-  `keep_first` and `keep_last` will keep the first or last header encountered respectively."""
-  missing_header: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when the mandatory `<header>` element is missing."""
-  missing_seg: PolicyValue[Literal["raise", "ignore", "empty"]] = _default("raise")
-  """Action when a `<tuv>` is missing the required `<seg>` element.
-  `empty` will default to an empty list instead of None."""
-  multiple_seg: PolicyValue[Literal["raise", "keep_first", "keep_last"]] = _default("raise")
-  """Action when a `<tuv>` contains more than one `<seg>` element.
-  `keep_first` and `keep_last` will keep the first or last seg encountered respectively."""
-  empty_content: PolicyValue[Literal["raise", "ignore", "empty"]] = _default("raise")
-  """Action when an element has no text content.
-  `empty` will fall back to an empty list instead of None."""
+  """Action for missing element handlers."""
 
-  # Serialization items
-  missing_serialization_handler: PolicyValue[Literal["raise", "ignore", "default"]] = _default(
-    "raise"
+  missing_seg: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for <tuv> elements without <seg>."""
+
+  multiple_body: Behavior[DuplicateChildAction] = Behavior(DuplicateChildAction.RAISE, DEBUG)
+  """Action for multiple <body> elements."""
+
+  missing_header: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for <tmx> elements without <header>."""
+
+  missing_body: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for <tmx> elements without <body>."""
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class XmlSerializationPolicy:
+  """Policy configuration for TMX serialization.
+
+  Controls error handling behavior during object-to-XML conversion.
+  """
+
+  invalid_element_type: Behavior[RaiseIgnoreForce] = Behavior(RaiseIgnoreForce.RAISE, DEBUG)
+  """Action for unexpected object types."""
+
+  missing_text_content: Behavior[RaiseIgnoreDefault] = Behavior(RaiseIgnoreDefault.RAISE, DEBUG)
+  """Action for objects missing required text."""
+
+  required_attribute_missing: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for missing required attributes."""
+
+  invalid_child_element: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for invalid child element types."""
+
+  invalid_attribute_type: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action for attributes with wrong types."""
+
+  missing_serialization_handler: Behavior[RaiseIgnoreDefault] = Behavior(
+    RaiseIgnoreDefault.RAISE, DEBUG
   )
-  """Action when no handler is registered for a TMX element.
-  `default` will attempt fallback to internal library handlers."""
-  invalid_attribute_type: PolicyValue[Literal["raise", "ignore", "coerce"]] = _default("raise")
-  """Action when a field type is incompatible with XML attribute standards.
-  `coerce` will attempt to coerce the field to a correct type."""
-  invalid_content_element: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when element text content is not a string."""
-  invalid_object_type: PolicyValue[Literal["raise", "ignore"]] = _default("raise")
-  """Action when a handler receives an unexpected object type."""
+  """Action for missing element handlers."""
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class NamespacePolicy:
+  """Policy configuration for namespace handling.
+
+  Controls behavior when registering or resolving namespace prefixes.
+  """
+
+  existing_namespace: Behavior[RaiseIgnoreOverwrite] = Behavior(RaiseIgnoreOverwrite.RAISE, DEBUG)
+  """Action when registering an already-existing prefix."""
+
+  inexistent_namespace: Behavior[RaiseIgnore] = Behavior(RaiseIgnore.RAISE, DEBUG)
+  """Action when resolving an unregistered prefix."""
