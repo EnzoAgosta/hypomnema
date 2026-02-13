@@ -1,341 +1,357 @@
+"""Base class for element deserializers.
+
+This module defines BaseElementDeserializer, the abstract base class for
+all TMX element deserializers. It provides common functionality for:
+- Policy-driven error handling
+- Type conversion (datetime, int, enum)
+- Mixed content parsing
+- Recursive element dispatch via emit()
+
+Implementations must subclass this and override _deserialize() for each
+TMX element type.
+"""
+
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from logging import Logger
-from typing import Callable
+from typing import Any, Callable, Literal, cast, overload
 
-from hypomnema.base.errors import (AttributeDeserializationError,
-                                   XmlDeserializationError)
-from hypomnema.base.types import BaseElement, InlineElement, Sub
+from hypomnema.base.errors import (
+  ExtraTextError,
+  InvalidChildTagError,
+  InvalidDatetimeValueError,
+  InvalidEnumValueError,
+  InvalidIntValueError,
+  InvalidPolicyActionError,
+  InvalidTagError,
+  MissingTextContentError,
+  RequiredAttributeMissingError,
+)
+from hypomnema.base.types import BaseElement, Bpt, Ept, Hi, It, Ph, Sub
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import XmlPolicy
-
-__all__ = ["BaseElementDeserializer"]
+from hypomnema.xml.policy import (
+  RaiseIgnore,
+  Behavior,
+  RaiseIgnoreForce,
+  RaiseNoneKeep,
+  XmlDeserializationPolicy,
+)
 
 
 class BaseElementDeserializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement](ABC):
+  """Abstract base class for TMX element deserializers.
+
+  Deserializers convert XML elements from the backend representation
+  into Python dataclass instances. Each TMX element type has a dedicated
+  deserializer subclass.
+
+  Args:
+      backend: XML backend for element operations.
+      policy: Policy for error handling.
+      logger: Logger for operations.
+
+  Attributes:
+      backend: XML backend instance.
+      policy: Deserialization policy.
+      logger: Logger instance.
+
+  Note:
+      The emit() method must be set by the orchestrator before use.
+      Call _set_emit() with the dispatch function.
   """
-  Abstract base class for converting XML elements into TMX objects.
 
-  Parameters
-  ----------
-  backend : XMLBackend
-      The XML library wrapper used to traverse and inspect elements.
-  policy : XmlPolicy
-      The configuration for handling errors and logging during deserialization.
-  logger : Logger
-      The logging instance for reporting policy violations.
-
-  Attributes
-  ----------
-  backend : XMLBackend[TypeOfBackendElement]
-      The XML library wrapper.
-  policy : XmlPolicy
-      The deserialization configuration.
-  logger : Logger
-      The logging instance.
-  """
-
-  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
+  def __init__(
+    self,
+    backend: XmlBackend[TypeOfBackendElement],
+    policy: XmlDeserializationPolicy,
+    logger: Logger,
+  ) -> None:
     self.backend = backend
     self.policy = policy
     self.logger = logger
     self._emit: Callable[[TypeOfBackendElement], BaseElement | None] | None = None
 
-  def _set_emit(self, emit: Callable[[TypeOfBackendElement], BaseElement | None]) -> None:
-    """
-    Set the dispatch function for recursive deserialization.
+  def _log(self, behavior: Behavior, message: str, *args: object) -> None:
+    """Log a message at the behavior's configured log level.
 
-    Parameters
-    ----------
-    emit : Callable[[TypeOfBackendElement], BaseElement | None]
-        A function that dispatches XML elements to their specific deserializers.
+    Args:
+        behavior: Behavior containing log level.
+        message: Log message format.
+        *args: Format arguments.
+
+    Note:
+        Private method for internal use.
+    """
+    if behavior.log_level is not None:
+      self.logger.log(behavior.log_level, message, *args)
+
+  def _set_emit(self, emit: Callable[[TypeOfBackendElement], BaseElement | None]) -> None:
+    """Set the emit function for recursive deserialization.
+
+    Args:
+        emit: Function to dispatch to appropriate deserializer.
+
+    Note:
+        Private method called by the orchestrator (Deserializer).
     """
     self._emit = emit
 
   def emit(self, obj: TypeOfBackendElement) -> BaseElement | None:
-    """
-    Invoke the dispatcher to deserialize an XML element.
+    """Dispatch element to appropriate deserializer.
 
-    Parameters
-    ----------
-    obj : TypeOfBackendElement
-        The backend-specific XML element to deserialize.
+    Args:
+        obj: XML element to deserialize.
 
-    Returns
-    -------
-    BaseElement | None
-        The deserialized TMX object, or None if the dispatcher returns None.
+    Returns:
+        Deserialized object or None if skipped.
 
-    Raises
-    ------
-    AssertionError
-        If called before the dispatcher is set via `_set_emit`.
+    Raises:
+        AssertionError: If emit() called before _set_emit().
     """
     assert self._emit is not None, "emit() called before set_emit() was called"
     return self._emit(obj)
 
   @abstractmethod
-  def _deserialize(self, element: TypeOfBackendElement) -> BaseElement | None:
-    """
-    Perform the actual deserialization of the specific XML element.
+  def _deserialize(self, element: TypeOfBackendElement) -> TypeOfTmxElement | None:
+    """Deserialize XML element to TMX dataclass.
 
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element instance to convert.
+    Args:
+        element: XML element from backend.
 
-    Returns
-    -------
-    BaseElement | None
-        The resulting TMX object instance.
+    Returns:
+        Deserialized object or None if skipped.
     """
     ...
 
-  def _handle_missing_attribute(
-    self, element: TypeOfBackendElement, attribute: str, required: bool
-  ) -> None:
-    """
-    Handle cases where an expected XML attribute is missing according to policy.
+  def _parse_required_attribute(self, element: TypeOfBackendElement, attribute: str) -> str:
+    """Parse required attribute with policy handling.
 
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element being inspected.
-    attribute : str
-        The name of the missing attribute.
-    required : bool
-        Whether the attribute is mandatory.
+    Args:
+        element: XML element.
+        attribute: Attribute name.
 
-    Raises
-    ------
-    AttributeDeserializationError
-        If the attribute is required and the policy behavior is "raise".
-    """
-    if required:
-      self.logger.log(
-        self.policy.required_attribute_missing.log_level, "Required attribute %r is None", attribute
-      )
-      if self.policy.required_attribute_missing.behavior == "raise":
-        raise AttributeDeserializationError(f"Required attribute {attribute!r} is None")
-    return
-
-  def _parse_attribute_as_datetime(
-    self, element: TypeOfBackendElement, attribute: str, required: bool
-  ) -> datetime | None:
-    """
-    Retrieve and parse an attribute value as an ISO 8601 datetime.
-
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element containing the attribute.
-    attribute : str
-        The name of the attribute.
-    required : bool
-        Whether the attribute is mandatory.
-
-    Returns
-    -------
-    datetime | None
-        The parsed datetime object, or None if missing or invalid.
-
-    Raises
-    ------
-    AttributeDeserializationError
-        If parsing fails or a required attribute is missing and policy is "raise".
+    Returns:
+        Attribute value.
     """
     value = self.backend.get_attribute(element, attribute)
     if value is None:
-      self._handle_missing_attribute(element, attribute, required)
-      return None
+      self._handle_required_attribute_missing(self.backend.get_tag(element), attribute)
+    return cast(str, value)
+
+  def try_convert_to_datetime(self, element: str, value: str, attribute: str) -> datetime:
+    """Convert string to datetime with policy handling.
+
+    Args:
+        element: Element tag name (for error messages).
+        value: Attribute value.
+        attribute: Attribute name.
+
+    Returns:
+        Parsed datetime or fallback per policy.
+    """
     try:
       return datetime.fromisoformat(value)
-    except ValueError as e:
-      self.logger.log(
-        self.policy.invalid_attribute_value.log_level,
-        "Cannot convert %r to a datetime object for attribute %s",
-        value,
-        attribute,
-      )
-      if self.policy.invalid_attribute_value.behavior == "raise":
-        raise AttributeDeserializationError(
-          f"Cannot convert {value!r} to a datetime object for attribute {attribute}"
-        ) from e
-      return None
+    except ValueError:
+      return self._handle_invalid_datetime_value(element, attribute, value, datetime)
 
-  def _parse_attribute_as_int(
-    self, element: TypeOfBackendElement, attribute: str, required: bool
-  ) -> int | None:
+  def try_convert_to_int(self, element: str, value: str, attribute: str) -> int:
+    """Convert string to int with policy handling.
+
+    Args:
+        element: Element tag name (for error messages).
+        value: Attribute value.
+        attribute: Attribute name.
+
+    Returns:
+        Parsed integer or fallback per policy.
     """
-    Retrieve and parse an attribute value as an integer.
-
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element containing the attribute.
-    attribute : str
-        The name of the attribute.
-    required : bool
-        Whether the attribute is mandatory.
-
-    Returns
-    -------
-    int | None
-        The parsed integer, or None if missing or invalid.
-
-    Raises
-    ------
-    AttributeDeserializationError
-        If parsing fails or a required attribute is missing and policy is "raise".
-    """
-    value = self.backend.get_attribute(element, attribute)
-    if value is None:
-      self._handle_missing_attribute(element, attribute, required)
-      return None
     try:
       return int(value)
-    except ValueError as e:
-      self.logger.log(
-        self.policy.invalid_attribute_value.log_level,
-        "Cannot convert %r to an int for attribute %s",
-        value,
-        attribute,
-      )
-      if self.policy.invalid_attribute_value.behavior == "raise":
-        raise AttributeDeserializationError(
-          f"Cannot convert {value!r} to an int for attribute {attribute}"
-        ) from e
-      return None
+    except ValueError:
+      return self._handle_invalid_int_value(element, attribute, value, int)
 
-  def _parse_attribute_as_enum[EnumType: StrEnum](
-    self, element: TypeOfBackendElement, attribute: str, enum_type: type[EnumType], required: bool
-  ) -> EnumType | None:
+  def try_convert_to_enum[TypeOfEnum: Enum](
+    self, element: str, value: str, attribute: str, enum_type: type[TypeOfEnum]
+  ) -> TypeOfEnum:
+    """Convert string to enum with policy handling.
+
+    Args:
+        element: Element tag name (for error messages).
+        value: Attribute value.
+        attribute: Attribute name.
+        enum_type: Target enum type.
+
+    Returns:
+        Enum value or fallback per policy.
     """
-    Retrieve and parse an attribute value as a specific StrEnum member.
-
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element containing the attribute.
-    attribute : str
-        The name of the attribute.
-    enum_type : type[EnumType]
-        The StrEnum class to use for validation.
-    required : bool
-        Whether the attribute is mandatory.
-
-    Returns
-    -------
-    EnumType | None
-        The matching enum member, or None if missing or invalid.
-
-    Raises
-    ------
-    AttributeDeserializationError
-        If the value is not a valid enum member or a required attribute is
-        missing and policy is "raise".
-    """
-    value = self.backend.get_attribute(element, attribute)
-    if value is None:
-      self._handle_missing_attribute(element, attribute, required)
-      return None
     try:
       return enum_type(value)
-    except ValueError as e:
-      self.logger.log(
-        self.policy.invalid_attribute_value.log_level,
-        "Value %r is not a valid enum value for attribute %s",
-        value,
-        attribute,
-      )
-      if self.policy.invalid_attribute_value.behavior == "raise":
-        raise AttributeDeserializationError(
-          f"Value {value!r} is not a valid enum value for attribute {attribute}"
-        ) from e
-      return None
+    except ValueError:
+      return self._handle_invalid_enum_value(element, attribute, value, enum_type)
 
-  def _parse_attribute_as_str(
-    self, element: TypeOfBackendElement, attribute: str, required: bool
-  ) -> str | None:
-    """
-    Retrieve an attribute value as a string.
-
-    Parameters
-    ----------
-    element : TypeOfBackendElement
-        The XML element containing the attribute.
-    attribute : str
-        The name of the attribute.
-    required : bool
-        Whether the attribute is mandatory.
-
-    Returns
-    -------
-    str | None
-        The attribute string, or None if missing.
-    """
-    value = self.backend.get_attribute(element, attribute)
-    if value is None:
-      self._handle_missing_attribute(element, attribute, required)
-      return None
-    return value
-
+  @overload
   def _deserialize_content(
-    self, source: TypeOfBackendElement, allowed: tuple[str, ...]
-  ) -> list[InlineElement | Sub | str]:
+    self, source: TypeOfBackendElement, allowed_tags: tuple[Literal["sub"]]
+  ) -> list[Sub | str]: ...
+  @overload
+  def _deserialize_content(
+    self,
+    source: TypeOfBackendElement,
+    allowed_tags: tuple[Literal["bpt", "ept", "it", "ph", "hi"], ...],
+  ) -> list[Bpt | Ept | It | Ph | Hi | str]: ...
+  def _deserialize_content(
+    self,
+    source: TypeOfBackendElement,
+    allowed_tags: tuple[Literal["sub"]] | tuple[Literal["bpt", "ept", "it", "ph", "hi"], ...],
+  ) -> list[Bpt | Ept | It | Ph | Hi | str] | list[Sub | str]:
+    """Deserialize mixed content (text + inline elements).
+
+    Args:
+        source: XML element containing mixed content.
+        allowed_tags: Allowed child element tag names.
+
+    Returns:
+        List of strings and inline element objects.
     """
-    Extract text and child elements from an XML element.
-
-    Handles recursive parsing of children and associated tail text.
-
-    Parameters
-    ----------
-    source : TypeOfBackendElement
-        The XML element containing mixed content.
-    allowed : tuple[str, ...]
-        The permitted tags for child elements.
-
-    Returns
-    -------
-    list[InlineElement | str]
-        A list containing strings (text/tails) and deserialized objects.
-
-    Raises
-    ------
-    XmlDeserializationError
-        If an invalid child tag is encountered, or the element is empty,
-        and the respective policy behavior is "raise".
-    """
-    source_tag = self.backend.get_tag(source)
-    result = []
+    result: list[Any] = []
     if (text := self.backend.get_text(source)) is not None:
       result.append(text)
     for child in self.backend.iter_children(source):
-      tag = self.backend.get_tag(child)
-      if tag not in allowed:
-        self.logger.log(
-          self.policy.invalid_child_element.log_level,
-          "Incorrect child element in %s: expected one of %s, got %s",
-          source_tag,
-          ", ".join(allowed),
-          tag,
-        )
-        if self.policy.invalid_child_element.behavior == "raise":
-          raise XmlDeserializationError(
-            f"Incorrect child element in {source_tag}: expected one of {', '.join(allowed)}, got {tag}"
-          )
+      child_tag = self.backend.get_tag(child)
+      if child_tag not in allowed_tags:
+        self._handle_invalid_child_tag(self.backend.get_tag(source), child_tag, allowed_tags)
         continue
+
       child_obj = self.emit(child)
       if child_obj is not None:
-        result.append(child_obj)  # type: ignore[arg-type]
+        result.append(child_obj)
       if (tail := self.backend.get_tail(child)) is not None:
         result.append(tail)
-    if result == []:
-      self.logger.log(self.policy.empty_content.log_level, "Element <%s> is empty", source_tag)
-      if self.policy.empty_content.behavior == "raise":
-        raise XmlDeserializationError(f"Element <{source_tag}> is empty")
-      if self.policy.empty_content.behavior == "empty":
-        self.logger.log(self.policy.empty_content.log_level, "Falling back to an empty string")
-        result.append("")
-    return result  # type: ignore[return-value]
+    return result
+
+  def _handle_invalid_tag(self, received: str, expected: str) -> None | str:
+    """Handle unexpected tag error per policy.
+
+    Args:
+        received: Actual tag name.
+        expected: Expected tag name.
+
+    Returns:
+        None to skip, or string to use per FORCE policy.
+    """
+    behavior = self.policy.invalid_tag
+    self._log(behavior, "Invalid tag %r, expected %r", received, expected)
+    match behavior.action:
+      case RaiseIgnoreForce.RAISE:
+        raise InvalidTagError(received, expected)
+      case RaiseIgnoreForce.IGNORE:
+        return None
+      case RaiseIgnoreForce.FORCE:
+        return received
+      case _:
+        raise InvalidPolicyActionError("invalid_tag", behavior.action, RaiseIgnoreForce)
+
+  def _handle_invalid_child_tag(
+    self, parent: str, received: str, expected: str | tuple[str, ...]
+  ) -> None:
+    """Handle invalid child tag error per policy."""
+    behavior = self.policy.invalid_child_tag
+    self._log(
+      behavior,
+      "Invalid child tag for element <%s>, received %r, expected %r",
+      parent,
+      received,
+      expected,
+    )
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise InvalidChildTagError(parent, received, expected)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("invalid_child_tag", behavior.action, RaiseIgnore)
+
+  def _handle_missing_text_content(self, element: str) -> str:
+    """Handle missing text content error per policy."""
+    behavior = self.policy.missing_text_content
+    self._log(behavior, "Element %r has no text content", element)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise MissingTextContentError(element)
+      case RaiseIgnore.IGNORE:
+        return cast(str, None)
+      case _:
+        raise InvalidPolicyActionError("missing_text_content", behavior.action, RaiseIgnore)
+
+  def _handle_extra_text(self, element: str, text: str) -> None:
+    """Handle unexpected text content error per policy."""
+    behavior = self.policy.extra_text
+    self._log(behavior, "Element %r has extra text content:\n%s", element, text)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise ExtraTextError(element, text)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("extra_text", behavior.action, RaiseIgnore)
+
+  def _handle_required_attribute_missing(self, element: str, attribute: str) -> None:
+    """Handle missing required attribute error per policy."""
+    behavior = self.policy.required_attribute_missing
+    self._log(behavior, "Required attribute %r is missing from element %r", attribute, element)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise RequiredAttributeMissingError(element, attribute)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("required_attribute_missing", behavior.action, RaiseIgnore)
+
+  def _handle_invalid_enum_value[TypeOfEnum: Enum](
+    self, element: str, attribute: str, value: str, enum_type: type[TypeOfEnum]
+  ) -> TypeOfEnum:
+    """Handle invalid enum value error per policy."""
+    behavior = self.policy.invalid_enum_value
+    self._log(behavior, "Invalid attribute %r for element %r.", attribute, element)
+    match behavior.action:
+      case RaiseNoneKeep.RAISE:
+        raise InvalidEnumValueError(element, attribute, value, enum_type)
+      case RaiseNoneKeep.NONE:
+        return cast(TypeOfEnum, None)
+      case RaiseNoneKeep.KEEP:
+        return cast(TypeOfEnum, value)
+      case _:
+        raise InvalidPolicyActionError("invalid_enum_value", behavior.action, RaiseNoneKeep)
+
+  def _handle_invalid_datetime_value(
+    self, element: str, attribute: str, value: str, expected: type[datetime]
+  ) -> datetime:
+    """Handle invalid datetime value error per policy."""
+    behavior = self.policy.invalid_datetime_value
+    self._log(behavior, "Invalid attribute %r for element %r.", attribute, element)
+    match behavior.action:
+      case RaiseNoneKeep.RAISE:
+        raise InvalidDatetimeValueError(element, attribute, value)
+      case RaiseNoneKeep.NONE:
+        return cast(datetime, None)
+      case RaiseNoneKeep.KEEP:
+        return cast(datetime, value)
+      case _:
+        raise InvalidPolicyActionError("invalid_datetime_value", behavior.action, RaiseNoneKeep)
+
+  def _handle_invalid_int_value(
+    self, element: str, attribute: str, value: str, expected: type[int]
+  ) -> int:
+    """Handle invalid int value error per policy."""
+    behavior = self.policy.invalid_int_value
+    self._log(behavior, "Invalid attribute %r for element %r.", attribute, element)
+    match behavior.action:
+      case RaiseNoneKeep.RAISE:
+        raise InvalidIntValueError(element, attribute, value)
+      case RaiseNoneKeep.NONE:
+        return cast(int, None)
+      case RaiseNoneKeep.KEEP:
+        return cast(int, value)
+      case _:
+        raise InvalidPolicyActionError("invalid_int_value", behavior.action, RaiseNoneKeep)
