@@ -585,7 +585,7 @@ class TestEdgeCases:
   """Edge case tests for backends."""
 
   def test_empty_element_name_raises(self, backend: XmlBackend) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
       backend.create_element("")
 
   def test_very_long_element_name(self, backend: XmlBackend) -> None:

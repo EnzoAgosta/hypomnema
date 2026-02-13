@@ -138,7 +138,7 @@ class TestIterwrite:
     assert "</tmx>" in content
 
   def test_iterwrite_fails_with_incorrect_to_bytes(
-    self, backend: XmlBackend, tmp_path: Path
+    self, backend: XmlBackend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
   ) -> None:
     elements = [
       backend.create_element("tu", attributes={"id": "1"}),
@@ -146,13 +146,11 @@ class TestIterwrite:
     ]
     root = self._make_non_empty_root(backend, "tmx", {"version": "1.4"})
     output_path = tmp_path / "output.tmx"
-    original = type(backend).to_bytes
-    type(backend).to_bytes = lambda *x, **kwargs: str(x).encode("utf-8")  # type: ignore[assignment]
+    monkeypatch.setattr(type(backend), "to_bytes", lambda *x, **kwargs: str(x).encode("utf-8"))
     with pytest.raises(
       ValueError, match="implementation returned an incorrectly formatted root element"
     ):
       backend.iterwrite(output_path, elements, root_elem=root)
-    type(backend).to_bytes = original  # type: ignore[assignment]
 
   def test_basic_iterwrite(self, backend: XmlBackend, tmp_path: Path) -> None:
     elements = [
@@ -227,7 +225,9 @@ class TestIterwriteErrors:
 
     bad_root = BadElement()
     output_path = tmp_path / "output.tmx"
-    with pytest.raises(Exception):
+    with pytest.raises(
+      (TypeError, AttributeError)
+    ):  # lxml raises AttributeError since .text is missing and StandardBackend raises TypeError
       backend.iterwrite(output_path, [], root_elem=bad_root)
 
 

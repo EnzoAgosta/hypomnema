@@ -16,6 +16,7 @@ from hypomnema.base.errors import (
   DuplicateChildError,
   ExtraTextError,
   InvalidChildTagError,
+  InvalidEnumValueError,
   InvalidPolicyActionError,
   MissingBodyError,
   MissingHeaderError,
@@ -147,7 +148,7 @@ class TestHeaderDeserializer:
     elem = self._create_minimal_header(backend)
     backend.set_attribute(elem, "segtype", "invalid")
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidEnumValueError):
       handler._deserialize(elem)
 
   def test_header_invalid_segtype_none_with_policy(self, backend: XmlBackend) -> None:
@@ -216,7 +217,7 @@ class TestHeaderDeserializer:
     invalid = backend.create_element("invalid")
     backend.append_child(elem, invalid)
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
 
@@ -485,7 +486,7 @@ class TestTuvDeserializer:
     with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
-  def test_tuv_missing_seg_rinvqlid_action_raises(self, backend: XmlBackend) -> None:
+  def test_tuv_missing_seg_invalid_action_raises(self, backend: XmlBackend) -> None:
     logger = getLogger("test_tuv_missing_seg")
     policy = XmlDeserializationPolicy(missing_seg=Behavior("invalid_action", WARNING))  # type: ignore
     handler = TuvDeserializer(backend, policy, logger)
@@ -641,7 +642,7 @@ class TestTuDeserializer:
     invalid = backend.create_element("invalid")
     backend.append_child(elem, invalid)
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
 
@@ -1085,7 +1086,7 @@ class TestTmxDeserializer:
     backend.append_child(body, invalid)
     backend.append_child(elem, body)
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
   def test_tmx_invalid_child_tag_raises(self, backend: XmlBackend) -> None:
@@ -1096,7 +1097,7 @@ class TestTmxDeserializer:
     invalid = backend.create_element("invalid")
     backend.append_child(elem, invalid)
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
   def test_tmx_multiple_header_invalid_action_raises(self, backend: XmlBackend) -> None:

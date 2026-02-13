@@ -13,7 +13,12 @@ from logging import WARNING, getLogger
 
 import pytest
 
-from hypomnema.base.errors import InvalidIntValueError, RequiredAttributeMissingError
+from hypomnema.base.errors import (
+  InvalidChildTagError,
+  InvalidEnumValueError,
+  InvalidIntValueError,
+  RequiredAttributeMissingError,
+)
 from hypomnema.base.types import Assoc, Bpt, Ept, Hi, It, Ph, Pos, Sub
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.deserialization import (
@@ -315,7 +320,7 @@ class TestItDeserializer:
     elem = backend.create_element("it")
     backend.set_attribute(elem, "pos", "invalid")
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidEnumValueError):
       handler._deserialize(elem)
 
   def test_it_invalid_x_none_with_policy(self, backend: XmlBackend) -> None:
@@ -611,7 +616,7 @@ class TestSubDeserializer:
     nested = backend.create_element("sub")
     backend.append_child(elem, nested)
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidChildTagError):
       handler._deserialize(elem)
 
   def test_sub_empty_content(self, backend: XmlBackend) -> None:

@@ -5,7 +5,7 @@ the library.
 """
 
 from .errors import (
-  AttributeError,
+  XmlAttributeError,
   DeserializationError,
   InvalidChildElementError,
   InvalidChildTagError,
@@ -47,7 +47,7 @@ from .types import (
 
 __all__ = [
   "Assoc",
-  "AttributeError",
+  "XmlAttributeError",
   "BaseElement",
   "Bpt",
   "DeserializationError",

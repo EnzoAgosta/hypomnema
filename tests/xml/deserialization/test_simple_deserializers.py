@@ -9,7 +9,11 @@ from logging import WARNING, getLogger
 
 import pytest
 
-from hypomnema.base.errors import MissingTextContentError, RequiredAttributeMissingError
+from hypomnema.base.errors import (
+  InvalidTagError,
+  MissingTextContentError,
+  RequiredAttributeMissingError,
+)
 from hypomnema.base.types import Note, Prop
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.deserialization import NoteDeserializer, PropDeserializer
@@ -96,7 +100,7 @@ class TestNoteDeserializer:
     elem = backend.create_element("wrong")
     backend.set_text(elem, "text")
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidTagError):
       handler._deserialize(elem)
 
   def test_note_invalid_tag_ignored_with_policy(
@@ -251,7 +255,7 @@ class TestPropDeserializer:
     backend.set_text(elem, "value")
     backend.set_attribute(elem, "type", "type1")
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidTagError):
       handler._deserialize(elem)
 
   def test_prop_invalid_tag_ignored_with_policy(

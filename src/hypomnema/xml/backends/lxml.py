@@ -16,7 +16,7 @@ class LxmlBackend(XmlBackend[et._Element]):
 
   def get_tag(
     self, element: et._Element, notation: Literal["prefixed", "qualified", "local"] = "local"
-  ):
+  ) -> str:
     tag = self.normalize_tag_name(element.tag)
     prefix, uri, localname = self._namespace_handler.qualify_name(tag, nsmap=self.nsmap)
     match notation:
@@ -31,7 +31,9 @@ class LxmlBackend(XmlBackend[et._Element]):
           f"Invalid notation {notation!r} expected one of 'prefixed', 'qualified' or 'local'"
         )
 
-  def create_element(self, tag: TagLike, attributes: Mapping[str, str] | None = None):
+  def create_element(
+    self, tag: TagLike, attributes: Mapping[str, str] | None = None
+  ) -> et._Element:
     tag = self.normalize_tag_name(tag)
     prefix, uri, localname = self._namespace_handler.qualify_name(tag, nsmap=self.nsmap)
     attrib = {k: v for k, v in attributes.items()} if attributes is not None else {}
@@ -108,7 +110,9 @@ class LxmlBackend(XmlBackend[et._Element]):
   def parse(self, path: str | PathLike, encoding: str | None = None) -> et._Element:
     encoding = normalize_encoding(encoding)
     source = make_usable_path(path, mkdir=False)
-    return et.parse(source, parser=et.XMLParser(encoding=encoding, recover=True)).getroot()
+    return et.parse(
+      source, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
+    ).getroot()
 
   def write(self, element: et._Element, path: str | PathLike, encoding: str | None = None) -> None:
     encoding = normalize_encoding(encoding)

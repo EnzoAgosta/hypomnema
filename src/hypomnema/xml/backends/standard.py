@@ -38,7 +38,7 @@ class StandardBackend(XmlBackend[et.Element]):
 
   def get_tag(
     self, element: et.Element, notation: Literal["prefixed", "qualified", "local"] = "local"
-  ):
+  ) -> str:
     """Get element tag name.
 
     Args:
@@ -62,7 +62,7 @@ class StandardBackend(XmlBackend[et.Element]):
           f"Invalid notation {notation!r} expected one of 'prefixed', 'qualified' or 'local'"
         )
 
-  def create_element(self, tag: TagLike, attributes: Mapping[str, str] | None = None):
+  def create_element(self, tag: TagLike, attributes: Mapping[str, str] | None = None) -> et.Element:
     """Create a new XML element.
 
     Args:

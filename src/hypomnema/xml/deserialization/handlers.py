@@ -361,7 +361,7 @@ class TuvDeserializer[BackendElementType](BaseElementDeserializer[BackendElement
                 pass
               case _:
                 raise InvalidPolicyActionError(
-                  "multiple_seg", multiple_seg_behavior, DuplicateChildAction
+                  "multiple_seg", multiple_seg_behavior.action, DuplicateChildAction
                 )
           seg_found = True
           content = self._deserialize_content(child, ("bpt", "ept", "it", "ph", "hi"))

@@ -67,6 +67,8 @@ class NamespaceHandler:
       ('ns', 'http://example.com/ns', 'tag')
   """
 
+  __slots__ = ("nsmap", "logger", "policy")
+
   def __init__(
     self,
     nsmap: Mapping[str, str] | None = None,
@@ -105,7 +107,13 @@ class NamespaceHandler:
         Private method. Behavior controlled by policy.existing_namespace.
     """
     behavior = self.policy.existing_namespace
-    self._log(behavior, "prefix %r is already registered with URI %r", existing_uri, given_uri)
+    self._log(
+      behavior,
+      "prefix %r is already registered with URI %r in nsmap %r",
+      prefix,
+      existing_uri,
+      self.nsmap,
+    )
     match behavior.action:
       case RaiseIgnoreOverwrite.RAISE:
         raise ExistingNamespaceError(prefix, existing_uri, given_uri, self.nsmap)
@@ -290,7 +298,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
       XML element type (e.g., xml.etree.ElementTree.Element for StandardBackend).
   """
 
-  __slots__ = ("_namespace_handler", "logger", "default_encoding", "policy")
+  __slots__ = ("_namespace_handler", "logger", "default_encoding")
   _namespace_handler: NamespaceHandler
   logger: Logger
   default_encoding: str
@@ -308,7 +316,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
       namespace_handler if namespace_handler is not None else NamespaceHandler()
     )
 
-  def prep_tag_set(self, to_prep: TagLike | Iterable[TagLike]) -> set[str] | None:
+  def prep_tag_set(self, to_prep: TagLike | Iterable[TagLike]) -> set[str]:
     """Flatten and normalize tag filters to a set.
 
     Args:
@@ -701,7 +709,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
     closing_tag = f"</{self.get_tag(root_elem)}>".encode(encoding)
     if not root_string.endswith(closing_tag):
       raise ValueError(
-        "to_bytes() implementation returned an incorrectly formatted root element."
+        "to_bytes() implementation returned an incorrectly formatted root element. "
         f"Expected string to end with {closing_tag!r}, got {root_string[-len(closing_tag) :]!r}"
       )
 

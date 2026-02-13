@@ -22,7 +22,7 @@ Exception Hierarchy:
     │   ├── InvalidChildElementError
     │   ├── MissingSerializationHandlerError
     │   └── MissingTextContentError
-    ├── AttributeError
+    ├── XmlAttributeError
     │   ├── RequiredAttributeMissingError
     │   ├── InvalidEnumValueError
     │   ├── InvalidIntValueError
@@ -39,7 +39,7 @@ Exception Hierarchy:
 
 Note:
     Some exception classes inherit from multiple parents (e.g., InvalidEnumValueError
-    inherits from both DeserializationError and AttributeError) to allow catching
+    inherits from both DeserializationError and XmlAttributeError) to allow catching
     them through different exception hierarchies.
 """
 
@@ -60,7 +60,7 @@ class SerializationError(Exception):
   pass
 
 
-class AttributeError(Exception):
+class XmlAttributeError(Exception):
   """Base class for attribute-related errors."""
 
   pass
@@ -134,7 +134,7 @@ class MissingTextContentError(DeserializationError, SerializationError):
     super().__init__(self.message)
 
 
-class RequiredAttributeMissingError(DeserializationError, AttributeError, SerializationError):
+class RequiredAttributeMissingError(DeserializationError, XmlAttributeError, SerializationError):
   """Raised when a required XML attribute is missing.
 
   Args:
@@ -150,7 +150,7 @@ class RequiredAttributeMissingError(DeserializationError, AttributeError, Serial
   def __init__(self, element: str, attribute: str) -> None:
     self.element = element
     self.attribute = attribute
-    self.message = f"Required attribute {attribute!r} is  missing from element <{element}>"
+    self.message = f"Required attribute {attribute!r} is missing from element <{element}>"
     super().__init__(self.message)
 
 
@@ -202,7 +202,7 @@ class DuplicateChildError(DeserializationError):
     super().__init__(self.message)
 
 
-class InvalidEnumValueError(DeserializationError, AttributeError):
+class InvalidEnumValueError(DeserializationError, XmlAttributeError):
   """Raised when an attribute value cannot be converted to an enum.
 
   Args:
@@ -273,7 +273,7 @@ class InvalidPolicyActionError(Exception):
     super().__init__(self.message)
 
 
-class InvalidDatetimeValueError(DeserializationError, AttributeError):
+class InvalidDatetimeValueError(DeserializationError, XmlAttributeError):
   """Raised when an attribute value cannot be parsed as datetime.
 
   Args:
@@ -296,7 +296,7 @@ class InvalidDatetimeValueError(DeserializationError, AttributeError):
     super().__init__(self.message)
 
 
-class InvalidIntValueError(DeserializationError, AttributeError):
+class InvalidIntValueError(DeserializationError, XmlAttributeError):
   """Raised when an attribute value cannot be parsed as integer.
 
   Args:
@@ -359,7 +359,7 @@ class InvalidChildElementError(SerializationError):
     super().__init__(self.message)
 
 
-class InvalidAttributeTypeError(AttributeError, SerializationError):
+class InvalidAttributeTypeError(XmlAttributeError, SerializationError):
   """Raised when an attribute has an invalid type during serialization.
 
   Args:
