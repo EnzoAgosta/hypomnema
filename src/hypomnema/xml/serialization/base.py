@@ -231,7 +231,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
         self.backend.append_child(element, child_element)
 
   def _serialize_content_into(
-    self, target: TypeOfBackendElement, content: Iterable, allowed: tuple[type[BaseElement], ...]
+    self, target: TypeOfBackendElement, content: Iterable, allowed: tuple[type, ...]
   ) -> None:
     """Serialize mixed content (text + inline elements) into target."""
     last_child: TypeOfBackendElement | None = None
@@ -248,7 +248,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
           else:
             self.backend.set_tail(last_child, item)
       elif isinstance(item, allowed):
-        child_elem = self.emit(item)
+        child_elem = self.emit(item)  # type: ignore[arg-type]
         if child_elem is not None:
           self.backend.append_child(target, child_elem)
           last_child = child_elem

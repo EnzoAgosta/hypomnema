@@ -13,25 +13,33 @@ from typing import Literal
 from hypomnema.base.types import (
   Assoc,
   Bpt,
+  BptBase,
   Ept,
+  EptBase,
   Header,
   Hi,
-  InlineElement,
+  HiBase,
   It,
+  ItBase,
   Note,
   Ph,
+  PhBase,
   Pos,
   Prop,
   Segtype,
   Sub,
+  SubBase,
   Tmx,
   Tu,
   Tuv,
+  TuvBase,
 )
 
 
 def iter_text(
-  source: Tuv | InlineElement, *, ignore: Iterable[type[InlineElement]] | None = None
+  source: BptBase | EptBase | PhBase | HiBase | ItBase | SubBase | TuvBase,
+  *,
+  ignore: Iterable[type[BptBase | EptBase | PhBase | HiBase | ItBase | SubBase]] | None = None,
 ) -> Generator[str]:
   """Iterate over text content, optionally skipping specific element types.
 
@@ -54,7 +62,8 @@ def iter_text(
   """
 
   def _iter_text(
-    _source: InlineElement | Tuv, _ignore: tuple[type[InlineElement], ...]
+    _source: BptBase | EptBase | PhBase | HiBase | ItBase | SubBase | TuvBase,
+    _ignore: tuple[type[BptBase | EptBase | PhBase | HiBase | ItBase | SubBase], ...],
   ) -> Generator[str]:
     for item in _source.content:
       if isinstance(item, str):
@@ -100,11 +109,9 @@ def create_tmx(
   Returns:
       Configured TMX root element.
   """
-  if header is None:
-    header = create_header()
-  if body is None:
-    body = []
-  return Tmx(header=header, body=list(body), version=version or "1.4")
+  _header = create_header() if header is None else header
+  _body = list() if body is None else list(body)
+  return Tmx(header=_header, body=_body, version=version or "1.4")
 
 
 def create_header(

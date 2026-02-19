@@ -14,8 +14,9 @@ from os import PathLike
 from pathlib import Path
 from typing import NotRequired, TypedDict, Unpack, overload
 
-from hypomnema.base.types import BaseElement, Tmx
+from hypomnema.base.types import BaseElement, Tmx, TmxBase
 from hypomnema.xml.backends.base import NamespaceHandler, XmlBackend
+from hypomnema.xml.backends.lxml import LxmlBackend
 from hypomnema.xml.backends.standard import StandardBackend
 from hypomnema.xml.deserialization.base import BaseElementDeserializer
 from hypomnema.xml.deserialization.deserializer import Deserializer
@@ -31,7 +32,7 @@ class LoadOptions(TypedDict):
   including backend selection, namespace handling, and policy configuration.
 
   Attributes:
-      backend: Custom XML backend (defaults to StandardBackend).
+      backend: Custom XML backend (defaults to fastest backend available).
       backend_logger: Logger for backend operations.
       nsmap: Custom namespace prefix-to-URI mappings.
       namespace_handler: Custom namespace handler instance.
@@ -117,9 +118,10 @@ def load(
         yield obj
 
   _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _default_backend = StandardBackend if LxmlBackend is None else LxmlBackend
   _backend = kwargs.get(
     "backend",
-    StandardBackend(
+    _default_backend(
       logger=kwargs.get("backend_logger"),
       default_encoding=_encoding,
       namespace_handler=kwargs.get(
@@ -210,13 +212,14 @@ def dump(
       >>> dump(tmx, "output.tmx")
       >>> dump(tmx, "output.tmx", encoding="utf-16")
   """
-  if not isinstance(tmx, Tmx):
+  if not isinstance(tmx, TmxBase):
     raise TypeError(f"Root element is not a Tmx: {type(tmx)}")
 
   _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _default_backend = StandardBackend if LxmlBackend is None else LxmlBackend
   _backend = kwargs.get(
     "backend",
-    StandardBackend(
+    _default_backend(
       logger=kwargs.get("backend_logger"),
       default_encoding=_encoding,
       namespace_handler=kwargs.get(

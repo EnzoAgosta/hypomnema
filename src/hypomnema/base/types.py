@@ -11,11 +11,110 @@ Note:
 """
 
 from __future__ import annotations
-from collections.abc import Sequence
+from abc import ABC
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Sequence
+
+
+class BptBase(ABC):
+  i: int
+  x: int | None
+  type: str | None
+  content: Sequence[str | SubBase]
+
+
+class EptBase(ABC):
+  i: int
+  content: Sequence[str | SubBase]
+
+
+class HiBase(ABC):
+  x: int | None
+  type: str | None
+  content: Sequence[str | BptBase | EptBase | ItBase | PhBase | HiBase | SubBase]
+
+
+class ItBase(ABC):
+  pos: Pos
+  x: int | None
+  type: str | None
+  content: Sequence[str | SubBase]
+
+
+class PhBase(ABC):
+  x: int | None
+  type: str | None
+  assoc: Assoc | None
+  content: Sequence[str | SubBase]
+
+
+class SubBase(ABC):
+  datatype: str | None
+  type: str | None
+  content: Sequence[str | BptBase | EptBase | ItBase | PhBase | HiBase | SubBase]
+
+
+class TuvBase(ABC):
+  lang: str
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  changeid: str | None
+  o_tmf: str | None
+  content: Sequence[str | BptBase | EptBase | ItBase | PhBase | HiBase | SubBase]
+  props: Sequence[Prop]
+  notes: Sequence[Note]
+
+
+class TuBase(ABC):
+  tuid: str | None
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  segtype: Segtype | None
+  changeid: str | None
+  o_tmf: str | None
+  srclang: str | None
+  variants: Sequence[TuvBase]
+  props: Sequence[Prop]
+  notes: Sequence[Note]
+
+
+class TmxBase(ABC):
+  version: str
+  header: HeaderBase
+  body: Sequence[TuBase]
+
+
+class HeaderBase(ABC):
+  creationtool: str
+  creationtoolversion: str
+  segtype: Segtype
+  o_tmf: str
+  adminlang: str
+  srclang: str
+  datatype: str
+  o_encoding: str | None = None
+  creationdate: datetime | None = None
+  creationid: str | None = None
+  changedate: datetime | None = None
+  changeid: str | None = None
+  props: Sequence[Prop]
+  notes: Sequence[Note]
 
 
 class Pos(StrEnum):
@@ -131,7 +230,7 @@ class Note:
 
 
 @dataclass(slots=True)
-class Header:
+class Header(HeaderBase):
   """File header containing metadata about the TMX document.
 
   The ``<header>`` element contains information pertaining to the whole
@@ -193,10 +292,10 @@ class Header:
   """Change identifier. Specifies the identifier of the user who modified
     the element last."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Metadata properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Annotation notes."""
 
 
@@ -205,7 +304,7 @@ class TextMixin:
 
   This mixin provides quick access to the text portions of elements that
   contain mixed content (text strings and inline elements). Use this mixin
-  on any class that has a ``content`` attribute containing a sequence of
+  on any class that has a ``content`` attribute containing a list of
   strings and inline elements.
 
   The ``text`` property concatenates all string items in the content,
@@ -213,7 +312,7 @@ class TextMixin:
   """
 
   __slots__ = tuple()
-  content: Sequence[str | Any]
+  content: list[str | Any]
   """Mixed content of strings and inline elements."""
 
   @property
@@ -229,11 +328,11 @@ class TextMixin:
 
 
 @dataclass(slots=True)
-class Bpt(TextMixin):
-  """Begin paired tag - opening half of a paired sequence of native codes.
+class Bpt(TextMixin, BptBase):
+  """Begin paired tag - opening half of a paired list of native codes.
 
   The ``<bpt>`` element is used to delimit the beginning of a paired
-  sequence of native codes. Each ``<bpt>`` has a corresponding ``<ept>``
+  list of native codes. Each ``<bpt>`` has a corresponding ``<ept>``
   element within the segment.
 
   See Also:
@@ -255,16 +354,16 @@ class Bpt(TextMixin):
   """Type of the native code. Recommended values include: bold, italic,
     link, font, color, underlined, etc."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data (native codes), optionally with ``<sub>`` elements for
     sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ept(TextMixin):
-  """End paired tag - closing half of a paired sequence of native codes.
+class Ept(TextMixin, EptBase):
+  """End paired tag - closing half of a paired list of native codes.
 
-  The ``<ept>`` element is used to delimit the end of a paired sequence
+  The ``<ept>`` element is used to delimit the end of a paired list
   of native codes. Each ``<ept>`` has a corresponding ``<bpt>`` element
   within the segment.
 
@@ -276,13 +375,13 @@ class Ept(TextMixin):
   """Internal matching identifier. Matches the ``i`` attribute of the
     corresponding ``<bpt>`` element."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data (native codes), optionally with ``<sub>`` elements for
     sub-flow text."""
 
 
 @dataclass(slots=True)
-class Hi(TextMixin):
+class Hi(TextMixin, HiBase):
   """Highlight element for text with special meaning.
 
   The ``<hi>`` element delimits a section of text that has special meaning,
@@ -300,18 +399,18 @@ class Hi(TextMixin):
   """Type of highlighting. Specifies what kind of special meaning the
     highlighted text has."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Text data mixed with inline elements (``<bpt>``, ``<ept>``, ``<it>``,
     ``<ph>``, and nested ``<hi>``)."""
 
 
 @dataclass(slots=True)
-class It(TextMixin):
+class It(TextMixin, ItBase):
   """Isolated tag - standalone code without its corresponding pair.
 
-  The ``<it>`` element is used to delimit a beginning/ending sequence of
+  The ``<it>`` element is used to delimit a beginning/ending list of
   native codes that does not have its corresponding ending/beginning within
-  the segment. This occurs when segmentation breaks a paired sequence
+  the segment. This occurs when segmentation breaks a paired list
   across segment boundaries.
   """
 
@@ -326,15 +425,15 @@ class It(TextMixin):
   type: str | None = None
   """Type of the native code."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ph(TextMixin):
+class Ph(TextMixin, PhBase):
   """Placeholder element for standalone native codes.
 
-  The ``<ph>`` element is used to delimit a sequence of native standalone
+  The ``<ph>`` element is used to delimit a list of native standalone
   codes in the segment. These are self-contained functions that do not
   require explicit ending instructions, such as image references,
   cross-reference tokens, line breaks, etc.
@@ -353,15 +452,15 @@ class Ph(TextMixin):
   """Association. Indicates whether the placeholder is associated with the
     text preceding ("p"), following ("f"), or on both sides ("b")."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Sub(TextMixin):
+class Sub(TextMixin, SubBase):
   """Sub-flow element for text inside native codes.
 
-  The ``<sub>`` element is used to delimit sub-flow text inside a sequence
+  The ``<sub>`` element is used to delimit sub-flow text inside a list
   of native code, for example: the definition of a footnote, the text of
   a title in an HTML anchor element, or the content of an index marker.
 
@@ -378,12 +477,12 @@ class Sub(TextMixin):
   type: str | None = None
   """Type of the sub-flow."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Text data mixed with inline elements."""
 
 
 @dataclass(slots=True)
-class Tuv(TextMixin):
+class Tuv(TextMixin, TuvBase):
   """Translation Unit Variant - text in a specific language.
 
   The ``<tuv>`` element specifies text in a given language. It contains
@@ -435,19 +534,19 @@ class Tuv(TextMixin):
   """Original translation memory format. Specifies the format of the TM
     file from which this element was generated."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Human-readable notes."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """The segment content - text mixed with inline elements. In TMX XML,
     this corresponds to the content of the ``<seg>`` element."""
 
 
 @dataclass(slots=True)
-class Tu:
+class Tu(TuBase):
   """Translation Unit - a group of aligned segments in different languages.
 
   The ``<tu>`` element contains the data for a given translation unit.
@@ -507,18 +606,18 @@ class Tu:
     set to the same value (unless srclang is "*all*"). If not specified,
     uses the value from the ``<header>`` element."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Human-readable notes."""
 
-  variants: Sequence[Tuv] = field(default_factory=list)
+  variants: list[Tuv] = field(default_factory=list)
   """Language variants. One ``<tuv>`` element for each language."""
 
 
 @dataclass(slots=True)
-class Tmx:
+class Tmx(TmxBase):
   """Root element for TMX documents.
 
   The ``<tmx>`` element is the root element that encloses all other
@@ -526,18 +625,31 @@ class Tmx:
   element followed by one ``<body>`` element.
   """
 
-  header: Header
+  header: HeaderBase
   """File header containing metadata about the document."""
 
   version: str = "1.4"
   """TMX version number. Format is major.minor (e.g., "1.4")."""
 
-  body: Sequence[Tu] = field(default_factory=list)
+  body: list[Tu] = field(default_factory=list)
   """Collection of translation units (``<tu>`` elements)."""
 
 
-type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
+type BaseElement = (
+  TmxBase
+  | HeaderBase
+  | Prop
+  | Note
+  | TuBase
+  | TuvBase
+  | BptBase
+  | EptBase
+  | ItBase
+  | PhBase
+  | HiBase
+  | SubBase
+)
 """Union of all TMX element types."""
 
-type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
+type InlineElement = BptBase | EptBase | ItBase | PhBase | HiBase | SubBase
 """Union of inline markup element types."""
