@@ -3,25 +3,33 @@ from .base import Tmx, Header, Tu, Tuv, Bpt, Ept, It, Ph, Hi, Sub, Prop, Note, e
 from .xml import policy, utils, backends, serialization, deserialization
 
 __all__ = [
+  # modules
   "helpers",
-  "errors",
   "policy",
   "utils",
   "backends",
   "serialization",
   "deserialization",
-  "load",
-  "dump",
+  "errors",
+  # Strucural types
+  "Prop",
+  "Note",
   "Tmx",
   "Header",
   "Tu",
   "Tuv",
+  # Inline types
   "Bpt",
   "Ept",
   "It",
   "Ph",
   "Hi",
   "Sub",
-  "Prop",
-  "Note",
+  # Enums
+  "Assoc",
+  "Pos",
+  "Segtype",
+  # functions
+  "load",
+  "dump",
 ]
