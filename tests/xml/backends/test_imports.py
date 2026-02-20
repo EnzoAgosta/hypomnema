@@ -1,37 +1,20 @@
-import subprocess
-import sys
-import textwrap
+import importlib
+from unittest.mock import patch
+
 import pytest
 
+import hypomnema.xml.backends
 
-@pytest.mark.skipif(
-  sys.platform == "win32", reason="Subprocess isolation test; shell behavior differs on Windows"
-)
-def test_lxml_missing_fallback():
-  """
-  Test that LxmlBackend is set to None and a warning is raised if lxml
-  cannot be imported.
 
-  Note: This runs in a subprocess to safely manipulate sys.modules.
-  Coverage is intentionally skipped for this test due to subprocess isolation.
-  """
-  code = textwrap.dedent("""
-        import sys
-        import warnings
+def test_lxml_unavailable_fallback():
+  # Make any import of anything under "lxml" raise ImportError
+  lxml_mocks = {"lxml": None, "lxml.etree": None, "hypomnema.xml.backends.lxml": None}
 
-        # Simulate lxml absence
-        sys.modules['lxml'] = None
+  with patch.dict("sys.modules", lxml_mocks):
+    with pytest.warns(UserWarning, match="lxml not installed"):
+      importlib.reload(hypomnema.xml.backends)
 
-        # Capture warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            import hypomnema.xml.backends as backends
+    assert hypomnema.xml.backends.LxmlBackend is None
 
-            assert len(w) == 1
-            assert "lxml not installed" in str(w[0].message)
-            assert backends.LxmlBackend is None
-    """)
-
-  result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-
-  assert result.returncode == 0, f"Subprocess failed: {result.stderr}"
+  # Reload again to restore normal state for other tests
+  importlib.reload(hypomnema.xml.backends)
