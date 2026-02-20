@@ -11,11 +11,167 @@ Note:
 """
 
 from __future__ import annotations
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Protocol, Sequence, runtime_checkable
+
+type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
+type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
+
+type TmxElementLike = (
+  TmxLike
+  | HeaderLike
+  | PropLike
+  | NoteLike
+  | TuLike
+  | TuvLike
+  | BptLike
+  | EptLike
+  | ItLike
+  | PhLike
+  | HiLike
+  | SubLike
+)
+type InlineElementLike = BptLike | EptLike | ItLike | PhLike | HiLike | SubLike
+
+
+@runtime_checkable
+class BptLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+  i: int
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrSubBase
+
+
+@runtime_checkable
+class EptLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+  i: int
+  content: AnySequenceOfStrOrSubBase
+
+
+@runtime_checkable
+class HiLike[
+  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+](Protocol):
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrInlineBase
+
+
+@runtime_checkable
+class ItLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+  pos: Pos
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrSubBase
+
+
+@runtime_checkable
+class PhLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+  x: int | None
+  type: str | None
+  assoc: Assoc | None
+  content: AnySequenceOfStrOrSubBase
+
+
+@runtime_checkable
+class SubLike[
+  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+](Protocol):
+  datatype: str | None
+  type: str | None
+  content: AnySequenceOfStrOrInlineBase
+
+
+@runtime_checkable
+class TuvLike[
+  AnySequenceOfProp: Sequence[PropLike],
+  AnySequenceOfNote: Sequence[NoteLike],
+  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike],
+](Protocol):
+  lang: str
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  changeid: str | None
+  o_tmf: str | None
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+  content: AnySequenceOfStrOrInlineBase
+
+
+@runtime_checkable
+class TuLike[
+  AnySequenceOfTuvBase: Sequence[TuvLike],
+  AnySequenceOfProp: Sequence[PropLike],
+  AnySequenceOfNote: Sequence[NoteLike],
+](Protocol):
+  tuid: str | None
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  segtype: Segtype | None
+  changeid: str | None
+  o_tmf: str | None
+  srclang: str | None
+  variants: AnySequenceOfTuvBase
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+
+
+@runtime_checkable
+class HeaderLike[AnySequenceOfProp: Sequence[PropLike], AnySequenceOfNote: Sequence[NoteLike]](
+  Protocol
+):
+  creationtool: str
+  creationtoolversion: str
+  segtype: Segtype
+  o_tmf: str
+  adminlang: str
+  srclang: str
+  datatype: str
+  o_encoding: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  changeid: str | None
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+
+
+@runtime_checkable
+class TmxLike[AnySequenceOfTuBase: Sequence[TuLike]](Protocol):
+  version: str
+  header: HeaderLike[Sequence[PropLike], Sequence[NoteLike]]
+  body: AnySequenceOfTuBase
+
+
+@runtime_checkable
+class NoteLike(Protocol):
+  text: str
+  lang: str | None
+  o_encoding: str | None
+
+
+@runtime_checkable
+class PropLike(Protocol):
+  text: str
+  type: str
+  lang: str | None
+  o_encoding: str | None
 
 
 class Pos(StrEnum):
@@ -193,47 +349,19 @@ class Header:
   """Change identifier. Specifies the identifier of the user who modified
     the element last."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Metadata properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Annotation notes."""
 
 
-class TextMixin:
-  """Mixin providing text extraction from mixed content.
-
-  This mixin provides quick access to the text portions of elements that
-  contain mixed content (text strings and inline elements). Use this mixin
-  on any class that has a ``content`` attribute containing a sequence of
-  strings and inline elements.
-
-  The ``text`` property concatenates all string items in the content,
-  skipping any inline elements.
-  """
-
-  __slots__ = tuple()
-  content: Sequence[str | Any]
-  """Mixed content of strings and inline elements."""
-
-  @property
-  def text(self) -> str:
-    """Extract plain text from mixed content.
-
-    Concatenates all string items in content, skipping inline elements.
-
-    Returns:
-        Plain text without inline markup.
-    """
-    return "".join(item for item in self.content if isinstance(item, str))
-
-
 @dataclass(slots=True)
-class Bpt(TextMixin):
-  """Begin paired tag - opening half of a paired sequence of native codes.
+class Bpt:
+  """Begin paired tag - opening half of a paired list of native codes.
 
   The ``<bpt>`` element is used to delimit the beginning of a paired
-  sequence of native codes. Each ``<bpt>`` has a corresponding ``<ept>``
+  list of native codes. Each ``<bpt>`` has a corresponding ``<ept>``
   element within the segment.
 
   See Also:
@@ -255,16 +383,16 @@ class Bpt(TextMixin):
   """Type of the native code. Recommended values include: bold, italic,
     link, font, color, underlined, etc."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data (native codes), optionally with ``<sub>`` elements for
     sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ept(TextMixin):
-  """End paired tag - closing half of a paired sequence of native codes.
+class Ept:
+  """End paired tag - closing half of a paired list of native codes.
 
-  The ``<ept>`` element is used to delimit the end of a paired sequence
+  The ``<ept>`` element is used to delimit the end of a paired list
   of native codes. Each ``<ept>`` has a corresponding ``<bpt>`` element
   within the segment.
 
@@ -276,13 +404,13 @@ class Ept(TextMixin):
   """Internal matching identifier. Matches the ``i`` attribute of the
     corresponding ``<bpt>`` element."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data (native codes), optionally with ``<sub>`` elements for
     sub-flow text."""
 
 
 @dataclass(slots=True)
-class Hi(TextMixin):
+class Hi:
   """Highlight element for text with special meaning.
 
   The ``<hi>`` element delimits a section of text that has special meaning,
@@ -300,18 +428,18 @@ class Hi(TextMixin):
   """Type of highlighting. Specifies what kind of special meaning the
     highlighted text has."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Text data mixed with inline elements (``<bpt>``, ``<ept>``, ``<it>``,
     ``<ph>``, and nested ``<hi>``)."""
 
 
 @dataclass(slots=True)
-class It(TextMixin):
+class It:
   """Isolated tag - standalone code without its corresponding pair.
 
-  The ``<it>`` element is used to delimit a beginning/ending sequence of
+  The ``<it>`` element is used to delimit a beginning/ending list of
   native codes that does not have its corresponding ending/beginning within
-  the segment. This occurs when segmentation breaks a paired sequence
+  the segment. This occurs when segmentation breaks a paired list
   across segment boundaries.
   """
 
@@ -326,15 +454,15 @@ class It(TextMixin):
   type: str | None = None
   """Type of the native code."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ph(TextMixin):
+class Ph:
   """Placeholder element for standalone native codes.
 
-  The ``<ph>`` element is used to delimit a sequence of native standalone
+  The ``<ph>`` element is used to delimit a list of native standalone
   codes in the segment. These are self-contained functions that do not
   require explicit ending instructions, such as image references,
   cross-reference tokens, line breaks, etc.
@@ -353,15 +481,15 @@ class Ph(TextMixin):
   """Association. Indicates whether the placeholder is associated with the
     text preceding ("p"), following ("f"), or on both sides ("b")."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
+  content: list[str | Sub] = field(default_factory=list)
   """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Sub(TextMixin):
+class Sub:
   """Sub-flow element for text inside native codes.
 
-  The ``<sub>`` element is used to delimit sub-flow text inside a sequence
+  The ``<sub>`` element is used to delimit sub-flow text inside a list
   of native code, for example: the definition of a footnote, the text of
   a title in an HTML anchor element, or the content of an index marker.
 
@@ -378,12 +506,12 @@ class Sub(TextMixin):
   type: str | None = None
   """Type of the sub-flow."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """Text data mixed with inline elements."""
 
 
 @dataclass(slots=True)
-class Tuv(TextMixin):
+class Tuv:
   """Translation Unit Variant - text in a specific language.
 
   The ``<tuv>`` element specifies text in a given language. It contains
@@ -435,13 +563,13 @@ class Tuv(TextMixin):
   """Original translation memory format. Specifies the format of the TM
     file from which this element was generated."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Human-readable notes."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   """The segment content - text mixed with inline elements. In TMX XML,
     this corresponds to the content of the ``<seg>`` element."""
 
@@ -507,13 +635,13 @@ class Tu:
     set to the same value (unless srclang is "*all*"). If not specified,
     uses the value from the ``<header>`` element."""
 
-  props: Sequence[Prop] = field(default_factory=list)
+  props: list[Prop] = field(default_factory=list)
   """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
+  notes: list[Note] = field(default_factory=list)
   """Human-readable notes."""
 
-  variants: Sequence[Tuv] = field(default_factory=list)
+  variants: list[Tuv] = field(default_factory=list)
   """Language variants. One ``<tuv>`` element for each language."""
 
 
@@ -532,12 +660,5 @@ class Tmx:
   version: str = "1.4"
   """TMX version number. Format is major.minor (e.g., "1.4")."""
 
-  body: Sequence[Tu] = field(default_factory=list)
+  body: list[Tu] = field(default_factory=list)
   """Collection of translation units (``<tu>`` elements)."""
-
-
-type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
-"""Union of all TMX element types."""
-
-type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
-"""Union of inline markup element types."""

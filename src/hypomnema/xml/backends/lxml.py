@@ -11,7 +11,7 @@ from hypomnema.xml.utils import QNameLike, make_usable_path, normalize_encoding
 class LxmlBackend(XmlBackend[et._Element]):
   __slots__: tuple[str, ...] = tuple()
 
-  def __init__(self, logger=None, default_encoding=None, *, namespace_handler=None):
+  def __init__(self, logger=None, default_encoding=None, *, namespace_handler=None) -> None:
     super().__init__(logger, default_encoding, namespace_handler=namespace_handler)
 
   def get_tag(
