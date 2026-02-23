@@ -12,7 +12,29 @@ from logging import WARNING, getLogger
 import pytest
 
 from hypomnema.base.errors import MissingSerializationHandlerError
-from hypomnema.base.types import Bpt, Header, Note, Prop, Segtype, Sub, Tmx, Tu, Tuv
+from hypomnema.base.types import (
+  Bpt,
+  BptLike,
+  EptLike,
+  Header,
+  HeaderLike,
+  HiLike,
+  ItLike,
+  Note,
+  NoteLike,
+  PhLike,
+  Prop,
+  PropLike,
+  Segtype,
+  Sub,
+  SubLike,
+  Tmx,
+  TmxLike,
+  Tu,
+  TuLike,
+  Tuv,
+  TuvLike,
+)
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import Behavior, RaiseIgnoreDefault, XmlSerializationPolicy
 from hypomnema.xml.serialization import NoteSerializer, Serializer
@@ -32,9 +54,9 @@ class TestSerializerInit:
     serializer = Serializer(backend)
     assert serializer.backend is backend
     assert serializer.policy == XmlSerializationPolicy()
-    assert Note in serializer.handlers
-    assert Prop in serializer.handlers
-    assert Tu in serializer.handlers
+    assert NoteLike in serializer._default_handlers
+    assert PropLike in serializer._default_handlers
+    assert TuLike in serializer._default_handlers
 
   def test_init_with_custom_policy(self, backend: XmlBackend) -> None:
     policy = XmlSerializationPolicy()
@@ -59,9 +81,22 @@ class TestSerializerDefaultHandlers:
 
   def test_all_handlers_registered(self, backend: XmlBackend) -> None:
     serializer = Serializer(backend)
-    expected_handlers = [Note, Prop, Header, Tu, Tuv, Bpt, Sub, Tmx]
+    expected_handlers = [
+      NoteLike,
+      PropLike,
+      HeaderLike,
+      TuLike,
+      TuvLike,
+      BptLike,
+      EptLike,
+      ItLike,
+      PhLike,
+      HiLike,
+      SubLike,
+      TmxLike,
+    ]
     for obj_type in expected_handlers:
-      assert obj_type in serializer.handlers, f"Handler for {obj_type} not registered"
+      assert obj_type in serializer._default_handlers, f"Handler for {obj_type} not registered"
 
   def test_handlers_have_emit_set(self, backend: XmlBackend) -> None:
     serializer = Serializer(backend)
@@ -70,7 +105,7 @@ class TestSerializerDefaultHandlers:
 
   def test_handlers_emit_calls_serialize(self, backend: XmlBackend) -> None:
     serializer = Serializer(backend)
-    note_handler = serializer.handlers[Note]
+    note_handler = serializer._default_handlers[NoteLike]
     obj = Note(text="test note")
 
     result = note_handler.emit(obj)
@@ -204,7 +239,7 @@ class TestSerializerEmitIntegration:
   def test_custom_handler_with_emit(self, backend: XmlBackend) -> None:
     logger = getLogger("test_custom_emit")
     custom_handler = NoteSerializer(backend, XmlSerializationPolicy(), logger)
-    custom_handlers = {Note: custom_handler}
+    custom_handlers = {type(Note): custom_handler}
     serializer = Serializer(backend, handlers=custom_handlers)
 
     note = Note(text="custom note")
@@ -224,7 +259,7 @@ class TestSerializerCustomHandlersOverride:
         return elem
 
     custom_handler = CustomNoteSerializer(backend, XmlSerializationPolicy(), getLogger())
-    custom_handlers = {Note: custom_handler}
+    custom_handlers = {type(Note): custom_handler}
     serializer = Serializer(backend, handlers=custom_handlers)
 
     note = Note(text="text")
@@ -233,10 +268,10 @@ class TestSerializerCustomHandlersOverride:
     assert backend.get_text(result) == "custom: text"
 
   def test_custom_handlers_not_merged_with_defaults(self, backend: XmlBackend) -> None:
-    custom_handlers = {Note: NoteSerializer(backend, XmlSerializationPolicy(), getLogger())}
+    custom_handlers = {type(Note): NoteSerializer(backend, XmlSerializationPolicy(), getLogger())}
     serializer = Serializer(backend, handlers=custom_handlers)
 
-    assert Note in serializer.handlers
+    assert type(Note) in serializer.handlers
     assert Prop not in serializer.handlers
 
 

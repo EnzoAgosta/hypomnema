@@ -23,7 +23,7 @@ from hypomnema.base.errors import (
   MissingTextContentError,
   RequiredAttributeMissingError,
 )
-from hypomnema.base.types import Assoc, Bpt, Pos, Prop, Segtype, Sub
+from hypomnema.base.types import Assoc, Bpt, BptLike, Pos, Prop, Segtype, Sub
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import (
   Behavior,
@@ -442,7 +442,7 @@ class TestSerializeContentInto:
     elem = backend.create_element("seg")
     content = ["hello", " ", "world"]
 
-    handler._serialize_content_into(elem, content, (Bpt,))
+    handler._serialize_content_into(elem, content)
     assert backend.get_text(elem) == "hello world"
 
   def test_elements_only(self, backend: XmlBackend) -> None:
@@ -456,7 +456,7 @@ class TestSerializeContentInto:
     elem = backend.create_element("seg")
     content = [Bpt(i=1, content=[]), Bpt(i=2, content=[])]
 
-    handler._serialize_content_into(elem, content, (Bpt,))
+    handler._serialize_content_into(elem, content, False)
     children = list(backend.iter_children(elem))
     assert len(children) == 2
 
@@ -469,9 +469,9 @@ class TestSerializeContentInto:
 
     handler._set_emit(mock_emit)
     elem = backend.create_element("seg")
-    content = ["before ", Bpt(i=1, content=[]), " after"]
+    content: list[str | BptLike] = ["before ", Bpt(i=1, content=[]), " after"]
 
-    handler._serialize_content_into(elem, content, (Bpt,))
+    handler._serialize_content_into(elem, content, False)
     assert backend.get_text(elem) == "before "
     children = list(backend.iter_children(elem))
     assert len(children) == 1
@@ -484,7 +484,7 @@ class TestSerializeContentInto:
     elem = backend.create_element("seg")
     backend.set_text(elem, "existing ")
 
-    handler._serialize_content_into(elem, ["more"], (Bpt,))
+    handler._serialize_content_into(elem, ["more"])
     assert backend.get_text(elem) == "existing more"
 
   def test_appends_to_existing_tail(self, backend: XmlBackend) -> None:
@@ -499,8 +499,8 @@ class TestSerializeContentInto:
     bpt = backend.create_element("bpt")
     backend.append_child(elem, bpt)
 
-    content = [Bpt(i=1, content=[]), "more ", "and more"]
-    handler._serialize_content_into(elem, content, (Bpt,))
+    content: list[str | BptLike] = [Bpt(i=1, content=[]), "more ", "and more"]
+    handler._serialize_content_into(elem, content, False)
     children = list(backend.iter_children(elem))
     assert backend.get_tail(children[-1]) == "more and more"
 
@@ -512,7 +512,7 @@ class TestSerializeContentInto:
     content = [Bpt(i=1, content=[]), Sub(content=[])]
 
     with pytest.raises(InvalidChildElementError):
-      handler._serialize_content_into(elem, content, (Bpt,))
+      handler._serialize_content_into(elem, content)
 
   def test_invalid_child_ignored_with_policy(self, backend: XmlBackend) -> None:
     logger = getLogger("test_content_invalid_ignore")
@@ -522,7 +522,7 @@ class TestSerializeContentInto:
     elem = backend.create_element("seg")
     content = [Bpt(i=1, content=[]), Sub(content=[]), "text"]
 
-    handler._serialize_content_into(elem, content, (Bpt,))
+    handler._serialize_content_into(elem, content)
     children = list(backend.iter_children(elem))
     assert len(children) == 1
 

@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime
 from logging import Logger
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, Literal, cast, overload
 
 from hypomnema.base.errors import (
   InvalidAttributeTypeError,
@@ -25,7 +25,20 @@ from hypomnema.base.errors import (
   MissingTextContentError,
   RequiredAttributeMissingError,
 )
-from hypomnema.base.types import Assoc, BaseElement, Note, Pos, Prop, Segtype
+from hypomnema.base.types import (
+  Assoc,
+  BptLike,
+  EptLike,
+  HiLike,
+  ItLike,
+  Note,
+  PhLike,
+  Pos,
+  Prop,
+  Segtype,
+  SubLike,
+  TmxElementLike,
+)
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.policy import (
   Behavior,
@@ -64,9 +77,9 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
     self.policy: XmlSerializationPolicy = policy
     self.logger: Logger = logger
-    self._emit: Callable[[BaseElement], TypeOfBackendElement | None] | None = None
+    self._emit: Callable[[TmxElementLike], TypeOfBackendElement | None] | None = None
 
-  def _set_emit(self, emit: Callable[[BaseElement], TypeOfBackendElement | None]) -> None:
+  def _set_emit(self, emit: Callable[[TmxElementLike], TypeOfBackendElement | None]) -> None:
     """Set the emit function for recursive serialization.
 
     Args:
@@ -77,7 +90,7 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
     """
     self._emit = emit
 
-  def emit(self, obj: BaseElement) -> TypeOfBackendElement | None:
+  def emit(self, obj: TmxElementLike) -> TypeOfBackendElement | None:
     """Dispatch object to appropriate serializer.
 
     Args:
@@ -230,30 +243,53 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
       if child_element is not None:
         self.backend.append_child(element, child_element)
 
+  @overload
   def _serialize_content_into(
-    self, target: TypeOfBackendElement, content: Iterable, allowed: tuple[type[BaseElement], ...]
+    self,
+    target: TypeOfBackendElement,
+    content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike],
+    sub_only: Literal[False],
+  ) -> None: ...
+  @overload
+  def _serialize_content_into(
+    self, target: TypeOfBackendElement, content: Iterable[str | SubLike], sub_only: bool = True
+  ) -> None: ...
+  def _serialize_content_into(
+    self,
+    target: TypeOfBackendElement,
+    content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | Iterable[str | SubLike],
+    sub_only: bool = True,
   ) -> None:
     """Serialize mixed content (text + inline elements) into target."""
     last_child: TypeOfBackendElement | None = None
     for item in content:
-      if isinstance(item, str):
-        if last_child is None:
-          if (text := self.backend.get_text(target)) is not None:
-            self.backend.set_text(target, text + item)
+      match item:
+        case str():
+          if last_child is None:
+            if (text := self.backend.get_text(target)) is not None:
+              self.backend.set_text(target, text + item)
+            else:
+              self.backend.set_text(target, item)
           else:
-            self.backend.set_text(target, item)
-        else:
-          if (tail := self.backend.get_tail(last_child)) is not None:
-            self.backend.set_tail(last_child, tail + item)
-          else:
-            self.backend.set_tail(last_child, item)
-      elif isinstance(item, allowed):
-        child_elem = self.emit(item)
-        if child_elem is not None:
-          self.backend.append_child(target, child_elem)
-          last_child = child_elem
-      else:
-        self._handle_invalid_child_element_type(type(item), allowed)
+            if (tail := self.backend.get_tail(last_child)) is not None:
+              self.backend.set_tail(last_child, tail + item)
+            else:
+              self.backend.set_tail(last_child, item)
+        case SubLike() if not sub_only:
+          self._handle_invalid_child_element_type(type(item), SubLike)
+        case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
+          self._handle_invalid_child_element_type(
+            type(item), (BptLike, EptLike, ItLike, PhLike, HiLike)
+          )
+        case SubLike() | BptLike() | EptLike() | ItLike() | PhLike() | HiLike():
+          child_elem = self.emit(item)
+          if child_elem is not None:
+            self.backend.append_child(target, child_elem)
+            last_child = child_elem
+        case _:
+          self._handle_invalid_child_element_type(
+            type(item), (SubLike if sub_only else (BptLike, EptLike, ItLike, PhLike, HiLike))
+          )
 
   def _handle_invalid_attribute_type(self, value: Any, expected: type | tuple[type, ...]) -> None:
     """Handle invalid attribute type error per policy."""
