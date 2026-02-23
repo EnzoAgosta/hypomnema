@@ -357,36 +357,8 @@ class Header:
   """Annotation notes."""
 
 
-class TextMixin:
-  """Mixin providing text extraction from mixed content.
-
-  This mixin provides quick access to the text portions of elements that
-  contain mixed content (text strings and inline elements). Use this mixin
-  on any class that has a ``content`` attribute containing a sequence of
-  strings and inline elements.
-
-  The ``text`` property concatenates all string items in the content,
-  skipping any inline elements.
-  """
-
-  __slots__ = tuple()
-  content: Sequence[str | Any]
-  """Mixed content of strings and inline elements."""
-
-  @property
-  def text(self) -> str:
-    """Extract plain text from mixed content.
-
-    Concatenates all string items in content, skipping inline elements.
-
-    Returns:
-        Plain text without inline markup.
-    """
-    return "".join(item for item in self.content if isinstance(item, str))
-
-
 @dataclass(slots=True)
-class Bpt(TextMixin):
+class Bpt:
   """Begin paired tag - opening half of a paired list of native codes.
 
   The ``<bpt>`` element is used to delimit the beginning of a paired
@@ -418,7 +390,7 @@ class Bpt(TextMixin):
 
 
 @dataclass(slots=True)
-class Ept(TextMixin):
+class Ept:
   """End paired tag - closing half of a paired list of native codes.
 
   The ``<ept>`` element is used to delimit the end of a paired list
@@ -439,7 +411,7 @@ class Ept(TextMixin):
 
 
 @dataclass(slots=True)
-class Hi(TextMixin):
+class Hi:
   """Highlight element for text with special meaning.
 
   The ``<hi>`` element delimits a section of text that has special meaning,
@@ -463,7 +435,7 @@ class Hi(TextMixin):
 
 
 @dataclass(slots=True)
-class It(TextMixin):
+class It:
   """Isolated tag - standalone code without its corresponding pair.
 
   The ``<it>`` element is used to delimit a beginning/ending list of
@@ -488,7 +460,7 @@ class It(TextMixin):
 
 
 @dataclass(slots=True)
-class Ph(TextMixin):
+class Ph:
   """Placeholder element for standalone native codes.
 
   The ``<ph>`` element is used to delimit a list of native standalone
@@ -515,7 +487,7 @@ class Ph(TextMixin):
 
 
 @dataclass(slots=True)
-class Sub(TextMixin):
+class Sub:
   """Sub-flow element for text inside native codes.
 
   The ``<sub>`` element is used to delimit sub-flow text inside a list
@@ -540,7 +512,7 @@ class Sub(TextMixin):
 
 
 @dataclass(slots=True)
-class Tuv(TextMixin):
+class Tuv:
   """Translation Unit Variant - text in a specific language.
 
   The ``<tuv>`` element specifies text in a given language. It contains

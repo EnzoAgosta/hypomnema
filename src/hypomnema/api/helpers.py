@@ -30,6 +30,18 @@ from hypomnema.base.types import (
 )
 
 
+def text(source: BptLike | EptLike | ItLike | PhLike | HiLike | SubLike | TuvLike) -> str:
+  """
+  Extract plain text from mixed content.
+
+  Concatenates all string items in content, skipping inline elements.
+
+  Returns:
+      Plain text without inline markup
+  """
+  return "".join(item for item in source.content if isinstance(item, str))
+
+
 def iter_text(
   source: Tuv | InlineElement, *, ignore: Iterable[type[InlineElement]] | None = None
 ) -> Generator[str]:
