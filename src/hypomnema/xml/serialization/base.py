@@ -13,7 +13,7 @@ TMX element type.
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from logging import Logger
 from typing import Any, Iterable, Literal, cast, overload
 
@@ -204,6 +204,10 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
         if not isinstance(value, datetime):
           self._handle_invalid_attribute_type(value, datetime)
         else:
+          if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+          elif value.utcoffset() != timedelta(0):
+            value = value.astimezone(UTC)
           self.backend.set_attribute(element, attribute, value.strftime("%Y%m%dT%H%M%SZ"))
       case "i" | "x" | "usagecount":
         if not isinstance(value, int):
@@ -276,11 +280,11 @@ class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
             else:
               self.backend.set_tail(last_child, item)
         case SubLike() if not sub_only:
-          self._handle_invalid_child_element_type(type(item), SubLike)
-        case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
           self._handle_invalid_child_element_type(
             type(item), (BptLike, EptLike, ItLike, PhLike, HiLike)
           )
+        case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
+          self._handle_invalid_child_element_type(type(item), SubLike)
         case SubLike() | BptLike() | EptLike() | ItLike() | PhLike() | HiLike():
           child_elem = self.emit(item)
           if child_elem is not None:

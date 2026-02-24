@@ -22,7 +22,7 @@ from hypomnema.api.helpers import (
   create_tuv,
   iter_text,
 )
-from hypomnema.base.types import Assoc, Bpt, Hi, Pos, Segtype, Sub, Tuv
+from hypomnema.base.types import Assoc, Bpt, Pos, Segtype, Sub, Tuv
 
 
 class TestNormalizeContent:
@@ -49,35 +49,30 @@ class TestIterText:
   """Tests for iter_text function."""
 
   def test_iter_text_with_strings_only(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello", " ", "World"])
-    assert list(iter_text(tuv)) == ["Hello", " ", "World"]
+    tuv = Tuv(lang="en", content=["Hello", "World"])
+    assert list(iter_text(tuv)) == ["Hello", "World"]
 
-  def test_iter_text_recursively_extracts_nested(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello ", Bpt(i=1, content=["code"]), " World"])
-    assert list(iter_text(tuv)) == ["Hello ", "code", " World"]
+  def test_iter_text_ignores_nested(self) -> None:
+    tuv = Tuv(lang="en", content=["Hello", Bpt(i=1, content=["code"]), " World"])
+    assert list(iter_text(tuv, ignore=Bpt)) == ["Hello", " World"]
 
-  def test_iter_text_recursively_extract_from_nested(self) -> None:
+  def test_iter_text_recurse_inside_ignored_nested(self) -> None:
     tuv = Tuv(
-      lang="en",
-      content=["Start ", Bpt(i=1, content=["code ", Sub(content=["subflow"]), " tail"]), " End"],
+      lang="en", content=["Hello", Bpt(i=1, content=["code", Sub(content=["subflow"])]), " World"]
     )
-    result = list(iter_text(tuv))
-    assert result == ["Start ", "code ", "subflow", " tail", " End"]
+    assert list(iter_text(tuv, ignore=Bpt, recurse_inside_ignored=True)) == [
+      "Hello",
+      "subflow",
+      " World",
+    ]
 
-  def test_iter_text_with_ignore(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello ", Bpt(i=1, content=["code"]), " World"])
-    result = list(iter_text(tuv, ignore=[Bpt]))
-    assert result == ["Hello ", " World"]
+  def test_iter_text_does_not_recurse_inside_ignored(self) -> None:
+    tuv = Tuv(
+      lang="en", content=["Hello", Bpt(i=1, content=["code", Sub(content=["subflow"])]), " World"]
+    )
+    assert list(iter_text(tuv, ignore=Bpt, recurse_inside_ignored=False)) == ["Hello", " World"]
 
-  def test_iter_text_on_bpt(self) -> None:
-    bpt = Bpt(i=1, content=["before ", Sub(content=["sub"]), " after"])
-    assert list(iter_text(bpt)) == ["before ", "sub", " after"]
-
-  def test_iter_text_on_hi(self) -> None:
-    hi = Hi(content=["text ", Bpt(i=1, content=["inner"]), " more"])
-    assert list(iter_text(hi)) == ["text ", "inner", " more"]
-
-  def test_iter_text_empty_content(self) -> None:
+  def test_iter_text_on_empty_content(self) -> None:
     tuv = Tuv(lang="en", content=[])
     assert list(iter_text(tuv)) == []
 

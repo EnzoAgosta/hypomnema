@@ -138,7 +138,7 @@ class Serializer[TypeOfBackendElement]:
       case RaiseIgnoreDefault.DEFAULT:
         for handler_type in self._default_handlers:
           if isinstance(obj, handler_type):
-            _handler = self.handlers[handler_type]
+            _handler = self._default_handlers[handler_type]
             break
         else:
           raise MissingSerializationHandlerError(type(obj))

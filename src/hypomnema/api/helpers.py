@@ -55,7 +55,10 @@ def text(source: BptLike | EptLike | ItLike | PhLike | HiLike | SubLike | TuvLik
 def iter_text(
   source: BptLike | EptLike | ItLike | HiLike | PhLike | SubLike | TuvLike,
   *,
-  ignore: Iterable[type[BptLike | EptLike | ItLike | HiLike | SubLike]] | None = None,
+  ignore: Iterable[type[BptLike | EptLike | ItLike | HiLike | PhLike | SubLike]]
+  | type[BptLike | EptLike | ItLike | HiLike | PhLike | SubLike]
+  | None = None,
+  recurse_inside_ignored: bool = False,
 ) -> Generator[str]:
   """Iterate over text content, optionally skipping specific element types.
 
@@ -77,19 +80,25 @@ def iter_text(
       ['Hello ', 'World']
   """
 
-  def _iter_text(
-    _source: BptLike | EptLike | ItLike | HiLike | PhLike | SubLike | TuvLike,
-    _ignore: tuple[type[BptLike | EptLike | ItLike | HiLike | PhLike | SubLike | TuvLike], ...],
-  ) -> Generator[str]:
+  def _iter_text(_source, _ignore, _recurse_inside_ignored):
     for item in _source.content:
       if isinstance(item, str):
         if not isinstance(_source, _ignore):
           yield item
+      elif isinstance(item, ignore):
+        if _recurse_inside_ignored:
+          yield from _iter_text(item, _ignore=_ignore, _recurse_inside_ignored=True)
       else:
-        yield from _iter_text(item, _ignore=_ignore)
+        yield from _iter_text(
+          item, _ignore=_ignore, _recurse_inside_ignored=_recurse_inside_ignored
+        )
 
-  ignore = tuple(ignore) if ignore else ()
-  yield from _iter_text(source, _ignore=ignore)
+  if ignore is None:
+    ignore = tuple()
+  elif isinstance(ignore, type):
+    ignore = (ignore,)
+  ignore = tuple(ignore)
+  yield from _iter_text(source, _ignore=ignore, _recurse_inside_ignored=recurse_inside_ignored)
 
 
 def create_tmx(
@@ -581,7 +590,9 @@ def _normalize_content(
       case str():
         result.append(item)
       case SubLike() if not sub_only:
-        raise TypeError(f"Invalid item, expected str or SubLike, got {type(item)}")
+        raise TypeError(
+          f"Invalid item, expected str, BptLike, EptLike, ItLike, PhLike, HiLike, got {type(item)}"
+        )
       case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
         raise TypeError(f"Invalid item, expected str or SubLike, got {type(item)}")
       case SubLike():
