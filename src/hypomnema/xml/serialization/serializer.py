@@ -8,6 +8,7 @@ dataclass instances to the appropriate handler.
 from collections.abc import Mapping
 from functools import cached_property
 from logging import Logger, getLogger
+from typing import Any
 from hypomnema.base.errors import InvalidPolicyActionError, MissingSerializationHandlerError
 from hypomnema.base.types import (
   BptLike,
@@ -67,7 +68,7 @@ class Serializer[TypeOfBackendElement]:
     backend: XmlBackend[TypeOfBackendElement],
     policy: XmlSerializationPolicy | None = None,
     logger: Logger | None = None,
-    handlers: Mapping[type, BaseElementSerializer] | None = None,
+    handlers: Mapping[type[Any], BaseElementSerializer] | None = None,
   ):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
     self.policy: XmlSerializationPolicy = policy or XmlSerializationPolicy()
@@ -161,5 +162,5 @@ class Serializer[TypeOfBackendElement]:
         Serialized element or None if skipped.
     """
     if handler is None:
-      handler = self._resolve_handler(type(obj))
+      handler = self._resolve_handler(obj)
     return handler._serialize(obj) if handler is not None else None

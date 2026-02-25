@@ -38,58 +38,58 @@ type InlineElementLike = BptLike | EptLike | ItLike | PhLike | HiLike | SubLike
 
 
 @runtime_checkable
-class BptLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+class BptLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
   i: int
   x: int | None
   type: str | None
-  content: AnySequenceOfStrOrSubBase
+  content: AnySequenceOfStrOrSubLike
 
 
 @runtime_checkable
-class EptLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+class EptLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
   i: int
-  content: AnySequenceOfStrOrSubBase
+  content: AnySequenceOfStrOrSubLike
 
 
 @runtime_checkable
 class HiLike[
-  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
 ](Protocol):
   x: int | None
   type: str | None
-  content: AnySequenceOfStrOrInlineBase
+  content: AnySequenceOfStrOrInlineLike
 
 
 @runtime_checkable
-class ItLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+class ItLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
   pos: Pos
   x: int | None
   type: str | None
-  content: AnySequenceOfStrOrSubBase
+  content: AnySequenceOfStrOrSubLike
 
 
 @runtime_checkable
-class PhLike[AnySequenceOfStrOrSubBase: Sequence[str | SubLike]](Protocol):
+class PhLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
   x: int | None
   type: str | None
   assoc: Assoc | None
-  content: AnySequenceOfStrOrSubBase
+  content: AnySequenceOfStrOrSubLike
 
 
 @runtime_checkable
 class SubLike[
-  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
 ](Protocol):
   datatype: str | None
   type: str | None
-  content: AnySequenceOfStrOrInlineBase
+  content: AnySequenceOfStrOrInlineLike
 
 
 @runtime_checkable
 class TuvLike[
   AnySequenceOfProp: Sequence[PropLike],
   AnySequenceOfNote: Sequence[NoteLike],
-  AnySequenceOfStrOrInlineBase: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike],
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike],
 ](Protocol):
   lang: str
   o_encoding: str | None
@@ -105,12 +105,12 @@ class TuvLike[
   o_tmf: str | None
   props: AnySequenceOfProp
   notes: AnySequenceOfNote
-  content: AnySequenceOfStrOrInlineBase
+  content: AnySequenceOfStrOrInlineLike
 
 
 @runtime_checkable
 class TuLike[
-  AnySequenceOfTuvBase: Sequence[TuvLike],
+  AnySequenceOfTuvLike: Sequence[TuvLike],
   AnySequenceOfProp: Sequence[PropLike],
   AnySequenceOfNote: Sequence[NoteLike],
 ](Protocol):
@@ -128,7 +128,7 @@ class TuLike[
   changeid: str | None
   o_tmf: str | None
   srclang: str | None
-  variants: AnySequenceOfTuvBase
+  variants: AnySequenceOfTuvLike
   props: AnySequenceOfProp
   notes: AnySequenceOfNote
 
@@ -154,10 +154,13 @@ class HeaderLike[AnySequenceOfProp: Sequence[PropLike], AnySequenceOfNote: Seque
 
 
 @runtime_checkable
-class TmxLike[AnySequenceOfTuBase: Sequence[TuLike]](Protocol):
+class TmxLike[AnySequenceOfTuLike: Sequence[TuLike]](Protocol):
   version: str
-  header: HeaderLike[Sequence[PropLike], Sequence[NoteLike]]
-  body: AnySequenceOfTuBase
+
+  @property
+  def header(self) -> HeaderLike: ...
+
+  body: AnySequenceOfTuLike
 
 
 @runtime_checkable
@@ -581,7 +584,7 @@ class Tu:
 
   The ``<tu>`` element contains the data for a given translation unit.
   It groups multiple ``<tuv>`` elements (variants) that represent the same
-  content in different languages. A complete translation memory database
+  content in different languages. A complete translation memory
   will contain at least two ``<tuv>`` elements in each ``<tu>``.
   """
 

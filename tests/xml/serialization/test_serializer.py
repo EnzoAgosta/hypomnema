@@ -8,10 +8,11 @@ Tests the orchestration layer that:
 """
 
 from logging import WARNING, getLogger
+from typing import cast
 
 import pytest
 
-from hypomnema.base.errors import MissingSerializationHandlerError
+from hypomnema.base.errors import InvalidPolicyActionError, MissingSerializationHandlerError
 from hypomnema.base.types import (
   Bpt,
   BptLike,
@@ -163,7 +164,9 @@ class TestSerializerSerialize:
     assert result is None
     assert "Missing handler" in caplog.text
 
-  def test_serialize_unknown_type_default_uses_builtin(self, backend: XmlBackend) -> None:
+  def test_serialize_known_type_with_default_policy_still_uses_builtin(
+    self, backend: XmlBackend
+  ) -> None:
     policy = XmlSerializationPolicy(
       missing_serialization_handler=Behavior(RaiseIgnoreDefault.DEFAULT)
     )
@@ -179,21 +182,21 @@ class TestSerializerResolveHandler:
 
   def test_resolve_existing_handler(self, backend: XmlBackend) -> None:
     serializer = Serializer(backend)
-    handler = serializer._resolve_handler(Note)
+    handler = serializer._resolve_handler(Note(text="x"))
     assert handler is not None
     assert isinstance(handler, NoteSerializer)
 
   def test_resolve_missing_handler_raises(self, backend: XmlBackend) -> None:
     serializer = Serializer(backend)
     with pytest.raises(MissingSerializationHandlerError):
-      serializer._resolve_handler(CustomClass)
+      serializer._resolve_handler(CustomClass())
 
   def test_resolve_missing_handler_ignore(self, backend: XmlBackend) -> None:
     policy = XmlSerializationPolicy(
       missing_serialization_handler=Behavior(RaiseIgnoreDefault.IGNORE)
     )
     serializer = Serializer(backend, policy=policy)
-    handler = serializer._resolve_handler(CustomClass)
+    handler = serializer._resolve_handler(CustomClass())
     assert handler is None
 
   def test_resolve_missing_handler_default_uses_builtin(self, backend: XmlBackend) -> None:
@@ -201,7 +204,21 @@ class TestSerializerResolveHandler:
       missing_serialization_handler=Behavior(RaiseIgnoreDefault.DEFAULT)
     )
     serializer = Serializer(backend, policy=policy)
-    handler = serializer._resolve_handler(Note)
+    handler = serializer._resolve_handler(Note(text="x"))
+    assert handler is not None
+    assert isinstance(handler, NoteSerializer)
+
+  def test_resolve_missing_handler_default_falls_back_when_custom_handlers_provided(
+    self, backend: XmlBackend
+  ) -> None:
+    policy = XmlSerializationPolicy(
+      missing_serialization_handler=Behavior(RaiseIgnoreDefault.DEFAULT)
+    )
+    serializer = Serializer(
+      backend, policy=policy, handlers={CustomClass: NoteSerializer(backend, policy, getLogger())}
+    )
+
+    handler = serializer._resolve_handler(Note(text="x"))
     assert handler is not None
     assert isinstance(handler, NoteSerializer)
 
@@ -211,7 +228,16 @@ class TestSerializerResolveHandler:
     )
     serializer = Serializer(backend, policy=policy)
     with pytest.raises(MissingSerializationHandlerError):
-      serializer._resolve_handler(CustomClass)
+      serializer._resolve_handler(CustomClass())
+
+  def test_resolve_missing_handler_invalid_policy_action_raises(self, backend: XmlBackend) -> None:
+    policy = XmlSerializationPolicy(
+      missing_serialization_handler=Behavior(cast(RaiseIgnoreDefault, "invalid_action"), WARNING)
+    )
+    serializer = Serializer(backend, policy=policy)
+
+    with pytest.raises(InvalidPolicyActionError, match="Invalid behavior"):
+      serializer._resolve_handler(CustomClass())
 
 
 class TestSerializerEmitIntegration:
@@ -239,7 +265,7 @@ class TestSerializerEmitIntegration:
   def test_custom_handler_with_emit(self, backend: XmlBackend) -> None:
     logger = getLogger("test_custom_emit")
     custom_handler = NoteSerializer(backend, XmlSerializationPolicy(), logger)
-    custom_handlers = {type(Note): custom_handler}
+    custom_handlers = {Note: custom_handler}
     serializer = Serializer(backend, handlers=custom_handlers)
 
     note = Note(text="custom note")
@@ -259,7 +285,7 @@ class TestSerializerCustomHandlersOverride:
         return elem
 
     custom_handler = CustomNoteSerializer(backend, XmlSerializationPolicy(), getLogger())
-    custom_handlers = {type(Note): custom_handler}
+    custom_handlers = {Note: custom_handler}
     serializer = Serializer(backend, handlers=custom_handlers)
 
     note = Note(text="text")
@@ -268,10 +294,10 @@ class TestSerializerCustomHandlersOverride:
     assert backend.get_text(result) == "custom: text"
 
   def test_custom_handlers_not_merged_with_defaults(self, backend: XmlBackend) -> None:
-    custom_handlers = {type(Note): NoteSerializer(backend, XmlSerializationPolicy(), getLogger())}
+    custom_handlers = {Note: NoteSerializer(backend, XmlSerializationPolicy(), getLogger())}
     serializer = Serializer(backend, handlers=custom_handlers)
 
-    assert type(Note) in serializer.handlers
+    assert Note in serializer.handlers
     assert Prop not in serializer.handlers
 
 

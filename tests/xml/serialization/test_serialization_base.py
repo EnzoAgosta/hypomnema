@@ -9,7 +9,7 @@ Tests the base class functionality that all handlers inherit:
 - Mixed content serialization
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 from logging import INFO, WARNING, getLogger
 from typing import cast
 
@@ -270,6 +270,24 @@ class TestSetAttribute:
       handler._set_attribute(elem, attr, dt)
       assert backend.get_attribute(elem, attr) == "20240115T103000Z"
 
+  def test_set_datetime_attribute_converts_non_utc_timezone(self, backend: XmlBackend) -> None:
+    logger = getLogger("test_set_datetime_tz")
+    handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
+    elem = backend.create_element("test")
+    dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone(timedelta(hours=2)))
+
+    handler._set_attribute(elem, "creationdate", dt)
+    assert backend.get_attribute(elem, "creationdate") == "20240115T083000Z"
+
+  def test_set_datetime_attribute_keeps_utc_timezone(self, backend: XmlBackend) -> None:
+    logger = getLogger("test_set_datetime_utc")
+    handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
+    elem = backend.create_element("test")
+    dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
+
+    handler._set_attribute(elem, "creationdate", dt)
+    assert backend.get_attribute(elem, "creationdate") == "20240115T103000Z"
+
   def test_set_int_attribute(self, backend: XmlBackend) -> None:
     logger = getLogger("test_set_int")
     handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
@@ -431,6 +449,15 @@ class TestSerializeChildrenInto:
     handler._serialize_children_into(elem, children, Prop)
     assert len(list(backend.iter_children(elem))) == 1
 
+  def test_emit_returning_none_skips_child(self, backend: XmlBackend) -> None:
+    logger = getLogger("test_children_emit_none")
+    handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
+    handler._set_emit(lambda o: None)
+    elem = backend.create_element("header")
+
+    handler._serialize_children_into(elem, [Prop(text="v1", type="t1")], Prop)
+    assert len(list(backend.iter_children(elem))) == 0
+
 
 class TestSerializeContentInto:
   """Tests for _serialize_content_into method."""
@@ -512,7 +539,7 @@ class TestSerializeContentInto:
     content = [Bpt(i=1, content=[]), Sub(content=[])]
 
     with pytest.raises(InvalidChildElementError):
-      handler._serialize_content_into(elem, content)
+      handler._serialize_content_into(elem, content)  # type: ignore[arg-type]
 
   def test_invalid_child_ignored_with_policy(self, backend: XmlBackend) -> None:
     logger = getLogger("test_content_invalid_ignore")
@@ -522,9 +549,27 @@ class TestSerializeContentInto:
     elem = backend.create_element("seg")
     content = [Bpt(i=1, content=[]), Sub(content=[]), "text"]
 
-    handler._serialize_content_into(elem, content)
+    handler._serialize_content_into(elem, content)  # type: ignore[arg-type]
     children = list(backend.iter_children(elem))
     assert len(children) == 1
+
+  def test_emit_returning_none_skips_inline_element(self, backend: XmlBackend) -> None:
+    logger = getLogger("test_content_emit_none")
+    handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
+    handler._set_emit(lambda o: None)
+    elem = backend.create_element("seg")
+
+    handler._serialize_content_into(elem, [Bpt(i=1, content=[])], False)
+    assert len(list(backend.iter_children(elem))) == 0
+
+  def test_sub_element_rejected_when_sub_only_false(self, backend: XmlBackend) -> None:
+    logger = getLogger("test_content_sub_rejected")
+    handler = MockSerializer(backend, XmlSerializationPolicy(), logger)
+    handler._set_emit(lambda o: backend.create_element("sub"))
+    elem = backend.create_element("seg")
+
+    with pytest.raises(InvalidChildElementError):
+      handler._serialize_content_into(elem, [Sub(content=[])], False)
 
 
 class TestHandleInvalidAttributeType:

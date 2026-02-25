@@ -11,8 +11,19 @@ from unittest.mock import MagicMock
 import pytest
 
 from hypomnema.api.core import dump, load
-from hypomnema.api.helpers import create_header, create_tmx, create_tu, create_tuv
+from hypomnema.api.helpers import (
+  create_bpt,
+  create_header,
+  create_hi,
+  create_ph,
+  create_sub,
+  create_tmx,
+  create_tu,
+  create_tuv,
+  iter_text,
+)
 from hypomnema.base.types import Note, Segtype, Tmx, Tu, Tuv
+from hypomnema.xml import deserialization, serialization
 from hypomnema.xml.backends.base import XmlBackend
 from hypomnema.xml.deserialization import Deserializer
 from hypomnema.xml.policy import XmlDeserializationPolicy
@@ -57,14 +68,26 @@ class TestLoad:
     loaded = load(tmx_file, backend=backend, deserializer_policy=policy)
     assert isinstance(loaded, Tmx)
 
-  def test_load_with_custom_logger(self, backend: XmlBackend, tmp_path: Path) -> None:
+  def test_load_with_custom_logger(
+    self, backend: XmlBackend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+  ) -> None:
     tmx = create_tmx()
     tmx_file = tmp_path / "test.tmx"
     dump(tmx, tmx_file, backend=backend)
 
     logger = getLogger("test_load")
+    captured: dict[str, object] = {}
+    original = deserialization.Deserializer
+
+    class SpyDeserializer(original):  # type: ignore[valid-type, misc]
+      def __init__(self, *args, **kwargs):
+        captured["logger"] = kwargs.get("logger")
+        super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(deserialization, "Deserializer", SpyDeserializer)
     loaded = load(tmx_file, backend=backend, deserializer_logger=logger)
     assert isinstance(loaded, Tmx)
+    assert captured["logger"] is logger
 
   def test_load_file_not_found(self, backend: XmlBackend) -> None:
     with pytest.raises(FileNotFoundError):
@@ -147,13 +170,25 @@ class TestDump:
     with pytest.raises(TypeError, match="Root element is not a Tmx"):
       dump("not a tmx", tmx_file, backend=backend)  # type: ignore[arg-type]
 
-  def test_dump_with_custom_logger(self, backend: XmlBackend, tmp_path: Path) -> None:
+  def test_dump_with_custom_logger(
+    self, backend: XmlBackend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+  ) -> None:
     tmx = create_tmx()
     tmx_file = tmp_path / "output.tmx"
     logger = getLogger("test_dump")
+    captured: dict[str, object] = {}
+    original = serialization.Serializer
+
+    class SpySerializer(original):  # type: ignore[valid-type, misc]
+      def __init__(self, *args, **kwargs):
+        captured["logger"] = kwargs.get("logger")
+        super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(serialization, "Serializer", SpySerializer)
 
     dump(tmx, tmx_file, backend=backend, serializer_logger=logger)
     assert tmx_file.exists()
+    assert captured["logger"] is logger
 
   def test_dump_with_custom_backend_logger(self, backend: XmlBackend, tmp_path: Path) -> None:
     tmx = create_tmx()
@@ -188,6 +223,39 @@ class TestDump:
     assert loaded.body[0].tuid == "tu-001"
     assert len(loaded.body[0].variants) == 2
 
+  def test_dump_and_load_roundtrip_with_deep_inline_nesting(
+    self, backend: XmlBackend, tmp_path: Path
+  ) -> None:
+    deep_inline = create_bpt(
+      1,
+      content=[
+        "code ",
+        create_sub(
+          content=[
+            "sub1 ",
+            create_ph(
+              content=["ph ", create_sub(content=["sub2 ", create_hi(content=["hi text"])])]
+            ),
+          ]
+        ),
+      ],
+    )
+    tu = create_tu(
+      variants=[
+        create_tuv("en", content=["A ", deep_inline, " Z"]),
+        create_tuv("fr", content=["B"]),
+      ]
+    )
+    tmx = create_tmx(body=[tu])
+    tmx_file = tmp_path / "roundtrip-deep.tmx"
+
+    dump(tmx, tmx_file, backend=backend)
+    loaded = load(tmx_file, backend=backend)
+
+    text_parts = list(iter_text(loaded.body[0].variants[0], recurse_inside_ignored=True))
+    assert "sub2 " in text_parts
+    assert "hi text" in text_parts
+
   def test_dump_serializer_returns_none(self, backend: XmlBackend, tmp_path: Path) -> None:
     tmx = create_tmx()
     tmx_file = tmp_path / "output.tmx"
@@ -212,3 +280,56 @@ class TestLoadEdgeCases:
 
     with pytest.raises(ValueError, match="root element did not deserialize to a Tmx"):
       load(tmx_file, backend=backend, deserializer=mock_deserializer)
+
+  def test_load_streaming_skips_elements_deserialized_as_none(
+    self, backend: XmlBackend, tmp_path: Path
+  ) -> None:
+    tmx = create_tmx(body=[create_tu(variants=[create_tuv("en", content="Hello")]), create_tu()])
+    tmx_file = tmp_path / "skip_none.tmx"
+    dump(tmx, tmx_file, backend=backend)
+
+    first_tu = Tu(tuid="only")
+    mock_deserializer = MagicMock(spec=Deserializer)
+    mock_deserializer.deserialize.side_effect = [first_tu, None]
+
+    streamed = list(load(tmx_file, filter="tu", backend=backend, deserializer=mock_deserializer))
+    assert streamed == [first_tu]
+
+  def test_load_streaming_unknown_filter_returns_empty(
+    self, backend: XmlBackend, tmp_path: Path
+  ) -> None:
+    tmx = create_tmx(body=[create_tu(variants=[create_tuv("en", content="Hello")])])
+    tmx_file = tmp_path / "unknown_filter.tmx"
+    dump(tmx, tmx_file, backend=backend)
+
+    streamed = list(load(tmx_file, filter="nonexistent-tag", backend=backend))
+    assert streamed == []
+
+  def test_load_streaming_zero_tu_file_returns_empty(
+    self, backend: XmlBackend, tmp_path: Path
+  ) -> None:
+    tmx = create_tmx(body=[])
+    tmx_file = tmp_path / "zero_tu.tmx"
+    dump(tmx, tmx_file, backend=backend)
+
+    streamed = list(load(tmx_file, filter="tu", backend=backend))
+    assert streamed == []
+
+  def test_load_streaming_large_file(self, backend: XmlBackend, tmp_path: Path) -> None:
+    total = 1500
+    body = [
+      create_tu(tuid=f"tu-{i}", variants=[create_tuv("en", content=f"text-{i}")])
+      for i in range(total)
+    ]
+    tmx = create_tmx(body=body)
+    tmx_file = tmp_path / "large.tmx"
+    dump(tmx, tmx_file, backend=backend)
+
+    streamed = list(load(tmx_file, filter="tu", backend=backend))
+    assert len(streamed) == total
+
+  def test_load_empty_file_raises_parse_error(self, backend: XmlBackend, tmp_path: Path) -> None:
+    empty_file = tmp_path / "empty.tmx"
+    empty_file.write_text("")
+    with pytest.raises(Exception):
+      load(empty_file, backend=backend)
