@@ -85,7 +85,7 @@ def iter_text(
       if isinstance(item, str):
         if not isinstance(_source, _ignore):
           yield item
-      elif isinstance(item, ignore):
+      elif isinstance(item, _ignore):
         if _recurse_inside_ignored:
           yield from _iter_text(item, _ignore=_ignore, _recurse_inside_ignored=True)
       else:
