@@ -8,21 +8,15 @@ Available Backends:
     LxmlBackend: Implementation using lxml (optional, faster).
 """
 
-from .base import XmlBackend
+from warnings import warn
+from .base import XmlBackend, NamespaceHandler
 from .standard import StandardBackend
 
 try:
-  from hypomnema.xml.backends.lxml import LxmlBackend  # noqa: F401
+  from hypomnema.xml.backends.lxml import LxmlBackend
 
-# Below lines are excluded from coverage as they are tested
-# via a subprocess in test_imports.py
+except ImportError:
+  warn("lxml not installed, only StandardBackend will be available", stacklevel=2)
+  LxmlBackend = None  # type:ignore
 
-except ImportError as e:  # pragma: no cover
-  from warnings import warn  # pragma: no cover
-
-  warn(
-    f"lxml not installed, Only StandardBackend will be available. Error: {e}"
-  )  # pragma: no cover
-  LxmlBackend = None  # type:ignore # pragma: no cover
-
-__all__ = ["XmlBackend", "StandardBackend", "LxmlBackend"]
+__all__ = ["XmlBackend", "StandardBackend", "LxmlBackend", "NamespaceHandler"]

@@ -193,7 +193,7 @@ class TestNoteSerializer:
     handler = NoteSerializer(backend, policy, logger)
 
     with caplog.at_level(WARNING):
-      result = handler._serialize(Prop(text="not a note", type="test"))  # type: ignore[arg-type]
+      result = handler._serialize(Prop(text="not a note", type="test"))
 
     assert result is None
     assert "Invalid element type" in caplog.text

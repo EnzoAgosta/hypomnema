@@ -4,16 +4,29 @@ This module provides serializer implementations for all TMX element types.
 Each class handles serialization of a dataclass to its corresponding XML element.
 """
 
-from hypomnema.base.types import Bpt, Ept, Header, Hi, It, Note, Ph, Prop, Sub, Tmx, Tu, Tuv
+from hypomnema.base.types import (
+  BptLike,
+  EptLike,
+  HeaderLike,
+  HiLike,
+  ItLike,
+  NoteLike,
+  PhLike,
+  PropLike,
+  SubLike,
+  TmxLike,
+  TuLike,
+  TuvLike,
+)
 from hypomnema.xml.serialization.base import BaseElementSerializer
 
 
-class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Prop]):
+class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, PropLike]):
   """Serializer for Prop dataclasses."""
 
-  def _serialize(self, obj: Prop) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Prop):
-      if self._handle_invalid_element_type(obj, Prop) is None:
+  def _serialize(self, obj: PropLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, PropLike):
+      if self._handle_invalid_element_type(obj, PropLike) is None:
         return None
 
     element = self.backend.create_element("prop")
@@ -34,12 +47,15 @@ class PropSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
     return element
 
 
-class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Note]):
+class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, NoteLike]):
   """Serializer for Note dataclasses."""
 
-  def _serialize(self, obj: Note) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Note):
-      if self._handle_invalid_element_type(obj, Note) is None:
+  def _serialize(self, obj: NoteLike) -> TypeOfBackendElement | None:
+    # A Prop is just a note with a type attribute so it's also a NoteLike
+    # so we explicitly check for both here to avoid serializing what should
+    # be a Prop as a Note
+    if not isinstance(obj, NoteLike) or isinstance(obj, PropLike):
+      if self._handle_invalid_element_type(obj, NoteLike) is None:
         return None
 
     element = self.backend.create_element("note")
@@ -56,12 +72,14 @@ class NoteSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEl
     return element
 
 
-class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Header]):
+class HeaderSerializer[TypeOfBackendElement](
+  BaseElementSerializer[TypeOfBackendElement, HeaderLike]
+):
   """Serializer for Header dataclasses."""
 
-  def _serialize(self, obj: Header) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Header):
-      if self._handle_invalid_element_type(obj, Header) is None:
+  def _serialize(self, obj: HeaderLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, HeaderLike):
+      if self._handle_invalid_element_type(obj, HeaderLike) is None:
         return None
 
     element = self.backend.create_element("header")
@@ -83,18 +101,18 @@ class HeaderSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackend
     self._set_attribute(element, "changeid", obj.changeid)
 
     # Children
-    self._serialize_children_into(element, obj.props, Prop)
-    self._serialize_children_into(element, obj.notes, Note)
+    self._serialize_children_into(element, obj.props, PropLike)
+    self._serialize_children_into(element, obj.notes, NoteLike)
 
     return element
 
 
-class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tuv]):
+class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, TuvLike]):
   """Serializer for Tuv dataclasses."""
 
-  def _serialize(self, obj: Tuv) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Tuv):
-      if self._handle_invalid_element_type(obj, Tuv) is None:
+  def _serialize(self, obj: TuvLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, TuvLike):
+      if self._handle_invalid_element_type(obj, TuvLike) is None:
         return None
 
     element = self.backend.create_element("tuv")
@@ -116,23 +134,23 @@ class TuvSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     self._set_attribute(element, "o-tmf", obj.o_tmf)
 
     # Children
-    self._serialize_children_into(element, obj.props, Prop)
-    self._serialize_children_into(element, obj.notes, Note)
+    self._serialize_children_into(element, obj.props, PropLike)
+    self._serialize_children_into(element, obj.notes, NoteLike)
 
     # Content
     seg = self.backend.create_element("seg")
-    self._serialize_content_into(seg, obj.content, (Bpt, Ept, It, Ph, Hi))
+    self._serialize_content_into(seg, obj.content, False)
     self.backend.append_child(element, seg)
 
     return element
 
 
-class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tu]):
+class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, TuLike]):
   """Serializer for Tu dataclasses."""
 
-  def _serialize(self, obj: Tu) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Tu):
-      if self._handle_invalid_element_type(obj, Tu) is None:
+  def _serialize(self, obj: TuLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, TuLike):
+      if self._handle_invalid_element_type(obj, TuLike) is None:
         return None
 
     element = self.backend.create_element("tu")
@@ -154,19 +172,19 @@ class TuSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     self._set_attribute(element, "srclang", obj.srclang)
 
     # Children
-    self._serialize_children_into(element, obj.props, Prop)
-    self._serialize_children_into(element, obj.notes, Note)
-    self._serialize_children_into(element, obj.variants, Tuv)
+    self._serialize_children_into(element, obj.props, PropLike)
+    self._serialize_children_into(element, obj.notes, NoteLike)
+    self._serialize_children_into(element, obj.variants, TuvLike)
 
     return element
 
 
-class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Tmx]):
+class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, TmxLike]):
   """Serializer for Tmx dataclasses."""
 
-  def _serialize(self, obj: Tmx) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Tmx):
-      if self._handle_invalid_element_type(obj, Tmx) is None:
+  def _serialize(self, obj: TmxLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, TmxLike):
+      if self._handle_invalid_element_type(obj, TmxLike) is None:
         return None
 
     element = self.backend.create_element("tmx")
@@ -179,18 +197,18 @@ class TmxSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
         self.backend.append_child(element, header)
 
     body = self.backend.create_element("body")
-    self._serialize_children_into(body, obj.body, Tu)
+    self._serialize_children_into(body, obj.body, TuLike)
     self.backend.append_child(element, body)
 
     return element
 
 
-class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Bpt]):
+class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, BptLike]):
   """Serializer for Bpt dataclasses."""
 
-  def _serialize(self, obj: Bpt) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Bpt):
-      if self._handle_invalid_element_type(obj, Bpt) is None:
+  def _serialize(self, obj: BptLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, BptLike):
+      if self._handle_invalid_element_type(obj, BptLike) is None:
         return None
 
     element = self.backend.create_element("bpt")
@@ -203,17 +221,17 @@ class BptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     self._set_attribute(element, "type", obj.type)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Sub,))
+    self._serialize_content_into(element, obj.content)
 
     return element
 
 
-class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Ept]):
+class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, EptLike]):
   """Serializer for Ept dataclasses."""
 
-  def _serialize(self, obj: Ept) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Ept):
-      if self._handle_invalid_element_type(obj, Ept) is None:
+  def _serialize(self, obj: EptLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, EptLike):
+      if self._handle_invalid_element_type(obj, EptLike) is None:
         return None
 
     element = self.backend.create_element("ept")
@@ -222,17 +240,17 @@ class EptSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     self._set_required_attribute(element, "i", obj.i)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Sub,))
+    self._serialize_content_into(element, obj.content)
 
     return element
 
 
-class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Hi]):
+class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, HiLike]):
   """Serializer for Hi dataclasses."""
 
-  def _serialize(self, obj: Hi) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Hi):
-      if self._handle_invalid_element_type(obj, Hi) is None:
+  def _serialize(self, obj: HiLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, HiLike):
+      if self._handle_invalid_element_type(obj, HiLike) is None:
         return None
 
     element = self.backend.create_element("hi")
@@ -242,17 +260,17 @@ class HiSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     self._set_attribute(element, "type", obj.type)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Bpt, Ept, Ph, It, Hi))
+    self._serialize_content_into(element, obj.content, False)
 
     return element
 
 
-class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, It]):
+class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, ItLike]):
   """Serializer for It dataclasses."""
 
-  def _serialize(self, obj: It) -> TypeOfBackendElement | None:
-    if not isinstance(obj, It):
-      if self._handle_invalid_element_type(obj, It) is None:
+  def _serialize(self, obj: ItLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, ItLike):
+      if self._handle_invalid_element_type(obj, ItLike) is None:
         return None
 
     element = self.backend.create_element("it")
@@ -265,17 +283,17 @@ class ItSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     self._set_attribute(element, "type", obj.type)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Sub,))
+    self._serialize_content_into(element, obj.content)
 
     return element
 
 
-class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Ph]):
+class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, PhLike]):
   """Serializer for Ph dataclasses."""
 
-  def _serialize(self, obj: Ph) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Ph):
-      if self._handle_invalid_element_type(obj, Ph) is None:
+  def _serialize(self, obj: PhLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, PhLike):
+      if self._handle_invalid_element_type(obj, PhLike) is None:
         return None
 
     element = self.backend.create_element("ph")
@@ -286,17 +304,17 @@ class PhSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElem
     self._set_attribute(element, "type", obj.type)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Sub,))
+    self._serialize_content_into(element, obj.content)
 
     return element
 
 
-class SubSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, Sub]):
+class SubSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendElement, SubLike]):
   """Serializer for Sub dataclasses."""
 
-  def _serialize(self, obj: Sub) -> TypeOfBackendElement | None:
-    if not isinstance(obj, Sub):
-      if self._handle_invalid_element_type(obj, Sub) is None:
+  def _serialize(self, obj: SubLike) -> TypeOfBackendElement | None:
+    if not isinstance(obj, SubLike):
+      if self._handle_invalid_element_type(obj, SubLike) is None:
         return None
 
     element = self.backend.create_element("sub")
@@ -306,6 +324,6 @@ class SubSerializer[TypeOfBackendElement](BaseElementSerializer[TypeOfBackendEle
     self._set_attribute(element, "type", obj.type)
 
     # Content
-    self._serialize_content_into(element, obj.content, (Bpt, Ept, Ph, It, Hi))
+    self._serialize_content_into(element, obj.content, False)
 
     return element

@@ -5,6 +5,8 @@ Tests the factory functions for creating TMX elements and the iter_text utility.
 
 from datetime import UTC, datetime
 
+import pytest
+
 
 from hypomnema.api.helpers import (
   _normalize_content,
@@ -21,6 +23,7 @@ from hypomnema.api.helpers import (
   create_tu,
   create_tuv,
   iter_text,
+  text,
 )
 from hypomnema.base.types import Assoc, Bpt, Hi, Pos, Segtype, Sub, Tuv
 
@@ -44,42 +47,107 @@ class TestNormalizeContent:
     result = _normalize_content([])
     assert result == []
 
+  def test_normalize_content_rejects_non_supported_item(self) -> None:
+    with pytest.raises(TypeError, match="Invalid item"):
+      _normalize_content([123])  # type: ignore[list-item]
+
+  def test_normalize_content_rejects_bpt_when_sub_only(self) -> None:
+    with pytest.raises(TypeError, match="expected str or SubLike"):
+      _normalize_content([create_bpt(1)])  # type: ignore[list-item]
+
+  def test_normalize_content_rejects_sub_when_not_sub_only(self) -> None:
+    with pytest.raises(TypeError, match="expected str, BptLike"):
+      _normalize_content([create_sub(content="x")], sub_only=False)  # type: ignore[call-overload]
+
+  def test_normalize_content_builds_all_inline_types_when_not_sub_only(self) -> None:
+    normalized = _normalize_content(
+      [
+        create_bpt(1),
+        create_ept(1),
+        create_it("begin"),
+        create_ph(assoc="p"),
+        create_hi(content="inner"),
+      ],
+      sub_only=False,
+    )
+    assert isinstance(normalized[0], Bpt)
+    assert normalized[0].i == 1
+    assert isinstance(normalized[1], type(create_ept(1)))
+    assert isinstance(normalized[2], type(create_it("begin")))
+    assert isinstance(normalized[3], type(create_ph()))
+    assert isinstance(normalized[4], type(create_hi()))
+
 
 class TestIterText:
   """Tests for iter_text function."""
 
   def test_iter_text_with_strings_only(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello", " ", "World"])
-    assert list(iter_text(tuv)) == ["Hello", " ", "World"]
+    tuv = Tuv(lang="en", content=["Hello", "World"])
+    assert list(iter_text(tuv)) == ["Hello", "World"]
 
-  def test_iter_text_recursively_extracts_nested(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello ", Bpt(i=1, content=["code"]), " World"])
-    assert list(iter_text(tuv)) == ["Hello ", "code", " World"]
+  def test_iter_text_ignores_nested(self) -> None:
+    tuv = Tuv(lang="en", content=["Hello", Bpt(i=1, content=["code"]), " World"])
+    assert list(iter_text(tuv, ignore=Bpt)) == ["Hello", " World"]
 
-  def test_iter_text_recursively_extract_from_nested(self) -> None:
+  def test_iter_text_recurse_inside_ignored_nested(self) -> None:
     tuv = Tuv(
-      lang="en",
-      content=["Start ", Bpt(i=1, content=["code ", Sub(content=["subflow"]), " tail"]), " End"],
+      lang="en", content=["Hello", Bpt(i=1, content=["code", Sub(content=["subflow"])]), " World"]
     )
-    result = list(iter_text(tuv))
-    assert result == ["Start ", "code ", "subflow", " tail", " End"]
+    assert list(iter_text(tuv, ignore=Bpt, recurse_inside_ignored=True)) == [
+      "Hello",
+      "subflow",
+      " World",
+    ]
 
-  def test_iter_text_with_ignore(self) -> None:
-    tuv = Tuv(lang="en", content=["Hello ", Bpt(i=1, content=["code"]), " World"])
-    result = list(iter_text(tuv, ignore=[Bpt]))
-    assert result == ["Hello ", " World"]
+  def test_iter_text_does_not_recurse_inside_ignored(self) -> None:
+    tuv = Tuv(
+      lang="en", content=["Hello", Bpt(i=1, content=["code", Sub(content=["subflow"])]), " World"]
+    )
+    assert list(iter_text(tuv, ignore=Bpt, recurse_inside_ignored=False)) == ["Hello", " World"]
 
-  def test_iter_text_on_bpt(self) -> None:
-    bpt = Bpt(i=1, content=["before ", Sub(content=["sub"]), " after"])
-    assert list(iter_text(bpt)) == ["before ", "sub", " after"]
-
-  def test_iter_text_on_hi(self) -> None:
-    hi = Hi(content=["text ", Bpt(i=1, content=["inner"]), " more"])
-    assert list(iter_text(hi)) == ["text ", "inner", " more"]
-
-  def test_iter_text_empty_content(self) -> None:
+  def test_iter_text_on_empty_content(self) -> None:
     tuv = Tuv(lang="en", content=[])
     assert list(iter_text(tuv)) == []
+
+  def test_iter_text_with_multiple_ignored_types(self) -> None:
+    tuv = Tuv(lang="en", content=["A", Bpt(i=1, content=["B"]), Hi(content=["C"]), "D"])
+    assert list(iter_text(tuv, ignore=(Bpt, Hi))) == ["A", "D"]
+
+  def test_iter_text_deep_nested_recurse(self) -> None:
+    nested = Tuv(
+      lang="en",
+      content=[
+        "start ",
+        Bpt(
+          i=1,
+          content=[
+            "code ",
+            Sub(
+              content=[
+                "sub1 ",
+                Hi(content=["hi ", Bpt(i=2, content=["nested", Sub(content=["deep"])])]),
+              ]
+            ),
+          ],
+        ),
+        " end",
+      ],
+    )
+
+    assert list(iter_text(nested, ignore=Bpt, recurse_inside_ignored=False)) == ["start ", " end"]
+    assert list(iter_text(nested, ignore=Bpt, recurse_inside_ignored=True)) == [
+      "start ",
+      "sub1 ",
+      "hi ",
+      "deep",
+      " end",
+    ]
+
+
+class TestText:
+  def test_text_extracts_only_top_level_strings(self) -> None:
+    tuv = Tuv(lang="en", content=["Hello ", Bpt(i=1, content=["code"]), "world"])
+    assert text(tuv) == "Hello world"
 
 
 class TestCreateTmx:

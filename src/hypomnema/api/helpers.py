@@ -8,30 +8,57 @@ validation to simplify element creation.
 from collections.abc import Generator, Iterable
 from datetime import UTC, datetime
 from importlib.metadata import version
-from typing import Literal
+from typing import Any, Literal, overload
 
 from hypomnema.base.types import (
   Assoc,
   Bpt,
+  BptLike,
   Ept,
+  EptLike,
   Header,
+  HeaderLike,
   Hi,
-  InlineElement,
+  HiLike,
   It,
+  ItLike,
   Note,
+  NoteLike,
   Ph,
+  PhLike,
   Pos,
   Prop,
+  PropLike,
   Segtype,
   Sub,
+  SubLike,
   Tmx,
   Tu,
+  TuLike,
   Tuv,
+  TuvLike,
 )
 
 
+def text(source: BptLike | EptLike | ItLike | PhLike | HiLike | SubLike | TuvLike) -> str:
+  """
+  Extract plain text from mixed content.
+
+  Concatenates all string items in content, skipping inline elements.
+
+  Returns:
+      Plain text without inline markup
+  """
+  return "".join(item for item in source.content if isinstance(item, str))
+
+
 def iter_text(
-  source: Tuv | InlineElement, *, ignore: Iterable[type[InlineElement]] | None = None
+  source: BptLike | EptLike | ItLike | HiLike | PhLike | SubLike | TuvLike,
+  *,
+  ignore: Iterable[type[BptLike | EptLike | ItLike | HiLike | PhLike | SubLike]]
+  | type[BptLike | EptLike | ItLike | HiLike | PhLike | SubLike]
+  | None = None,
+  recurse_inside_ignored: bool = False,
 ) -> Generator[str]:
   """Iterate over text content, optionally skipping specific element types.
 
@@ -53,42 +80,29 @@ def iter_text(
       ['Hello ', 'World']
   """
 
-  def _iter_text(
-    _source: InlineElement | Tuv, _ignore: tuple[type[InlineElement], ...]
-  ) -> Generator[str]:
+  def _iter_text(_source, _ignore, _recurse_inside_ignored):
     for item in _source.content:
       if isinstance(item, str):
         if not isinstance(_source, _ignore):
           yield item
+      elif isinstance(item, _ignore):
+        if _recurse_inside_ignored:
+          yield from _iter_text(item, _ignore=_ignore, _recurse_inside_ignored=True)
       else:
-        yield from _iter_text(item, _ignore=_ignore)
+        yield from _iter_text(
+          item, _ignore=_ignore, _recurse_inside_ignored=_recurse_inside_ignored
+        )
 
-  ignore = tuple(ignore) if ignore else ()
-  yield from _iter_text(source, _ignore=ignore)
-
-
-def _normalize_content[T](content: Iterable[T] | str | None) -> list[T | str]:
-  """Normalize content parameter to a list.
-
-  Internal helper that converts string to single-item list or
-  wraps iterable in list.
-
-  Args:
-      content: Content to normalize.
-
-  Returns:
-      Normalized list of content items.
-
-  Note:
-      This is a private function intended for internal use by factory functions.
-  """
-  if isinstance(content, str):
-    return [content]
-  return list(content) if content is not None else []
+  if ignore is None:
+    ignore = tuple()
+  elif isinstance(ignore, type):
+    ignore = (ignore,)
+  ignore = tuple(ignore)
+  yield from _iter_text(source, _ignore=ignore, _recurse_inside_ignored=recurse_inside_ignored)
 
 
 def create_tmx(
-  *, header: Header | None = None, body: Iterable[Tu] | None = None, version: str = "1.4"
+  *, header: HeaderLike | None = None, body: Iterable[TuLike] | None = None, version: str = "1.4"
 ) -> Tmx:
   """Create a TMX root element.
 
@@ -101,10 +115,50 @@ def create_tmx(
       Configured TMX root element.
   """
   if header is None:
-    header = create_header()
+    _header = create_header()
+  else:
+    _header = create_header(
+      creationtool=header.creationtool,
+      creationtoolversion=header.creationtoolversion,
+      segtype=header.segtype,
+      o_tmf=header.o_tmf,
+      adminlang=header.adminlang,
+      srclang=header.srclang,
+      datatype=header.datatype,
+      o_encoding=header.o_encoding,
+      creationdate=header.creationdate,
+      creationid=header.creationid,
+      changedate=header.changedate,
+      changeid=header.changeid,
+      notes=header.notes,
+      props=header.props,
+    )
   if body is None:
-    body = []
-  return Tmx(header=header, body=list(body), version=version or "1.4")
+    _body = list()
+  else:
+    _body = [
+      create_tu(
+        tuid=tu.tuid,
+        srclang=tu.srclang,
+        segtype=tu.segtype,
+        variants=tu.variants,
+        o_encoding=tu.o_encoding,
+        datatype=tu.datatype,
+        usagecount=tu.usagecount,
+        lastusagedate=tu.lastusagedate,
+        creationtool=tu.creationtool,
+        creationtoolversion=tu.creationtoolversion,
+        creationdate=tu.creationdate,
+        creationid=tu.creationid,
+        changedate=tu.changedate,
+        changeid=tu.changeid,
+        o_tmf=tu.o_tmf,
+        notes=tu.notes,
+        props=tu.props,
+      )
+      for tu in body
+    ]
+  return Tmx(header=_header, body=_body, version=version or "1.4")
 
 
 def create_header(
@@ -121,8 +175,8 @@ def create_header(
   creationid: str | None = None,
   changedate: datetime | None = None,
   changeid: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Iterable[NoteLike] | None = None,
+  props: Iterable[PropLike] | None = None,
 ) -> Header:
   """Create a TMX header element.
 
@@ -146,8 +200,19 @@ def create_header(
       Configured header element.
   """
   segtype = Segtype(segtype) if isinstance(segtype, str) else segtype
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
+  _notes = (
+    [create_note(text=note.text, lang=note.lang, o_encoding=note.o_encoding) for note in notes]
+    if notes is not None
+    else []
+  )
+  _props = (
+    [
+      create_prop(text=prop.text, type=prop.type, lang=prop.lang, o_encoding=prop.o_encoding)
+      for prop in props
+    ]
+    if props is not None
+    else []
+  )
   creationdate = creationdate if creationdate is not None else datetime.now(UTC)
 
   return Header(
@@ -163,8 +228,8 @@ def create_header(
     creationid=creationid,
     changedate=changedate,
     changeid=changeid,
-    notes=notes,
-    props=props,
+    notes=_notes,
+    props=_props,
   )
 
 
@@ -173,7 +238,7 @@ def create_tu(
   tuid: str | None = None,
   srclang: str | None = None,
   segtype: Segtype | str | None = None,
-  variants: Iterable[Tuv] | None = None,
+  variants: Iterable[TuvLike] | None = None,
   o_encoding: str | None = None,
   datatype: str | None = None,
   usagecount: int | None = None,
@@ -185,8 +250,8 @@ def create_tu(
   changedate: datetime | None = None,
   changeid: str | None = None,
   o_tmf: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Iterable[NoteLike] | None = None,
+  props: Iterable[PropLike] | None = None,
 ) -> Tu:
   """Create a translation unit (TU) element.
 
@@ -213,16 +278,50 @@ def create_tu(
       Configured translation unit.
   """
   segtype = Segtype(segtype) if isinstance(segtype, str) else segtype
-  variants = list(variants) if variants is not None else []
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
+  _notes = (
+    [create_note(text=note.text, lang=note.lang, o_encoding=note.o_encoding) for note in notes]
+    if notes is not None
+    else []
+  )
+  _props = (
+    [
+      create_prop(text=prop.text, type=prop.type, lang=prop.lang, o_encoding=prop.o_encoding)
+      for prop in props
+    ]
+    if props is not None
+    else []
+  )
   creationdate = creationdate if creationdate is not None else datetime.now(UTC)
+  _variants = (
+    [
+      create_tuv(
+        lang=variant.lang,
+        content=variant.content,
+        o_encoding=variant.o_encoding,
+        datatype=variant.datatype,
+        usagecount=variant.usagecount,
+        lastusagedate=variant.lastusagedate,
+        creationtool=variant.creationtool,
+        creationtoolversion=variant.creationtoolversion,
+        creationdate=variant.creationdate,
+        creationid=variant.creationid,
+        changedate=variant.changedate,
+        changeid=variant.changeid,
+        o_tmf=variant.o_tmf,
+        notes=variant.notes,
+        props=variant.props,
+      )
+      for variant in variants
+    ]
+    if variants is not None
+    else []
+  )
 
   return Tu(
     tuid=tuid,
     srclang=srclang,
     segtype=segtype,
-    variants=variants,
+    variants=_variants,
     o_encoding=o_encoding,
     datatype=datatype,
     usagecount=usagecount,
@@ -234,15 +333,15 @@ def create_tu(
     changedate=changedate,
     changeid=changeid,
     o_tmf=o_tmf,
-    notes=notes,
-    props=props,
+    notes=_notes,
+    props=_props,
   )
 
 
 def create_tuv(
   lang: str,
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | str | None = None,
   o_encoding: str | None = None,
   datatype: str | None = None,
   usagecount: int | None = None,
@@ -254,8 +353,8 @@ def create_tuv(
   changedate: datetime | None = None,
   changeid: str | None = None,
   o_tmf: str | None = None,
-  notes: Iterable[Note] | None = None,
-  props: Iterable[Prop] | None = None,
+  notes: Iterable[NoteLike] | None = None,
+  props: Iterable[PropLike] | None = None,
 ) -> Tuv:
   """Create a translation unit variant (TUV) element.
 
@@ -279,13 +378,24 @@ def create_tuv(
   Returns:
       Configured translation unit variant.
   """
-  content = _normalize_content(content)
-  notes = list(notes) if notes is not None else []
-  props = list(props) if props is not None else []
+  _content = _normalize_content(content, sub_only=False)
+  _notes = (
+    [create_note(text=note.text, lang=note.lang, o_encoding=note.o_encoding) for note in notes]
+    if notes is not None
+    else []
+  )
+  _props = (
+    [
+      create_prop(text=prop.text, type=prop.type, lang=prop.lang, o_encoding=prop.o_encoding)
+      for prop in props
+    ]
+    if props is not None
+    else []
+  )
 
   return Tuv(
     lang=lang,
-    content=content,
+    content=_content,
     o_encoding=o_encoding,
     datatype=datatype,
     usagecount=usagecount,
@@ -297,8 +407,8 @@ def create_tuv(
     changedate=changedate,
     changeid=changeid,
     o_tmf=o_tmf,
-    notes=notes,
-    props=props,
+    notes=_notes,
+    props=_props,
   )
 
 
@@ -336,7 +446,7 @@ def create_prop(
 def create_bpt(
   i: int,
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Iterable[str | SubLike] | str | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> Bpt:
@@ -351,11 +461,11 @@ def create_bpt(
   Returns:
       Configured begin paired tag.
   """
-  content = _normalize_content(content)
-  return Bpt(i=i, x=x, type=type, content=content)
+  _content = _normalize_content(content)
+  return Bpt(i=i, x=x, type=type, content=_content)
 
 
-def create_ept(i: int, *, content: Iterable[str | Sub] | str | None = None) -> Ept:
+def create_ept(i: int, *, content: Iterable[str | SubLike] | str | None = None) -> Ept:
   """Create an end paired tag (EPT) element.
 
   Args:
@@ -365,14 +475,14 @@ def create_ept(i: int, *, content: Iterable[str | Sub] | str | None = None) -> E
   Returns:
       Configured end paired tag.
   """
-  content = _normalize_content(content)
-  return Ept(i=i, content=content)
+  _content = _normalize_content(content)
+  return Ept(i=i, content=_content)
 
 
 def create_it(
   pos: Pos | Literal["begin", "end"],
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Iterable[str | SubLike] | str | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> It:
@@ -387,14 +497,14 @@ def create_it(
   Returns:
       Configured isolated tag.
   """
-  content = _normalize_content(content)
+  _content = _normalize_content(content)
   pos = Pos(pos) if isinstance(pos, str) else pos
-  return It(pos=pos, x=x, type=type, content=content)
+  return It(pos=pos, x=x, type=type, content=_content)
 
 
 def create_ph(
   *,
-  content: Iterable[str | Sub] | str | None = None,
+  content: Iterable[str | SubLike] | str | None = None,
   x: int | None = None,
   assoc: Assoc | Literal["p", "f", "b"] | None = None,
   type: str | None = None,
@@ -410,14 +520,14 @@ def create_ph(
   Returns:
       Configured placeholder element.
   """
-  content = _normalize_content(content)
+  _content = _normalize_content(content)
   assoc = Assoc(assoc) if isinstance(assoc, str) else assoc
-  return Ph(x=x, assoc=assoc, type=type, content=content)
+  return Ph(x=x, assoc=assoc, type=type, content=_content)
 
 
 def create_hi(
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | str | None = None,
   x: int | None = None,
   type: str | None = None,
 ) -> Hi:
@@ -431,13 +541,13 @@ def create_hi(
   Returns:
       Configured highlight element.
   """
-  content = _normalize_content(content)
-  return Hi(x=x, type=type, content=content)
+  _content = _normalize_content(content, sub_only=False)
+  return Hi(x=x, type=type, content=_content)
 
 
 def create_sub(
   *,
-  content: Iterable[str | Bpt | Ept | It | Ph | Hi] | str | None = None,
+  content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | str | None = None,
   datatype: str | None = None,
   type: str | None = None,
 ) -> Sub:
@@ -451,5 +561,52 @@ def create_sub(
   Returns:
       Configured sub-flow element.
   """
-  content = _normalize_content(content)
-  return Sub(datatype=datatype, type=type, content=content)
+  _content = _normalize_content(content, sub_only=False)
+  return Sub(datatype=datatype, type=type, content=_content)
+
+
+@overload
+def _normalize_content(
+  content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | str | None,
+  sub_only: Literal[False],
+) -> list[str | Bpt | Ept | It | Ph | Hi]: ...
+@overload
+def _normalize_content(
+  content: Iterable[str | SubLike] | str | None, sub_only: Literal[True] = True
+) -> list[str | Sub]: ...
+def _normalize_content(
+  content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+  | Iterable[str | SubLike]
+  | str
+  | None,
+  sub_only: bool = True,
+) -> list[str | Bpt | Ept | It | Ph | Hi] | list[str | Sub]:
+  if content is None:
+    return []
+  content = [content] if isinstance(content, str) else content
+  result: list[Any] = []
+  for item in content:
+    match item:
+      case str():
+        result.append(item)
+      case SubLike() if not sub_only:
+        raise TypeError(
+          f"Invalid item, expected str, BptLike, EptLike, ItLike, PhLike, HiLike, got {type(item)}"
+        )
+      case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
+        raise TypeError(f"Invalid item, expected str or SubLike, got {type(item)}")
+      case SubLike():
+        result.append(create_sub(content=item.content, datatype=item.datatype, type=item.type))
+      case BptLike():
+        result.append(create_bpt(i=item.i, content=item.content, x=item.x, type=item.type))
+      case EptLike():
+        result.append(create_ept(i=item.i, content=item.content))
+      case ItLike():
+        result.append(create_it(pos=item.pos, x=item.x, type=item.type, content=item.content))
+      case PhLike():
+        result.append(create_ph(x=item.x, assoc=item.assoc, type=item.type, content=item.content))
+      case HiLike():
+        result.append(create_hi(x=item.x, type=item.type, content=item.content))
+      case _:
+        raise TypeError(f"Invalid item: {type(item)}")
+  return result

@@ -1,57 +1,28 @@
-"""Hypomnema public API.
-
-Hypomnema is an industrial-grade TMX 1.4b parsing and serialization library.
-
-Main Functions:
-    load: Load TMX files from disk.
-    dump: Save TMX files to disk.
-
-Data Classes:
-    Tmx, Header, Tu, Tuv, Bpt, Ept, It, Ph, Hi, Sub, Prop, Note
-
-Enums:
-    Segtype, Pos, Assoc
-"""
-
-from .api import dump, load
-from .base import (
-  Assoc,
-  BaseElement,
-  Bpt,
-  Ept,
-  Header,
-  Hi,
-  InlineElement,
-  It,
-  Note,
-  Ph,
-  Pos,
-  Prop,
-  Segtype,
-  Sub,
-  Tmx,
-  Tu,
-  Tuv,
-)
+from .api import helpers, load, dump
+from .base import Tmx, Header, Tu, Tuv, Bpt, Ept, It, Ph, Hi, Sub, Prop, Note, errors, BaseElement
+from .xml import policy, utils, backends, serialization, deserialization
 
 __all__ = [
-  "Assoc",
-  "BaseElement",
-  "Bpt",
-  "dump",
-  "Ept",
-  "Header",
-  "Hi",
-  "InlineElement",
-  "It",
+  "helpers",
+  "errors",
+  "policy",
+  "utils",
+  "backends",
+  "serialization",
+  "deserialization",
   "load",
-  "Note",
-  "Ph",
-  "Pos",
-  "Prop",
-  "Segtype",
-  "Sub",
+  "dump",
   "Tmx",
+  "Header",
   "Tu",
   "Tuv",
+  "Bpt",
+  "Ept",
+  "It",
+  "Ph",
+  "Hi",
+  "Sub",
+  "Prop",
+  "Note",
+  "BaseElement",
 ]
