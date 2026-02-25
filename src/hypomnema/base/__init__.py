@@ -1,39 +1,45 @@
-from .errors import (AttributeDeserializationError,
-                     AttributeSerializationError, InvalidContentError,
-                     InvalidTagError, MissingHandlerError, NamespaceError,
-                     XmlDeserializationError, XmlSerializationError)
-from .types import (Assoc, BaseElement, Bpt, Ept, Header, Hi, InlineElement,
-                    It, Note, Ph, Pos, Prop, Segtype, Sub, Tmx, Tu, Tuv)
+"""Base types and errors for Hypomnema.
+
+This module provides the core data structures and exceptions used throughout
+the library.
+"""
+
+from .types import (
+  Tmx,
+  Header,
+  Tu,
+  Tuv,
+  Bpt,
+  Ept,
+  It,
+  Ph,
+  Hi,
+  Sub,
+  Prop,
+  Note,
+  BaseElement,
+  TmxElementLike,
+  InlineElementLike,
+  InlineElement,
+)
+from . import errors
 
 __all__ = [
-  # Type aliases
-  "BaseElement",
-  "InlineElement",
-  # Enums
-  "Pos",
-  "Assoc",
-  "Segtype",
-  # Structural elements
   "Tmx",
   "Header",
-  "Prop",
-  "Note",
   "Tu",
   "Tuv",
-  # Inline elements
   "Bpt",
   "Ept",
   "It",
   "Ph",
-  "Sub",
   "Hi",
-  # Errors
-  "XmlSerializationError",
-  "XmlDeserializationError",
-  "AttributeSerializationError",
-  "AttributeDeserializationError",
-  "InvalidTagError",
-  "InvalidContentError",
-  "MissingHandlerError",
-  "NamespaceError",
+  "Sub",
+  "Prop",
+  "Note",
+  "BaseElement",
+  "TmxElementLike",
+  "InlineElementLike",
+  "InlineElement",
+  "errors",
 ]

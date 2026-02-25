@@ -1,5 +1,9 @@
-from hypomnema.xml.backends import LxmlBackend, StandardBackend, XmlBackend
-from hypomnema.xml.deserialization import Deserializer
-from hypomnema.xml.serialization import Serializer
+"""XML processing utilities.
 
-__all__ = ["StandardBackend", "LxmlBackend", "Deserializer", "Serializer", "XmlBackend"]
+Provides namespace handling, encoding normalization, URI validation,
+and other XML-related utilities.
+"""
+
+from . import policy, utils, backends, serialization, deserialization
+
+__all__ = ["policy", "utils", "backends", "serialization", "deserialization"]

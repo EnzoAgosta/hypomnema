@@ -1,354 +1,308 @@
+"""Base class for element serializers.
+
+This module defines BaseElementSerializer, the abstract base class for
+all TMX element serializers. It provides common functionality for:
+- Policy-driven error handling
+- Attribute type validation and formatting
+- Mixed content serialization
+- Recursive element dispatch via emit()
+
+Implementations must subclass this and override _serialize() for each
+TMX element type.
+"""
+
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Collection
-from datetime import datetime
-from enum import StrEnum
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from logging import Logger
+from typing import Any, Iterable, Literal, cast, overload
 
-from hypomnema.base.errors import (AttributeSerializationError,
-                                   XmlSerializationError)
-from hypomnema.base.types import BaseElement, InlineElement, Sub, Tuv
+from hypomnema.base.errors import (
+  InvalidAttributeTypeError,
+  InvalidChildElementError,
+  InvalidElementTypeError,
+  InvalidPolicyActionError,
+  MissingTextContentError,
+  RequiredAttributeMissingError,
+)
+from hypomnema.base.types import (
+  Assoc,
+  BptLike,
+  EptLike,
+  HiLike,
+  ItLike,
+  Note,
+  PhLike,
+  Pos,
+  Prop,
+  Segtype,
+  SubLike,
+  TmxElementLike,
+)
 from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.policy import XmlPolicy
+from hypomnema.xml.policy import (
+  Behavior,
+  RaiseIgnore,
+  RaiseIgnoreDefault,
+  RaiseIgnoreForce,
+  XmlSerializationPolicy,
+)
 
-__all__ = ["BaseElementSerializer"]
 
+class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement](ABC):
+  """Abstract base class for TMX element serializers.
 
-class BaseElementSerializer[TypeOfBackendElement, TypeOfTmxElement: BaseElement](ABC):
+  Serializers convert Python dataclass instances into XML elements
+  using the backend. Each TMX element type has a dedicated
+  serializer subclass.
+
+  Args:
+      backend: XML backend for element operations.
+      policy: Policy for error handling.
+      logger: Logger for operations.
+
+  Attributes:
+      backend: XML backend instance.
+      policy: Serialization policy.
+      logger: Logger instance.
+
+  Note:
+      The emit() method must be set by the orchestrator before use.
+      Call _set_emit() with the dispatch function.
   """
-  Abstract base class for converting TMX objects into XML elements.
 
-  Parameters
-  ----------
-  backend : XMLBackend[BackendElementType]
-      The XML library wrapper used to create and manipulate elements.
-  policy : XmlPolicy
-      The configuration for handling errors and logging during serialization.
-  logger : Logger
-      The logging instance for reporting policy violations.
-
-  Attributes
-  ----------
-  backend : XMLBackend[BackendElementType]
-      The XML library wrapper.
-  policy : XmlPolicy
-      The serialization configuration.
-  logger : Logger
-      The logging instance.
-  """
-
-  def __init__(self, backend: XmlBackend[TypeOfBackendElement], policy: XmlPolicy, logger: Logger):
+  def __init__(
+    self, backend: XmlBackend[TypeOfBackendElement], policy: XmlSerializationPolicy, logger: Logger
+  ):
     self.backend: XmlBackend[TypeOfBackendElement] = backend
-    self.policy: XmlPolicy = policy
+    self.policy: XmlSerializationPolicy = policy
     self.logger: Logger = logger
-    self._emit: Callable[[BaseElement], TypeOfBackendElement | None] | None = None
+    self._emit: Callable[[TmxElementLike], TypeOfBackendElement | None] | None = None
 
-  def _set_emit(self, emit: Callable[[BaseElement], TypeOfBackendElement | None]) -> None:
-    """
-    Set the dispatch function for recursive serialization.
-    Must be called before `emit()` is called.
+  def _set_emit(self, emit: Callable[[TmxElementLike], TypeOfBackendElement | None]) -> None:
+    """Set the emit function for recursive serialization.
 
-    Parameters
-    ----------
-    emit : Callable[[BaseElement], BackendElementType | None]
-        A function that dispatches objects to their specific serializers.
+    Args:
+        emit: Function to dispatch to appropriate serializer.
+
+    Note:
+        Private method called by the orchestrator (Serializer).
     """
     self._emit = emit
 
-  def emit(self, obj: BaseElement) -> TypeOfBackendElement | None:
-    """
-    Invoke the dispatcher to serialize a BaseElement object.
+  def emit(self, obj: TmxElementLike) -> TypeOfBackendElement | None:
+    """Dispatch object to appropriate serializer.
 
-    Parameters
-    ----------
-    obj : BaseElement
-        The object to serialize.
+    Args:
+        obj: TMX object to serialize.
 
-    Returns
-    -------
-    BackendElementType | None
-        The serialized XML element, or None if the dispatcher returns None.
+    Returns:
+        Serialized element or None if skipped.
 
-    Raises
-    ----------
-    AssertionError
-        If called before the dispatcher is set via `_set_emit`.
+    Raises:
+        AssertionError: If emit() called before _set_emit().
     """
     assert self._emit is not None, "emit() called before set_emit() was called"
     return self._emit(obj)
 
   @abstractmethod
   def _serialize(self, obj: TypeOfTmxElement) -> TypeOfBackendElement | None:
-    """
-    Perform the actual serialization of the specific TMX object type.
+    """Serialize TMX dataclass to XML element.
 
-    Parameters
-    ----------
-    obj : TmxElementType
-        The TMX object instance to convert.
+    Args:
+        obj: TMX object to serialize.
 
-    Returns
-    -------
-    BackendElementType | None
-        The resulting XML element.
+    Returns:
+        Serialized element or None if skipped.
     """
     ...
 
-  def _handle_missing_attribute(
-    self, target: TypeOfBackendElement, attribute: str, required: bool
+  def _log(self, behavior: Behavior, message: str, *args: object) -> None:
+    """Log a message at the behavior's configured log level.
+
+    Note:
+        Private method for internal use.
+    """
+    if behavior.log_level is not None:
+      self.logger.log(behavior.log_level, message, *args)
+
+  def _handle_invalid_element_type[TypeOfObject](
+    self, obj: TypeOfObject, expected: type | tuple[type, ...]
+  ) -> TypeOfObject | None:
+    """Handle unexpected object type error per policy."""
+    behavior = self.policy.invalid_element_type
+    self._log(behavior, "Invalid element type %r, expected %r", type(obj), expected)
+    match behavior.action:
+      case RaiseIgnoreForce.RAISE:
+        raise InvalidElementTypeError(type(obj), expected)
+      case RaiseIgnoreForce.IGNORE:
+        return None
+      case RaiseIgnoreForce.FORCE:
+        return obj
+      case _:
+        raise InvalidPolicyActionError("invalid_element_type", behavior.action, RaiseIgnoreForce)
+
+  def _handle_invalid_child_element_type(
+    self, received: type, expected: type | tuple[type, ...]
   ) -> None:
-    """
-    Handle cases where an attribute value is None according to policy.
+    """Handle invalid child element type error per policy."""
+    behavior = self.policy.invalid_child_element
+    self._log(behavior, "Invalid child element %r, expected one of %r", received, expected)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise InvalidChildElementError(received, expected)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("invalid_child_element", behavior.action, RaiseIgnore)
 
-    Parameters
-    ----------
-    target : BackendElementType
-        The XML element where the attribute would be set.
-    attribute : str
-        The name of the attribute.
-    required : bool
-        Whether the TMX specification requires this attribute.
+  def _handle_missing_text_content(self, obj: Prop | Note) -> str:
+    """Handle missing text content error per policy."""
+    behavior = self.policy.missing_text_content
+    self._log(behavior, "Element %r has no text content", type(obj))
+    match behavior.action:
+      case RaiseIgnoreDefault.RAISE:
+        raise MissingTextContentError(obj.__class__.__name__)
+      case RaiseIgnoreDefault.IGNORE:
+        return cast(str, None)
+      case RaiseIgnoreDefault.DEFAULT:
+        return ""
+      case _:
+        raise InvalidPolicyActionError("missing_text_content", behavior.action, RaiseIgnoreDefault)
 
-    Raises
-    ------
-    AttributeSerializationError
-        If the attribute is required and the policy behavior is "raise".
-    """
-    if required:
-      self.logger.log(
-        self.policy.required_attribute_missing.log_level,
-        "Required attribute %r is missing on element <%s>",
-        attribute,
-        self.backend.get_tag(target),
-      )
-      if self.policy.required_attribute_missing.behavior == "raise":
-        raise AttributeSerializationError(
-          f"Required attribute {attribute!r} is missing on element <{self.backend.get_tag(target)}>"
-        )
-    return
+  def _handle_required_attribute_missing(self, element: str, attribute: str) -> None:
+    """Handle missing required attribute error per policy."""
+    behavior = self.policy.required_attribute_missing
+    self._log(behavior, "Required attribute %r is missing from element %r", attribute, element)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise RequiredAttributeMissingError(element, attribute)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("required_attribute_missing", behavior.action, RaiseIgnore)
 
-  def _set_datetime_attribute(
-    self, target: TypeOfBackendElement, value: datetime | None, attribute: str, required: bool
+  def _set_required_attribute(
+    self, element: TypeOfBackendElement, attribute: str, value: Any
   ) -> None:
-    """
-    Serialize and set a datetime attribute in ISO 8601 format.
+    """Set required attribute with policy handling for missing values."""
+    if value is None:
+      self._handle_required_attribute_missing(self.backend.get_tag(element), attribute)
+    self._set_attribute(element, attribute, value)
 
-    Parameters
-    ----------
-    target : BackendElementType
-        The XML element to modify.
-    value : datetime | None
-        The datetime object to serialize.
-    attribute : str
-        The name of the attribute in the XML element.
-    required : bool
-        Whether the attribute is mandatory.
+  def _set_attribute(
+    self, element: TypeOfBackendElement, attribute: str, value: Any | None
+  ) -> None:
+    """Set attribute with automatic type conversion.
+
+    Handles datetime, int, Pos, Segtype, Assoc, and str types.
     """
     if value is None:
-      self._handle_missing_attribute(target, attribute, required)
       return
-    if not isinstance(value, datetime):
-      self.logger.log(
-        self.policy.invalid_attribute_type.log_level,
-        "Attribute %r is not a datetime object",
-        attribute,
-      )
-      if self.policy.invalid_attribute_type.behavior == "raise":
-        raise AttributeSerializationError(f"Attribute {attribute!r} is not a datetime object")
-      return
-    self.backend.set_attribute(target, attribute, value.isoformat())
+    match attribute:
+      case "creationdate" | "changedate" | "lastusagedate":
+        if not isinstance(value, datetime):
+          self._handle_invalid_attribute_type(value, datetime)
+        else:
+          if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+          elif value.utcoffset() != timedelta(0):
+            value = value.astimezone(UTC)
+          self.backend.set_attribute(element, attribute, value.strftime("%Y%m%dT%H%M%SZ"))
+      case "i" | "x" | "usagecount":
+        if not isinstance(value, int):
+          self._handle_invalid_attribute_type(value, int)
+        else:
+          self.backend.set_attribute(element, attribute, str(value))
+      case "pos":
+        if not isinstance(value, Pos):
+          self._handle_invalid_attribute_type(value, Pos)
+        else:
+          self.backend.set_attribute(element, attribute, value.value)
+      case "segtype":
+        if not isinstance(value, Segtype):
+          self._handle_invalid_attribute_type(value, Segtype)
+        else:
+          self.backend.set_attribute(element, attribute, value.value)
+      case "assoc":
+        if not isinstance(value, Assoc):
+          self._handle_invalid_attribute_type(value, Assoc)
+        else:
+          self.backend.set_attribute(element, attribute, value.value)
+      case _:
+        if not isinstance(value, str):
+          self._handle_invalid_attribute_type(value, str)
+        else:
+          self.backend.set_attribute(element, attribute, str(value))
 
-  def _set_int_attribute(
-    self, target: TypeOfBackendElement, value: int | None, attribute: str, required: bool
+  def _serialize_children_into(
+    self, element: TypeOfBackendElement, children: Iterable, expected_type: type | tuple[type, ...]
   ) -> None:
-    """
-    Serialize and set an integer attribute.
+    """Serialize child elements into parent."""
+    for child in children:
+      if not isinstance(child, expected_type):
+        self._handle_invalid_child_element_type(type(child), expected_type)
+        continue
+      child_element = self.emit(child)
+      if child_element is not None:
+        self.backend.append_child(element, child_element)
 
-    Parameters
-    ----------
-    target : BackendElementType
-        The XML element to modify.
-    value : int | None
-        The integer value to serialize.
-    attribute : str
-        The name of the attribute in the XML element.
-    required : bool
-        Whether the attribute is mandatory.
-    """
-    if value is None:
-      self._handle_missing_attribute(target, attribute, required)
-      return
-    if not isinstance(value, int):
-      self.logger.log(
-        self.policy.invalid_attribute_type.log_level, "Attribute %r is not an int", attribute
-      )
-      if self.policy.invalid_attribute_type.behavior == "raise":
-        raise AttributeSerializationError(f"Attribute {attribute!r} is not an int")
-      return
-    self.backend.set_attribute(target, attribute, str(value))
-
-  def _set_enum_attribute[EnumType: StrEnum](
-    self,
-    target: TypeOfBackendElement,
-    value: EnumType | None,
-    attribute: str,
-    enum_type: type[EnumType],
-    required: bool,
-  ) -> None:
-    """
-    Serialize and set an attribute from a string-based Enum.
-
-    Parameters
-    ----------
-    target : BackendElementType
-        The XML element to modify.
-    value : EnumType | None
-        The enum member to serialize.
-    attribute : str
-        The name of the attribute in the XML element.
-    enum_type : type[EnumType]
-        The specific Enum class for type validation.
-    required : bool
-        Whether the attribute is mandatory.
-    """
-    if value is None:
-      self._handle_missing_attribute(target, attribute, required)
-      return
-    if not isinstance(value, enum_type):
-      self.logger.log(
-        self.policy.invalid_attribute_type.log_level,
-        "Attribute %r is not a member of %s",
-        attribute,
-        enum_type,
-      )
-      if self.policy.invalid_attribute_type.behavior == "raise":
-        raise AttributeSerializationError(
-          f"Attribute {attribute!r} is not a member of {enum_type!r}"
-        )
-      return
-    self.backend.set_attribute(target, attribute, value.value)
-
-  def _set_str_attribute(
-    self, target: TypeOfBackendElement, value: str | None, attribute: str, required: bool
-  ) -> None:
-    """
-    Serialize and set a string attribute.
-
-    Parameters
-    ----------
-    target : BackendElementType
-        The XML element to modify.
-    value : str | None
-        The string value to serialize.
-    attribute : str
-        The name of the attribute in the XML element.
-    required : bool
-        Whether the attribute is mandatory.
-    """
-    if value is None:
-      self._handle_missing_attribute(target, attribute, required)
-      return
-    if not isinstance(value, str):
-      self.logger.log(
-        self.policy.invalid_attribute_type.log_level, "Attribute %r is not a string", attribute
-      )
-      if self.policy.invalid_attribute_type.behavior == "raise":
-        raise AttributeSerializationError(f"Attribute {attribute!r} is not a string")
-      return
-    self.backend.set_attribute(target, attribute, value)
-
+  @overload
   def _serialize_content_into(
     self,
-    source: InlineElement | Tuv,
     target: TypeOfBackendElement,
-    allowed: tuple[type[BaseElement | Sub], ...],
-  ) -> None:
-    """
-    Iteratively serialize mixed text and XML elements into a target element.
-
-    Parameters
-    ----------
-    source : InlineElement | Tuv
-        The object containing the mixed content Collection.
-    target : BackendElementType
-        The XML element to populate.
-    allowed : tuple[type[InlineElement], ...]
-        The permitted types for inline child elements.
-
-    Raises
-    ------
-    XmlSerializationError
-        If a child object type is not a string or in the allowed tuple,        and policy behavior is "raise".
-    """
-    last_child: TypeOfBackendElement | None = None
-    for item in source.content:
-      if isinstance(item, str):
-        if last_child is None:
-          text = self.backend.get_text(target) or ""
-          self.backend.set_text(target, text + item)
-        else:
-          tail = self.backend.get_tail(last_child) or ""
-          self.backend.set_tail(last_child, tail + item)
-
-      elif isinstance(item, allowed):
-        child_elem = self.emit(item)
-        if child_elem is not None:
-          self.backend.append_child(target, child_elem)
-          last_child = child_elem
-
-      else:
-        allowed_names = ", ".join(x.__name__ for x in allowed)
-        self.logger.log(
-          self.policy.invalid_content_element.log_level,
-          "Incorrect child element in %s: expected one of %s, got %r",
-          source.__class__.__name__,
-          allowed_names,
-          item.__class__.__name__,
-        )
-        if self.policy.invalid_content_element.behavior == "raise":
-          raise XmlSerializationError(
-            f"Incorrect child element in {source.__class__.__name__}:"
-            f" expected one of {allowed_names},"
-            f" got {item.__class__.__name__!r}"
-          )
-        continue
-
-  def _serialize_children[TypeofChildItem: BaseElement](
+    content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike],
+    sub_only: Literal[False],
+  ) -> None: ...
+  @overload
+  def _serialize_content_into(
+    self, target: TypeOfBackendElement, content: Iterable[str | SubLike], sub_only: bool = True
+  ) -> None: ...
+  def _serialize_content_into(
     self,
-    children: Collection[TypeofChildItem],
     target: TypeOfBackendElement,
-    expected_type: type[TypeofChildItem],
+    content: Iterable[str | BptLike | EptLike | ItLike | PhLike | HiLike] | Iterable[str | SubLike],
+    sub_only: bool = True,
   ) -> None:
-    """
-    Serialize a Collection of child objects and append them to a target element.
-
-    Parameters
-    ----------
-    children : Collection[ChildType]
-        The Collection of TMX objects to serialize.
-    target : BackendElementType
-        The parent XML element to receive the children.
-    expected_type : type[ChildType]
-        The required type for objects in the children Collection.
-
-    Raises
-    ------
-    XmlSerializationError
-        If a child object does not match `expected_type` and policy
-        behavior is "raise".
-    """
-    for child in children:
-      if isinstance(child, expected_type):
-        child_element = self.emit(child)
-        if child_element is not None:
-          self.backend.append_child(target, child_element)
-      else:
-        self.logger.log(
-          self.policy.invalid_child_element.log_level,
-          "Invalid child element %r when serializing <%s>",
-          child.__class__.__name__,
-          self.backend.get_tag(target),
-        )
-        if self.policy.invalid_child_element.behavior == "raise":
-          raise XmlSerializationError(
-            f"Invalid child element {child.__class__.__name__!r} when serializing <{self.backend.get_tag(target)}>"
+    """Serialize mixed content (text + inline elements) into target."""
+    last_child: TypeOfBackendElement | None = None
+    for item in content:
+      match item:
+        case str():
+          if last_child is None:
+            if (text := self.backend.get_text(target)) is not None:
+              self.backend.set_text(target, text + item)
+            else:
+              self.backend.set_text(target, item)
+          else:
+            if (tail := self.backend.get_tail(last_child)) is not None:
+              self.backend.set_tail(last_child, tail + item)
+            else:
+              self.backend.set_tail(last_child, item)
+        case SubLike() if not sub_only:
+          self._handle_invalid_child_element_type(
+            type(item), (BptLike, EptLike, ItLike, PhLike, HiLike)
           )
+        case BptLike() | EptLike() | ItLike() | PhLike() | HiLike() if sub_only:
+          self._handle_invalid_child_element_type(type(item), SubLike)
+        case SubLike() | BptLike() | EptLike() | ItLike() | PhLike() | HiLike():
+          child_elem = self.emit(item)
+          if child_elem is not None:
+            self.backend.append_child(target, child_elem)
+            last_child = child_elem
+        case _:
+          self._handle_invalid_child_element_type(
+            type(item), (SubLike if sub_only else (BptLike, EptLike, ItLike, PhLike, HiLike))
+          )
+
+  def _handle_invalid_attribute_type(self, value: Any, expected: type | tuple[type, ...]) -> None:
+    """Handle invalid attribute type error per policy."""
+    behavior = self.policy.invalid_attribute_type
+    self._log(behavior, "Invalid attribute type %r, expected %r", type(value), expected)
+    match behavior.action:
+      case RaiseIgnore.RAISE:
+        raise InvalidAttributeTypeError(type(value), expected)
+      case RaiseIgnore.IGNORE:
+        return
+      case _:
+        raise InvalidPolicyActionError("invalid_attribute_type", behavior.action, RaiseIgnore)

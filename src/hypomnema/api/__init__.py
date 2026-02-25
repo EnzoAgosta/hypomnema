@@ -1,27 +1,9 @@
-from hypomnema.api.core import dump, load
-from hypomnema.api.helpers import (create_bpt, create_ept, create_header,
-                                   create_hi, create_it, create_note,
-                                   create_ph, create_prop, create_sub,
-                                   create_tmx, create_tu, create_tuv,
-                                   iter_text)
+"""High-level API for Hypomnema.
 
-__all__ = [
-  # Core I/O
-  "load",
-  "dump",
-  # Helpers
-  "iter_text",
-  # Element helpers
-  "create_tmx",
-  "create_header",
-  "create_tu",
-  "create_tuv",
-  "create_note",
-  "create_prop",
-  "create_bpt",
-  "create_ept",
-  "create_it",
-  "create_ph",
-  "create_hi",
-  "create_sub",
-]
+Provides convenient functions for loading, saving, and creating TMX elements.
+"""
+
+from . import helpers
+from .core import load, dump
+
+__all__ = ["helpers", "load", "dump"]

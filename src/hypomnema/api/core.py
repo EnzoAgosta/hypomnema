@@ -1,20 +1,42 @@
-from collections.abc import Generator, Iterable
+"""High-level API for loading and saving TMX files.
+
+This module provides the main entry points for working with TMX files:
+``load()`` to deserialize TMX files into Python objects, and ``dump()``
+to serialize objects back to TMX format.
+
+The API supports both full document loading and memory-efficient streaming
+for processing large files.
+"""
+
+from collections.abc import Generator, Iterable, Mapping
+from logging import Logger
 from os import PathLike
 from pathlib import Path
-from typing import overload
+from typing import NotRequired, TypedDict, Unpack, overload
+from hypomnema.base.types import BaseElement, Tmx, TmxLike
+from hypomnema.xml import backends, deserialization, policy, serialization, utils
 
-from hypomnema.base.errors import (XmlDeserializationError,
-                                   XmlSerializationError)
-from hypomnema.base.types import BaseElement, Tmx
-from hypomnema.xml.backends.base import XmlBackend
-from hypomnema.xml.backends.standard import StandardBackend
-from hypomnema.xml.deserialization.deserializer import Deserializer
-from hypomnema.xml.qname import QNameLike
-from hypomnema.xml.serialization.serializer import Serializer
-from hypomnema.xml.utils import (make_usable_path, normalize_encoding,
-                                 prep_tag_set)
+DEFAULT_BACKEND = (
+  backends.LxmlBackend if backends.LxmlBackend is not None else backends.StandardBackend
+)
 
-__all__ = ["load", "dump"]
+
+class LoadOptions(TypedDict):
+  """Options for configuring the load operation.
+
+  Kept separate from main function signature to keep things clean
+  """
+
+  backend: NotRequired[backends.XmlBackend]
+  backend_logger: NotRequired[Logger]
+  nsmap: NotRequired[Mapping[str, str]]
+  namespace_handler: NotRequired[backends.NamespaceHandler]
+  namespace_handler_logger: NotRequired[Logger]
+  namespace_handler_policy: NotRequired[policy.NamespacePolicy]
+  deserializer: NotRequired[deserialization.Deserializer]
+  deserializer_logger: NotRequired[Logger]
+  deserializer_policy: NotRequired[policy.XmlDeserializationPolicy]
+  deserializer_handlers: NotRequired[Mapping[str, deserialization.BaseElementDeserializer]]
 
 
 @overload
@@ -22,134 +44,199 @@ def load(
   path: str | PathLike,
   filter: None = None,
   encoding: str | None = None,
-  *,
-  backend: XmlBackend | None = None,
+  **kwargs: Unpack[LoadOptions],
 ) -> Tmx: ...
 @overload
 def load(
   path: str | PathLike,
-  filter: str | QNameLike | Iterable[str | QNameLike],
+  filter: str | utils.QNameLike | Iterable[str | utils.QNameLike],
   encoding: str | None = None,
-  *,
-  backend: XmlBackend | None = None,
+  **kwargs: Unpack[LoadOptions],
 ) -> Generator[BaseElement]: ...
 def load(
   path: str | PathLike,
-  filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  filter: str | utils.QNameLike | Iterable[str | utils.QNameLike] | None = None,
   encoding: str | None = None,
-  *,
-  backend: XmlBackend | None = None,
+  **kwargs: Unpack[LoadOptions],
 ) -> Tmx | Generator[BaseElement]:
   """Load a TMX file from disk.
 
-  Parameters
-  ----------
-  path : str | PathLike
-      Path to the TMX file to load.
-  filter : str | QNameLike | Iterable[str | QNameLike]
-      Optional tag filter for streaming parsing. Pass "tu" to yield
-      translation units one at a time without loading entire file.
-  encoding : str | None
-      Character encoding for the file. Defaults to "utf-8".
-  backend : XmlBackend | None
-      XML backend to use for parsing. If None, uses StandardBackend.
+  Deserializes a TMX file into Python dataclass objects. Supports both
+  full document loading and memory-efficient streaming.
 
-  Returns
-  -------
-  Tmx | Generator[BaseElement]
-      If filter is None, returns complete Tmx object.
-      If filter is specified, returns generator yielding matching elements.
+  Args:
+      path: Path to the TMX file.
+      filter: Optional tag filter for streaming. If specified, yields elements
+          matching the filter without loading the entire document.
+          Common values: "tu" for translation units, "tuv" for variants.
+      encoding: Character encoding (default: "utf-8").
+      **kwargs: Additional configuration options (backend, policies, etc.).
+      backend: Custom XML backend (defaults to LxmlBackend if available else StandardBackend).
+      backend_logger: Logger to be used by the backend if backend is not provided.
+      nsmap: Custom namespace prefix-to-URI mappings to be used by the backend if backend is not provided.
+      namespace_handler: Custom namespace handler instance to be used by the backend if backend is not provided.
+      namespace_handler_logger: Logger for namespace operations to be used by the namespace handler if namespace_handler is not provided.
+      namespace_handler_policy: Policy for namespace handling to be used by the namespace handler if namespace_handler is not provided.
+      deserializer: Custom deserializer instance. Uses whatever backend is given or created using previous options.
+      deserializer_logger: Logger for deserialization operations to be used by the deserializer if deserializer is not provided.
+      deserializer_policy: Policy for deserialization error handling to be used by the deserializer if deserializer is not provided.
+      deserializer_handlers: Custom element handlers for deserialization to be used by the deserializer if deserializer is not provided.
 
-  Raises
-  ------
-  FileNotFoundError
-      If the file does not exist.
-  IsADirectoryError
-      If the path is a directory.
-  XmlDeserializationError
-      If the root element is not a valid TMX element.
+  Returns:
+      If filter is None, returns the complete Tmx object.
+      If filter is specified, returns a generator yielding matching elements.
 
-  Example
-  -------
-  .. code-block:: python
-    from hypomnema import load
+  Raises:
+      FileNotFoundError: If the file does not exist.
+      IsADirectoryError: If path points to a directory.
+      ValueError: If root element is not <tmx> or deserialization fails.
 
-    tmx = load("translations.tmx")
-    for tu in load("large.tmx", filter="tu"):
-      print(tu.srclang)
+  Example:
+      >>> # Load entire file
+      >>> tmx = load("translations.tmx")
+      >>> len(tmx.body)
+      1000
+
+      >>> # Stream translation units (memory efficient)
+      >>> for tu in load("large.tmx", filter="tu"):
+      ...   process(tu)
   """
 
   def _load_filtered(
-    _backend: XmlBackend, _path: Path, _filter: set[str], _deserializer: Deserializer
+    _backend: backends.XmlBackend,
+    _path: Path,
+    _filter: set[str] | None,
+    _deserializer: deserialization.Deserializer,
   ) -> Generator[BaseElement]:
     for element in _backend.iterparse(_path, tag_filter=_filter):
       obj = _deserializer.deserialize(element)
       if obj is not None:
         yield obj
 
-  _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
-  _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
-  _deserializer = Deserializer(_backend)
+  _encoding = utils.normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _backend = kwargs.get(
+    "backend",
+    DEFAULT_BACKEND(
+      logger=kwargs.get("backend_logger"),
+      default_encoding=_encoding,
+      namespace_handler=kwargs.get(
+        "namespace_handler",
+        backends.NamespaceHandler(
+          nsmap=kwargs.get("nsmap"),
+          logger=kwargs.get("namespace_handler_logger"),
+          policy=kwargs.get("namespace_handler_policy"),
+        ),
+      ),
+    ),
+  )
+  _deserializer = kwargs.get(
+    "deserializer",
+    deserialization.Deserializer(
+      backend=_backend,
+      policy=kwargs.get("deserializer_policy"),
+      logger=kwargs.get("deserializer_logger"),
+      handlers=kwargs.get("deserializer_handlers"),
+    ),
+  )
 
-  _path = make_usable_path(path, mkdir=False)
+  _path = utils.make_usable_path(path, mkdir=False)
   if not _path.exists():
     raise FileNotFoundError(f"File {_path} does not exist")
   if not _path.is_file():
     raise IsADirectoryError(f"Path {_path} is a directory")
 
   if filter is not None:
-    filter = prep_tag_set(filter, nsmap=_backend.nsmap)
+    filter = _backend.prep_tag_set(filter)
     return _load_filtered(_backend, _path, filter, _deserializer)
   root = _backend.parse(_path)
-  if _backend.get_tag(root, as_qname=True).local_name != "tmx":
-    raise XmlDeserializationError("Root element is not a tmx")
+  if _backend.get_tag(root) != "tmx":
+    raise ValueError("Root element is not a tmx")
   tmx = _deserializer.deserialize(root)
   if not isinstance(tmx, Tmx):
-    raise XmlDeserializationError(f"root element did not deserialize to a Tmx: {type(tmx)}")
+    raise ValueError(f"root element did not deserialize to a Tmx: {type(tmx)}")
   return tmx
 
 
-def dump(
-  tmx: Tmx, path: PathLike | str, encoding: str | None = None, *, backend: XmlBackend | None = None
-) -> None:
-  """Serialize a TMX object to a file.
+class DumpOptions(TypedDict):
+  """Options for configuring the dump operation.
 
-  Parameters
-  ----------
-  tmx : Tmx
-      The TMX object to serialize.
-  path : PathLike | str
-      Path where the TMX file will be written.
-  encoding : str | None
-      Character encoding for the output file. Defaults to "utf-8".
-  backend : XmlBackend | None
-      XML backend to use for serialization. If None, uses StandardBackend.
-
-  Raises
-  ------
-  TypeError
-      If tmx is not a Tmx instance.
-  XmlSerializationError
-      If serialization fails.
-
-  Example
-  -------
-  .. code-block:: python
-    from hypomnema import dump, load
-
-    tmx = load("input.tmx")
-    tmx.boby = [tu for tu in tmx.body if not tu.variants]
-    dump(tmx, "output.tmx")
+  Kept separate from main function signature to keep things clean
   """
-  if not isinstance(tmx, Tmx):
+
+  backend: NotRequired[backends.XmlBackend]
+  backend_logger: NotRequired[Logger]
+  nsmap: NotRequired[Mapping[str, str]]
+  namespace_handler: NotRequired[backends.NamespaceHandler]
+  namespace_handler_logger: NotRequired[Logger]
+  namespace_handler_policy: NotRequired[policy.NamespacePolicy]
+  serializer: NotRequired[serialization.Serializer]
+  serializer_logger: NotRequired[Logger]
+  serializer_policy: NotRequired[policy.XmlSerializationPolicy]
+  serialization_handlers: NotRequired[Mapping[type, serialization.BaseElementSerializer]]
+
+
+def dump(
+  tmx: Tmx, path: PathLike | str, encoding: str | None = None, **kwargs: Unpack[DumpOptions]
+) -> None:
+  """Save a TMX object to disk.
+
+  Serializes a Tmx dataclass to a TMX 1.4b XML file.
+
+  Args:
+      tmx: The TMX object to serialize.
+      path: Output file path. Parent directories are created if needed.
+      encoding: Character encoding (default: "utf-8").
+      **kwargs: Additional configuration options (backend, policies, etc.).
+      backend: Custom XML backend (defaults to LxmlBackend if available else StandardBackend).
+      backend_logger: Logger to be used by the backend if backend is not provided.
+      nsmap: Custom namespace prefix-to-URI mappings to be used by the backend if backend is not provided.
+      namespace_handler: Custom namespace handler instance to be used by the backend if backend is not provided.
+      namespace_handler_logger: Logger for namespace operations to be used by the namespace handler if namespace_handler is not provided.
+      namespace_handler_policy: Policy for namespace handling to be used by the namespace handler if namespace_handler is not provided.
+      serializer: Custom serializer instance. Uses whatever backend is given or created using previous options.
+      serializer_logger: Logger for serialization operations to be used by the serializer if serializer is not provided.
+      serializer_policy: Policy for serialization error handling to be used by the serializer if serializer is not provided.
+      serializer_handlers: Custom element handlers for serialization to be used by the serializer if serializer is not provided.
+
+  Raises:
+      TypeError: If tmx is not a Tmx instance.
+      ValueError: If serialization fails.
+
+  Example:
+      >>> tmx = create_tmx(header=header, body=translations)
+      >>> dump(tmx, "output.tmx")
+      >>> dump(tmx, "output.tmx", encoding="utf-16")
+  """
+  if not isinstance(tmx, TmxLike):
     raise TypeError(f"Root element is not a Tmx: {type(tmx)}")
 
-  _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
-  _backend = backend if backend is not None else StandardBackend(default_encoding=_encoding)
-  _serializer = Serializer(_backend)
+  _encoding = utils.normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _backend = kwargs.get(
+    "backend",
+    DEFAULT_BACKEND(
+      logger=kwargs.get("backend_logger"),
+      default_encoding=_encoding,
+      namespace_handler=kwargs.get(
+        "namespace_handler",
+        backends.NamespaceHandler(
+          nsmap=kwargs.get("nsmap"),
+          logger=kwargs.get("namespace_handler_logger"),
+          policy=kwargs.get("namespace_handler_policy"),
+        ),
+      ),
+    ),
+  )
+  _serializer = kwargs.get(
+    "serializer",
+    serialization.Serializer(
+      backend=_backend,
+      policy=kwargs.get("serializer_policy"),
+      logger=kwargs.get("serializer_logger"),
+    ),
+  )
 
-  _path = make_usable_path(path, mkdir=True)
+  _path = utils.make_usable_path(path, mkdir=True)
   xml_element = _serializer.serialize(tmx)
   if xml_element is None:
-    raise XmlSerializationError("serializer returned None")
+    raise ValueError("serializer returned None")
   _backend.write(xml_element, _path, encoding=_encoding)

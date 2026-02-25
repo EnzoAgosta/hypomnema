@@ -1,661 +1,668 @@
+"""TMX dataclasses and type definitions.
+
+This module defines the core data structures for representing TMX 1.4b
+elements as Python dataclasses. All dataclasses use ``slots=True`` for
+memory efficiency when working with large translation memory files.
+
+Note:
+    All datetime fields follow ISO 8601 format with 'Z' suffix (UTC) as
+    per TMX spec. Language codes follow BCP-47 but are not validated to
+    maintain zero-dependency constraint.
 """
-TMX 1.4b object model with type-safe inline markup support.
 
-This package provides dataclasses that map 1-to-1 to TMX 1.4b
-elements as defined in the `TMX 1.4b specification
-<https://resources.gala-global.org/tbx14b>`_.
-
-All datetime values must be ISO-8601 strings ending with 'Z' and
-seconds precision, e.g. ``2025-12-31T23:59:59Z``. Language codes
-should be BCP-47.
-"""
-
+from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Protocol, runtime_checkable
 
-__all__ = [
-  # type aliases
-  "BaseElement",
-  "InlineElement",
-  # Enums
-  "Assoc",
-  "Pos",
-  "Segtype",
-  # Inline elements
-  "Bpt",
-  "Ept",
-  "Hi",
-  "It",
-  "Ph",
-  "Sub",
-  # Structural elements
-  "Header",
-  "Note",
-  "Prop",
-  "Tmx",
-  "Tu",
-  "Tuv",
-]
+type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
+type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
+
+type TmxElementLike = (
+  TmxLike
+  | HeaderLike
+  | PropLike
+  | NoteLike
+  | TuLike
+  | TuvLike
+  | BptLike
+  | EptLike
+  | ItLike
+  | PhLike
+  | HiLike
+  | SubLike
+)
+type InlineElementLike = BptLike | EptLike | ItLike | PhLike | HiLike | SubLike
+
+
+@runtime_checkable
+class BptLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
+  i: int
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrSubLike
+
+
+@runtime_checkable
+class EptLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
+  i: int
+  content: AnySequenceOfStrOrSubLike
+
+
+@runtime_checkable
+class HiLike[
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+](Protocol):
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrInlineLike
+
+
+@runtime_checkable
+class ItLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
+  pos: Pos
+  x: int | None
+  type: str | None
+  content: AnySequenceOfStrOrSubLike
+
+
+@runtime_checkable
+class PhLike[AnySequenceOfStrOrSubLike: Sequence[str | SubLike]](Protocol):
+  x: int | None
+  type: str | None
+  assoc: Assoc | None
+  content: AnySequenceOfStrOrSubLike
+
+
+@runtime_checkable
+class SubLike[
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike]
+](Protocol):
+  datatype: str | None
+  type: str | None
+  content: AnySequenceOfStrOrInlineLike
+
+
+@runtime_checkable
+class TuvLike[
+  AnySequenceOfProp: Sequence[PropLike],
+  AnySequenceOfNote: Sequence[NoteLike],
+  AnySequenceOfStrOrInlineLike: Sequence[str | BptLike | EptLike | ItLike | PhLike | HiLike],
+](Protocol):
+  lang: str
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  changeid: str | None
+  o_tmf: str | None
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+  content: AnySequenceOfStrOrInlineLike
+
+
+@runtime_checkable
+class TuLike[
+  AnySequenceOfTuvLike: Sequence[TuvLike],
+  AnySequenceOfProp: Sequence[PropLike],
+  AnySequenceOfNote: Sequence[NoteLike],
+](Protocol):
+  tuid: str | None
+  o_encoding: str | None
+  datatype: str | None
+  usagecount: int | None
+  lastusagedate: datetime | None
+  creationtool: str | None
+  creationtoolversion: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  segtype: Segtype | None
+  changeid: str | None
+  o_tmf: str | None
+  srclang: str | None
+  variants: AnySequenceOfTuvLike
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+
+
+@runtime_checkable
+class HeaderLike[AnySequenceOfProp: Sequence[PropLike], AnySequenceOfNote: Sequence[NoteLike]](
+  Protocol
+):
+  creationtool: str
+  creationtoolversion: str
+  segtype: Segtype
+  o_tmf: str
+  adminlang: str
+  srclang: str
+  datatype: str
+  o_encoding: str | None
+  creationdate: datetime | None
+  creationid: str | None
+  changedate: datetime | None
+  changeid: str | None
+  props: AnySequenceOfProp
+  notes: AnySequenceOfNote
+
+
+@runtime_checkable
+class TmxLike[AnySequenceOfTuLike: Sequence[TuLike]](Protocol):
+  version: str
+
+  @property
+  def header(self) -> HeaderLike: ...
+
+  body: AnySequenceOfTuLike
+
+
+@runtime_checkable
+class NoteLike(Protocol):
+  text: str
+  lang: str | None
+  o_encoding: str | None
+
+
+@runtime_checkable
+class PropLike(Protocol):
+  text: str
+  type: str
+  lang: str | None
+  o_encoding: str | None
 
 
 class Pos(StrEnum):
-  """
-  Position of an isolated tag (``<it>``) per TMX 1.4b spec.
+  """Position indicator for isolated tags.
 
-  Indicates whether an ``<it>`` element represents a beginning or
-  ending tag when the corresponding code is not within the same segment.
+  The ``pos`` attribute is used in the ``<it>`` element to indicate
+  whether an isolated tag is a beginning or an ending tag.
   """
 
   BEGIN = "begin"
-  """Tag opens at this point."""
+  """Indicates the isolated tag is a beginning tag."""
 
   END = "end"
-  """Tag closes at this point."""
+  """Indicates the isolated tag is an ending tag."""
 
 
 class Assoc(StrEnum):
-  """
-  Association of a placeholder (``<ph>``) per TMX 1.4b spec.
+  """Association attribute for placeholders.
 
-  Indicates whether the placeholder belongs to the text before,
-  after, or on both sides of the element.
+  The ``assoc`` attribute indicates the association of a ``<ph>`` element
+  with the text preceding or following the element.
   """
 
   P = "p"
-  """Previous – placeholder belongs to the text before it."""
+  """The element is associated with the text preceding the element."""
 
   F = "f"
-  """Following – placeholder belongs to the text after it."""
+  """The element is associated with the text following the element."""
 
   B = "b"
-  """Both – placeholder belongs to both sides."""
+  """The element is associated with the text on both sides."""
 
 
 class Segtype(StrEnum):
-  """
-  Segmentation level per TMX 1.4b spec.
+  """Segmentation type indicator.
 
-  Specifies the kind of segmentation used in a ``<tu>`` element.
-  If not specified, falls back to the value defined in the ``<header>``.
+  The ``segtype`` attribute specifies the kind of segmentation used in the
+  translation unit. It indicates how the text has been segmented.
   """
 
   BLOCK = "block"
-  """Block level segmentation."""
+  """Used when the segment does not correspond to paragraph, sentence, or
+    phrase level, for example when storing a chapter composed of several
+    paragraphs in a single translation unit."""
 
   PARAGRAPH = "paragraph"
-  """Paragraph level segmentation."""
+  """Segmented at paragraph boundaries."""
 
   SENTENCE = "sentence"
-  """Sentence level segmentation."""
+  """Segmented at sentence boundaries. This is the recommended level for
+    maximum portability."""
 
   PHRASE = "phrase"
-  """Phrase level segmentation."""
+  """Segmented at phrase boundaries."""
 
 
 @dataclass(slots=True)
 class Prop:
-  """
-  Property element (``<prop>``) per TMX 1.4b spec.
+  """Property element for tool-specific data.
 
-  Used to define various properties of the parent element. These
-  properties are not defined by the standard; each tool provider is
-  responsible for the types and values it uses.
+  The ``<prop>`` element is used to define the various properties of the
+  parent element (or of the document when ``<prop>`` is used in the
+  ``<header>`` element). These properties are not defined by the TMX standard.
 
-  Attributes
-  ----------
-  text : str
-      The property value.
-  type : str
-      The property name (user-defined).
-  lang : str | None
-      BCP-47 language code for the property text.
-  o_encoding : str | None
-      Original encoding of the property text.
+  As each tool is fully responsible for handling the content of a ``<prop>``
+  element, it can be used in any way. For example, the content can be a list
+  of instructions a tool can parse, not only simple text.
+
+  It is the responsibility of each tool provider to publish the types and
+  values of the properties it uses. If a tool exports unpublished property
+  types, their values should begin with the prefix "x-".
+
+  See Also:
+      Note: For human-readable comments.
   """
 
   text: str
-  """Property value."""
+  """Tool-specific data or text content of the property."""
 
   type: str
-  """Property name (user-defined)."""
+  """Specifies the kind of data the property represents. Tool providers
+    should publish the types they use."""
 
   lang: str | None = None
-  """BCP-47 language code for the property text (optional)."""
+  """Language code (BCP-47) for the property content."""
 
   o_encoding: str | None = None
-  """Original encoding (maps to `o-encoding` in TMX) (optional)."""
+  """Original or preferred code set of the data in case it is to be
+    re-encoded in a non-Unicode code set. One of the IANA recommended
+    "charset identifiers", if possible."""
 
 
 @dataclass(slots=True)
 class Note:
-  """
-  Note element (``<note>``) per TMX 1.4b spec.
+  """Annotation element for comments.
 
-  Used for comments attached to ``<header>``, ``<tu>``, or ``<tuv>``.
+  The ``<note>`` element is used for human-readable comments that can be
+  attached to ``<header>``, ``<tu>``, or ``<tuv>`` elements.
 
-  Attributes
-  ----------
-  text : str
-      The note content.
-  lang : str | None
-      BCP-47 language code for the note text.
-  o_encoding : str | None
-      Original encoding of the note text.
+  See Also:
+      Prop: For tool-specific properties.
   """
 
   text: str
-  """Note content."""
+  """The note content (text)."""
 
   lang: str | None = None
-  """BCP-47 language code for the note text (optional)."""
+  """Language code (BCP-47) for the note."""
 
   o_encoding: str | None = None
-  """Original encoding (maps to `o-encoding` in TMX) (optional)."""
+  """Original or preferred code set of the data in case it is to be
+    re-encoded in a non-Unicode code set."""
 
 
 @dataclass(slots=True)
 class Header:
-  """
-  Header element (``<header>``) per TMX 1.4b spec.
+  """File header containing metadata about the TMX document.
 
-  Contains metadata about the entire TMX document.
+  The ``<header>`` element contains information pertaining to the whole
+  document. In addition to its attributes, ``<header>`` can also store
+  document-level information in ``<note>`` and ``<prop>`` elements.
 
-  Attributes
-  ----------
-  creationtool : str
-      Name of the tool that created the file.
-  creationtoolversion : str
-      Version of the tool that created the file.
-  segtype : Segtype
-      Default segmentation level for the file.
-  o_tmf : str
-      Original TMF format (maps to ``o-tmf`` in TMX).
-  adminlang : str
-      Language used for administrative attributes (BCP-47).
-  srclang : str
-      Source language code for all ``<tu>`` elements (BCP-47).
-  datatype : str
-      Data type declared for the file.
-  o_encoding : str | None
-      Original encoding of the file.
-  creationdate : datetime | None
-      File creation timestamp (ISO-8601 with 'Z').
-  creationid : str | None
-      User that created the file.
-  changedate : datetime | None
-      Last change timestamp (ISO-8601 with 'Z').
-  changeid : str | None
-      User that last changed the file.
-  props : Sequence[Prop]
-      Sequence of ``<prop>`` elements.
-  notes : Sequence[Note]
-      Sequence of ``<note>`` elements.
+  Note:
+      All datetime fields use ISO 8601 Format. The recommended pattern
+      is: YYYYMMDDThhmmssZ (e.g., "20020125T210600Z").
   """
 
   creationtool: str
-  """Name of the tool that created the file."""
+  """Identifies the tool that created the TMX document. Each tool provider
+    should publish the string identifier it uses."""
 
   creationtoolversion: str
-  """Version of the tool."""
+  """Identifies the version of the tool that created the TMX document."""
 
   segtype: Segtype
-  """Default segmentation level for the file."""
+  """Specifies the kind of segmentation used in the translation units."""
 
   o_tmf: str
-  """Original TMF format (maps to `o-tmf` in TMX)."""
+  """Original translation memory format. Specifies the format of the
+    translation memory file from which the TMX document or segment thereof
+    has been generated."""
 
   adminlang: str
-  """Language used for administrative attributes (BCP-47)."""
+  """Administrative language. Specifies the default language for the
+    administrative and informative elements ``<note>`` and ``<prop>``.
+    Unlike other TMX attributes, values are not case-sensitive."""
 
   srclang: str
-  """Source language code for all `<tu>` elements (BCP-47)."""
+  """Source language. Specifies the language of the source text. Can be
+    set to "*all*" if any language can be used as the source. Unlike other
+    TMX attributes, values are not case-sensitive."""
 
   datatype: str
-  """Data type declared for the file."""
+  """Data type. Specifies the type of data contained in the element.
+    Default is "unknown". Common values include: plaintext, html, xml,
+    rtf, etc."""
 
   o_encoding: str | None = None
-  """Original encoding (maps to `o-encoding` in TMX) (optional)."""
+  """Original encoding. Specifies the original or preferred code set of
+    the data in case it is to be re-encoded in a non-Unicode code set.
+    One of the IANA recommended "charset identifiers", if possible."""
 
   creationdate: datetime | None = None
-  """File creation time (ISO-8601 with 'Z') (optional)."""
+  """Creation date. Specifies the date of creation of the element."""
 
   creationid: str | None = None
-  """User that created the file (optional)."""
+  """Creation identifier. Specifies the identifier of the user who created
+    the element."""
 
   changedate: datetime | None = None
-  """Last change time (ISO-8601 with 'Z') (optional)."""
+  """Change date. Specifies the date of the last modification of the
+    element."""
 
   changeid: str | None = None
-  """User that last changed the file (optional)."""
+  """Change identifier. Specifies the identifier of the user who modified
+    the element last."""
 
-  props: Sequence[Prop] = field(default_factory=list)
-  """Container of custom properties (optional)."""
+  props: list[Prop] = field(default_factory=list)
+  """Metadata properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
-  """Container of notes (optional)."""
-
-
-class TextMixin:
-  """Mixin for text content."""
-
-  content: Sequence[str | Any]
-
-  @property
-  def text(self) -> str:
-    """
-    Return the visible text content of this element.
-
-    This property is read-only and is meant to be a
-    convenience method for quick text search.
-
-    It naively concatenates all strings in the content
-    property into a single string and returns it.
-
-    If you need to recurse into sub-flows or code
-    containers, use the iter_text() method instead
-    or iterate over the content property directly.
-    """
-    return "".join(item for item in self.content if isinstance(item, str))
+  notes: list[Note] = field(default_factory=list)
+  """Annotation notes."""
 
 
 @dataclass(slots=True)
-class Bpt(TextMixin):
-  """
-  Begin paired tag element (``<bpt>``) per TMX 1.4b spec.
+class Bpt:
+  """Begin paired tag - opening half of a paired list of native codes.
 
-  Delimits the beginning of a paired sequence of native codes.
-  Each ``<bpt>`` has a corresponding ``<ept>`` within the segment.
+  The ``<bpt>`` element is used to delimit the beginning of a paired
+  list of native codes. Each ``<bpt>`` has a corresponding ``<ept>``
+  element within the segment.
 
-  Attributes
-  ----------
-  i : int
-      Unique identifier matching the corresponding ``<ept>``.
-  x : int | None
-      External reference identifier.
-  type : str | None
-      Tag type (user-defined).
-  content : Sequence[str | Sub]
-      Mixed inline content (code data and ``<sub>`` elements).
+  See Also:
+      Ept: End paired tag that corresponds to this element.
   """
 
   i: int
-  """Unique identifier matching the corresponding `<ept>`."""
+  """Internal matching identifier. Used to pair ``<bpt>`` elements with
+    their corresponding ``<ept>`` elements. Must be unique for each ``<bpt>``
+    within a given segment."""
 
   x: int | None = None
-  """External reference identifier (optional)."""
+  """External matching identifier. Used to match inline elements between
+    each ``<tuv>`` element of a given ``<tu>`` element. This facilitates the
+    pairing of allied codes in source and target text, even if the order of
+    code occurrence differs."""
 
   type: str | None = None
-  """Tag type (user-defined) (optional)."""
+  """Type of the native code. Recommended values include: bold, italic,
+    link, font, color, underlined, etc."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Sub] = field(default_factory=list)
+  """Code data (native codes), optionally with ``<sub>`` elements for
+    sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ept(TextMixin):
-  """
-  End paired tag element (``<ept>``) per TMX 1.4b spec.
+class Ept:
+  """End paired tag - closing half of a paired list of native codes.
 
-  Delimits the end of a paired sequence of native codes.
-  Each ``<ept>`` has a corresponding ``<bpt>`` within the segment.
+  The ``<ept>`` element is used to delimit the end of a paired list
+  of native codes. Each ``<ept>`` has a corresponding ``<bpt>`` element
+  within the segment.
 
-  Attributes
-  ----------
-  i : int
-      Unique identifier matching the corresponding ``<bpt>``.
-  content : Sequence[str | Sub]
-      Mixed inline content (code data and ``<sub>`` elements).
+  See Also:
+      Bpt: Begin paired tag that corresponds to this element.
   """
 
   i: int
-  """Unique identifier matching the corresponding `<bpt>`."""
+  """Internal matching identifier. Matches the ``i`` attribute of the
+    corresponding ``<bpt>`` element."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Sub] = field(default_factory=list)
+  """Code data (native codes), optionally with ``<sub>`` elements for
+    sub-flow text."""
 
 
 @dataclass(slots=True)
-class Hi(TextMixin):
-  """
-  Highlight element (``<hi>``) per TMX 1.4b spec.
+class Hi:
+  """Highlight element for text with special meaning.
 
-  Delimits a section of text that has special meaning, such as a
-  terminological unit, proper name, or text that should not be modified.
-
-  Attributes
-  ----------
-  x : int | None
-      External reference identifier.
-  type : str | None
-      Highlight type (user-defined).
-  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
-      Mixed inline content (text and inline elements).
+  The ``<hi>`` element delimits a section of text that has special meaning,
+  such as a terminological unit, a proper name, an item that should not be
+  modified, etc. It can be used for various processing tasks, such as
+  indicating proper names to a Machine Translation tool or marking suspect
+  expressions after grammar checking.
   """
 
   x: int | None = None
-  """External reference identifier (optional)."""
+  """External matching identifier. Used to match inline elements between
+    each ``<tuv>`` element of a given ``<tu>`` element."""
 
   type: str | None = None
-  """Highlight type (user-defined) (optional)."""
+  """Type of highlighting. Specifies what kind of special meaning the
+    highlighted text has."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  """Text data mixed with inline elements (``<bpt>``, ``<ept>``, ``<it>``,
+    ``<ph>``, and nested ``<hi>``)."""
 
 
 @dataclass(slots=True)
-class It(TextMixin):
-  """
-  Isolated tag element (``<it>``) per TMX 1.4b spec.
+class It:
+  """Isolated tag - standalone code without its corresponding pair.
 
-  Delimits a beginning/ending sequence of native codes that does not
-  have its corresponding ending/beginning within the same segment
-  (e.g., due to segmentation).
-
-  Attributes
-  ----------
-  pos : Pos
-      Whether the tag is opening (``begin``) or closing (``end``).
-  x : int | None
-      External reference identifier.
-  type : str | None
-      Tag type (user-defined).
-  content : Sequence[str | Sub]
-      Mixed inline content (code data and ``<sub>`` elements).
+  The ``<it>`` element is used to delimit a beginning/ending list of
+  native codes that does not have its corresponding ending/beginning within
+  the segment. This occurs when segmentation breaks a paired list
+  across segment boundaries.
   """
 
   pos: Pos
-  """Whether the tag is opening or closing."""
+  """Position. Indicates whether the isolated tag is a beginning or an
+    ending tag."""
 
   x: int | None = None
-  """External reference identifier (optional)."""
+  """External matching identifier. Used to match inline elements between
+    each ``<tuv>`` element of a given ``<tu>`` element."""
 
   type: str | None = None
-  """Tag type (user-defined) (optional)."""
+  """Type of the native code."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Sub] = field(default_factory=list)
+  """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Ph(TextMixin):
-  """
-  Placeholder element (``<ph>``) per TMX 1.4b spec.
+class Ph:
+  """Placeholder element for standalone native codes.
 
-  Delimits a sequence of native standalone codes in the segment
-  (e.g., empty elements in XML, image tags, cross-references).
-
-  Attributes
-  ----------
-  x : int | None
-      External reference identifier.
-  type : str | None
-      Placeholder type (user-defined).
-  assoc : Assoc | None
-      Association with surrounding text.
-  content : Sequence[str | Sub]
-      Mixed inline content (code data and ``<sub>`` elements).
+  The ``<ph>`` element is used to delimit a list of native standalone
+  codes in the segment. These are self-contained functions that do not
+  require explicit ending instructions, such as image references,
+  cross-reference tokens, line breaks, etc.
   """
 
   x: int | None = None
-  """External reference identifier (optional)."""
+  """External matching identifier. Used to match inline elements between
+    each ``<tuv>`` element of a given ``<tu>`` element."""
 
   type: str | None = None
-  """Placeholder type (user-defined) (optional)."""
+  """Type of the native code. Recommended values include: index, date,
+    time, fnote (footnote), enote (end-note), alt (alternate text), image,
+    pb (page break), lb (line break), cb (column break), inset."""
 
   assoc: Assoc | None = None
-  """Association with surrounding text (optional)."""
+  """Association. Indicates whether the placeholder is associated with the
+    text preceding ("p"), following ("f"), or on both sides ("b")."""
 
-  content: Sequence[str | Sub] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Sub] = field(default_factory=list)
+  """Code data, optionally with ``<sub>`` elements for sub-flow text."""
 
 
 @dataclass(slots=True)
-class Sub(TextMixin):
-  """
-  Sub-flow element (``<sub>``) per TMX 1.4b spec.
+class Sub:
+  """Sub-flow element for text inside native codes.
 
-  Delimits sub-flow text inside a sequence of native code, such as
-  the text of a footnote or the title in an HTML anchor element.
+  The ``<sub>`` element is used to delimit sub-flow text inside a list
+  of native code, for example: the definition of a footnote, the text of
+  a title in an HTML anchor element, or the content of an index marker.
 
-  Attributes
-  ----------
-  datatype : str | None
-      Data type of the sub-flow.
-  type : str | None
-      Sub-flow type (user-defined).
-  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
-      Mixed inline content (text and inline elements).
+  Note:
+      Sub-flows are related to segmentation and can cause interoperability
+      issues when one tool uses sub-flow within its main segment, while
+      another extracts the sub-flow text as an independent segment.
   """
 
   datatype: str | None = None
-  """Data type of the sub-flow (optional)."""
+  """Data type. Specifies the type of data contained in the sub-flow.
+    Same values as the datatype attribute on other elements."""
 
   type: str | None = None
-  """Sub-flow type (user-defined) (optional)."""
+  """Type of the sub-flow."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  """Text data mixed with inline elements."""
 
 
 @dataclass(slots=True)
-class Tuv(TextMixin):
-  """
-  Translation unit variant element (``<tuv>``) per TMX 1.4b spec.
+class Tuv:
+  """Translation Unit Variant - text in a specific language.
 
-  Specifies text in a given language. Contains the segment content
-  and metadata for that language variant.
-
-  Attributes
-  ----------
-  lang : str
-      Language code (BCP-47, maps to ``xml:lang``).
-  o_encoding : str | None
-      Original encoding of the variant text.
-  datatype : str | None
-      Override data type for this variant.
-  usagecount : int | None
-      Number of times the variant has been reused.
-  lastusagedate : datetime | None
-      Last reuse timestamp (ISO-8601 with 'Z').
-  creationtool : str | None
-      Tool that created this variant.
-  creationtoolversion : str | None
-      Version of the tool.
-  creationdate : datetime | None
-      Creation timestamp (ISO-8601 with 'Z').
-  creationid : str | None
-      User that created the variant.
-  changedate : datetime | None
-      Last change timestamp (ISO-8601 with 'Z').
-  changeid : str | None
-      User that last changed the variant.
-  o_tmf : str | None
-      Original TMF format for this variant.
-  props : Sequence[Prop]
-      Sequence of ``<prop>`` elements.
-  notes : Sequence[Note]
-      Sequence of ``<note>`` elements.
-  content : Sequence[str | Bpt | Ept | It | Ph | Hi]
-      Mixed inline content representing ``<seg>``.
+  The ``<tuv>`` element specifies text in a given language. It contains
+  the segment text and information pertaining to that segment for the
+  given language. Each ``<tuv>`` element must contain exactly one
+  ``<seg>`` element.
   """
 
   lang: str
-  """Target language code (BCP-47)."""
+  """Language code (BCP-47) for this variant. Unlike other TMX attributes,
+    the value is not case-sensitive."""
 
   o_encoding: str | None = None
-  """Original encoding (maps to `o-encoding` in TMX) (optional)."""
+  """Original encoding. Specifies the original or preferred code set of
+    the data in case it is to be re-encoded in a non-Unicode code set."""
 
   datatype: str | None = None
-  """Override data type for this variant (optional)."""
+  """Data type. Specifies the type of data contained in the element."""
 
   usagecount: int | None = None
-  """Number of times the variant has been reused (optional)."""
+  """Usage count. Specifies the number of times the content of this
+    ``<tuv>`` has been accessed in the original TM environment."""
 
   lastusagedate: datetime | None = None
-  """Last reuse time (ISO-8601 with 'Z') (optional)."""
+  """Last usage date. Specifies when the content was last accessed in the
+    original TM environment."""
 
   creationtool: str | None = None
-  """Tool that created this variant (optional)."""
+  """Creation tool. Identifies the tool that created this element."""
 
   creationtoolversion: str | None = None
-  """Version of that tool (optional)."""
+  """Creation tool version. Identifies the version of the tool."""
 
   creationdate: datetime | None = None
-  """Creation time (ISO-8601 with 'Z') (optional)."""
+  """Creation date. Specifies when this element was created."""
 
   creationid: str | None = None
-  """User that created the variant (optional)."""
+  """Creation identifier. Specifies the identifier of the user who created
+    this element."""
 
   changedate: datetime | None = None
-  """Last change time (ISO-8601 with 'Z') (optional)."""
+  """Change date. Specifies when this element was last modified."""
 
   changeid: str | None = None
-  """User that last changed the variant (optional)."""
+  """Change identifier. Specifies the identifier of the user who last
+    modified this element."""
 
   o_tmf: str | None = None
-  """Original TMF format (maps to `o-tmf` in TMX) (optional)."""
+  """Original translation memory format. Specifies the format of the TM
+    file from which this element was generated."""
 
-  props: Sequence[Prop] = field(default_factory=list)
-  """Container of custom properties (optional)."""
+  props: list[Prop] = field(default_factory=list)
+  """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
-  """Container of notes (optional)."""
+  notes: list[Note] = field(default_factory=list)
+  """Human-readable notes."""
 
-  content: Sequence[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
-  """Mixed inline content (optional)."""
+  content: list[str | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  """The segment content - text mixed with inline elements. In TMX XML,
+    this corresponds to the content of the ``<seg>`` element."""
 
 
 @dataclass(slots=True)
 class Tu:
-  """
-  Translation unit element (``<tu>``) per TMX 1.4b spec.
+  """Translation Unit - a group of aligned segments in different languages.
 
-  Container for one or more ``<tuv>`` language variants. Each TU
-  represents a single translation memory entry.
-
-  Attributes
-  ----------
-  tuid : str | None
-      Unique identifier for the unit.
-  o_encoding : str | None
-      Original encoding of the unit text.
-  datatype : str | None
-      Override data type for this unit.
-  usagecount : int | None
-      Number of times the unit has been reused.
-  lastusagedate : datetime | None
-      Last reuse timestamp (ISO-8601 with 'Z').
-  creationtool : str | None
-      Tool that created the unit.
-  creationtoolversion : str | None
-      Version of the tool.
-  creationdate : datetime | None
-      Creation timestamp (ISO-8601 with 'Z').
-  creationid : str | None
-      User that created the unit.
-  changedate : datetime | None
-      Last change timestamp (ISO-8601 with 'Z').
-  changeid : str | None
-      User that last changed the unit.
-  segtype : Segtype | None
-      Override segmentation level for this unit.
-  o_tmf : str | None
-      Original TMF format for this unit.
-  srclang : str | None
-      Source language code (BCP-47), overrides header value if specified.
-  props : Sequence[Prop]
-      Sequence of ``<prop>`` elements.
-  notes : Sequence[Note]
-      Sequence of ``<note>`` elements.
-  variants : Sequence[Tuv]
-      Sequence of ``<tuv>`` language variants.
+  The ``<tu>`` element contains the data for a given translation unit.
+  It groups multiple ``<tuv>`` elements (variants) that represent the same
+  content in different languages. A complete translation memory
+  will contain at least two ``<tuv>`` elements in each ``<tu>``.
   """
 
   tuid: str | None = None
-  """Unique identifier for the unit (optional)."""
+  """Translation unit identifier. Specifies an identifier for the ``<tu>``
+    element. The value is not defined by the standard (it could be unique or
+    not, numeric or alphanumeric). Text without white spaces."""
 
   o_encoding: str | None = None
-  """Original encoding (maps to `o-encoding` in TMX) (optional)."""
+  """Original encoding. Specifies the original or preferred code set of
+    the data in case it is to be re-encoded in a non-Unicode code set."""
 
   datatype: str | None = None
-  """Override data type for this unit (optional)."""
+  """Data type. Specifies the type of data contained in the element."""
 
   usagecount: int | None = None
-  """Number of times the unit has been reused (optional)."""
+  """Usage count. Specifies the number of times the content has been
+    accessed in the original TM environment."""
 
   lastusagedate: datetime | None = None
-  """Last reuse time (ISO-8601 with 'Z') (optional)."""
+  """Last usage date. Specifies when the content was last accessed."""
 
   creationtool: str | None = None
-  """Tool that created the unit (optional)."""
+  """Creation tool. Identifies the tool that created this element."""
 
   creationtoolversion: str | None = None
-  """Version of that tool (optional)."""
+  """Creation tool version. Identifies the version of the tool."""
 
   creationdate: datetime | None = None
-  """Creation time (ISO-8601 with 'Z') (optional)."""
+  """Creation date. Specifies when this element was created."""
 
   creationid: str | None = None
-  """User that created the unit (optional)."""
+  """Creation identifier. Specifies the identifier of the creator."""
 
   changedate: datetime | None = None
-  """Last change time (ISO-8601 with 'Z') (optional)."""
+  """Change date. Specifies when this element was last modified."""
 
   segtype: Segtype | None = None
-  """Override segmentation level for this unit (optional)."""
+  """Segment type. Specifies the kind of segmentation used. If not
+    specified, uses the value from the ``<header>`` element."""
 
   changeid: str | None = None
-  """User that last changed the unit (optional)."""
+  """Change identifier. Specifies the identifier of the last modifier."""
 
   o_tmf: str | None = None
-  """Original TMF format (maps to `o-tmf` in TMX) (optional)."""
+  """Original translation memory format. Specifies the format of the TM
+    file from which this element was generated."""
 
   srclang: str | None = None
-  """Source language code (BCP-47) when differing from header (optional)."""
+  """Source language. Specifies the language of the source text. The
+    ``<tuv>`` holding the source segment will have its ``lang`` attribute
+    set to the same value (unless srclang is "*all*"). If not specified,
+    uses the value from the ``<header>`` element."""
 
-  props: Sequence[Prop] = field(default_factory=list)
-  """Container of custom properties (optional)."""
+  props: list[Prop] = field(default_factory=list)
+  """Tool-specific properties."""
 
-  notes: Sequence[Note] = field(default_factory=list)
-  """Container of notes (optional)."""
+  notes: list[Note] = field(default_factory=list)
+  """Human-readable notes."""
 
-  variants: Sequence[Tuv] = field(default_factory=list)
-  """Container of language variants (optional)."""
+  variants: list[Tuv] = field(default_factory=list)
+  """Language variants. One ``<tuv>`` element for each language."""
 
 
 @dataclass(slots=True)
 class Tmx:
-  """
-  Root TMX container element (``<tmx>``) per TMX 1.4b spec.
+  """Root element for TMX documents.
 
-  Encloses all other elements of a TMX document. Contains a single
-  ``<header>`` followed by a ``<body>``.
-
-  Attributes
-  ----------
-  header : Header
-      Global metadata for the file.
-  version : str
-      TMX version (fixed to "1.4" per spec).
-  body : Sequence[Tu]
-      Sequence of ``<tu>`` translation units.
+  The ``<tmx>`` element is the root element that encloses all other
+  elements of the TMX document. It contains exactly one ``<header>``
+  element followed by one ``<body>`` element.
   """
 
   header: Header
-  """Global metadata for the file."""
+  """File header containing metadata about the document."""
 
   version: str = "1.4"
-  """TMX version (fixed to "1.4" for this model)."""
+  """TMX version number. Format is major.minor (e.g., "1.4")."""
 
-  body: Sequence[Tu] = field(default_factory=list)
-  """Container of translation units (optional)."""
-
-
-type BaseElement = Tmx | Header | Prop | Note | Tu | Tuv | Bpt | Ept | It | Ph | Hi | Sub
-"""Type alias for all structural TMX elements."""
-
-type InlineElement = Bpt | Ept | It | Ph | Hi | Sub
-"""Type alias for inline content markup elements."""
+  body: list[Tu] = field(default_factory=list)
+  """Collection of translation units (``<tu>`` elements)."""
