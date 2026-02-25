@@ -538,11 +538,11 @@ class TestFastValidateUri:
 
   def test_non_string_raises(self) -> None:
     with pytest.raises(ValueError, match="Expected str"):
-      fast_validate_uri(123)  # type: ignore
+      fast_validate_uri(123)  # type: ignore[arg-type]
 
   def test_non_string_none_raises(self) -> None:
     with pytest.raises(ValueError, match="Expected str"):
-      fast_validate_uri(None)  # type: ignore
+      fast_validate_uri(None)  # type: ignore[arg-type]
 
   def test_invalid_uri_raises(self) -> None:
     with pytest.raises(ValueError, match="Invalid URI-reference"):
@@ -602,7 +602,7 @@ class TestValidateUri:
 
   def test_non_string_raises(self) -> None:
     with pytest.raises(ValueError, match="Expected str"):
-      validate_uri(123)  # type: ignore
+      validate_uri(123)  # type: ignore[arg-type]
 
   def test_scheme_invalid_start_raises(self) -> None:
     with pytest.raises(ValueError, match="Scheme.*must start with a letter"):

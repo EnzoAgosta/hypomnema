@@ -13,46 +13,30 @@ from logging import Logger
 from os import PathLike
 from pathlib import Path
 from typing import NotRequired, TypedDict, Unpack, overload
+from hypomnema.base.types import BaseElement, Tmx, TmxLike
+from hypomnema.xml import backends, deserialization, policy, serialization, utils
 
-from hypomnema.base.types import BaseElement, Tmx
-from hypomnema.xml.backends.base import NamespaceHandler, XmlBackend
-from hypomnema.xml.backends.standard import StandardBackend
-from hypomnema.xml.deserialization.base import BaseElementDeserializer
-from hypomnema.xml.deserialization.deserializer import Deserializer
-from hypomnema.xml.policy import NamespacePolicy, XmlDeserializationPolicy, XmlSerializationPolicy
-from hypomnema.xml.serialization.serializer import Serializer
-from hypomnema.xml.utils import QNameLike, make_usable_path, normalize_encoding
+DEFAULT_BACKEND = (
+  backends.LxmlBackend if backends.LxmlBackend is not None else backends.StandardBackend
+)
 
 
 class LoadOptions(TypedDict):
   """Options for configuring the load operation.
 
-  These options allow customization of the deserialization pipeline,
-  including backend selection, namespace handling, and policy configuration.
-
-  Attributes:
-      backend: Custom XML backend (defaults to StandardBackend).
-      backend_logger: Logger for backend operations.
-      nsmap: Custom namespace prefix-to-URI mappings.
-      namespace_handler: Custom namespace handler instance.
-      namespace_handler_logger: Logger for namespace operations.
-      namespace_handler_policy: Policy for namespace handling.
-      deserializer: Custom deserializer instance.
-      deserializer_logger: Logger for deserialization operations.
-      deserializer_policy: Policy for deserialization error handling.
-      deserializer_handlers: Custom element handlers for deserialization.
+  Kept separate from main function signature to keep things clean
   """
 
-  backend: NotRequired[XmlBackend]
+  backend: NotRequired[backends.XmlBackend]
   backend_logger: NotRequired[Logger]
   nsmap: NotRequired[Mapping[str, str]]
-  namespace_handler: NotRequired[NamespaceHandler]
+  namespace_handler: NotRequired[backends.NamespaceHandler]
   namespace_handler_logger: NotRequired[Logger]
-  namespace_handler_policy: NotRequired[NamespacePolicy]
-  deserializer: NotRequired[Deserializer]
+  namespace_handler_policy: NotRequired[policy.NamespacePolicy]
+  deserializer: NotRequired[deserialization.Deserializer]
   deserializer_logger: NotRequired[Logger]
-  deserializer_policy: NotRequired[XmlDeserializationPolicy]
-  deserializer_handlers: NotRequired[Mapping[str, BaseElementDeserializer]]
+  deserializer_policy: NotRequired[policy.XmlDeserializationPolicy]
+  deserializer_handlers: NotRequired[Mapping[str, deserialization.BaseElementDeserializer]]
 
 
 @overload
@@ -65,13 +49,13 @@ def load(
 @overload
 def load(
   path: str | PathLike,
-  filter: str | QNameLike | Iterable[str | QNameLike],
+  filter: str | utils.QNameLike | Iterable[str | utils.QNameLike],
   encoding: str | None = None,
   **kwargs: Unpack[LoadOptions],
 ) -> Generator[BaseElement]: ...
 def load(
   path: str | PathLike,
-  filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
+  filter: str | utils.QNameLike | Iterable[str | utils.QNameLike] | None = None,
   encoding: str | None = None,
   **kwargs: Unpack[LoadOptions],
 ) -> Tmx | Generator[BaseElement]:
@@ -87,6 +71,16 @@ def load(
           Common values: "tu" for translation units, "tuv" for variants.
       encoding: Character encoding (default: "utf-8").
       **kwargs: Additional configuration options (backend, policies, etc.).
+      backend: Custom XML backend (defaults to LxmlBackend if available else StandardBackend).
+      backend_logger: Logger to be used by the backend if backend is not provided.
+      nsmap: Custom namespace prefix-to-URI mappings to be used by the backend if backend is not provided.
+      namespace_handler: Custom namespace handler instance to be used by the backend if backend is not provided.
+      namespace_handler_logger: Logger for namespace operations to be used by the namespace handler if namespace_handler is not provided.
+      namespace_handler_policy: Policy for namespace handling to be used by the namespace handler if namespace_handler is not provided.
+      deserializer: Custom deserializer instance. Uses whatever backend is given or created using previous options.
+      deserializer_logger: Logger for deserialization operations to be used by the deserializer if deserializer is not provided.
+      deserializer_policy: Policy for deserialization error handling to be used by the deserializer if deserializer is not provided.
+      deserializer_handlers: Custom element handlers for deserialization to be used by the deserializer if deserializer is not provided.
 
   Returns:
       If filter is None, returns the complete Tmx object.
@@ -109,22 +103,25 @@ def load(
   """
 
   def _load_filtered(
-    _backend: XmlBackend, _path: Path, _filter: set[str] | None, _deserializer: Deserializer
+    _backend: backends.XmlBackend,
+    _path: Path,
+    _filter: set[str] | None,
+    _deserializer: deserialization.Deserializer,
   ) -> Generator[BaseElement]:
     for element in _backend.iterparse(_path, tag_filter=_filter):
       obj = _deserializer.deserialize(element)
       if obj is not None:
         yield obj
 
-  _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _encoding = utils.normalize_encoding(encoding) if encoding is not None else "utf-8"
   _backend = kwargs.get(
     "backend",
-    StandardBackend(
+    DEFAULT_BACKEND(
       logger=kwargs.get("backend_logger"),
       default_encoding=_encoding,
       namespace_handler=kwargs.get(
         "namespace_handler",
-        NamespaceHandler(
+        backends.NamespaceHandler(
           nsmap=kwargs.get("nsmap"),
           logger=kwargs.get("namespace_handler_logger"),
           policy=kwargs.get("namespace_handler_policy"),
@@ -134,7 +131,7 @@ def load(
   )
   _deserializer = kwargs.get(
     "deserializer",
-    Deserializer(
+    deserialization.Deserializer(
       backend=_backend,
       policy=kwargs.get("deserializer_policy"),
       logger=kwargs.get("deserializer_logger"),
@@ -142,7 +139,7 @@ def load(
     ),
   )
 
-  _path = make_usable_path(path, mkdir=False)
+  _path = utils.make_usable_path(path, mkdir=False)
   if not _path.exists():
     raise FileNotFoundError(f"File {_path} does not exist")
   if not _path.is_file():
@@ -163,29 +160,19 @@ def load(
 class DumpOptions(TypedDict):
   """Options for configuring the dump operation.
 
-  These options allow customization of the serialization pipeline.
-
-  Attributes:
-      backend: Custom XML backend (defaults to StandardBackend).
-      backend_logger: Logger for backend operations.
-      nsmap: Custom namespace prefix-to-URI mappings.
-      namespace_handler: Custom namespace handler instance.
-      namespace_handler_logger: Logger for namespace operations.
-      namespace_handler_policy: Policy for namespace handling.
-      serializer: Custom serializer instance.
-      serializer_logger: Logger for serialization operations.
-      serializer_policy: Policy for serialization error handling.
+  Kept separate from main function signature to keep things clean
   """
 
-  backend: NotRequired[XmlBackend]
+  backend: NotRequired[backends.XmlBackend]
   backend_logger: NotRequired[Logger]
   nsmap: NotRequired[Mapping[str, str]]
-  namespace_handler: NotRequired[NamespaceHandler]
+  namespace_handler: NotRequired[backends.NamespaceHandler]
   namespace_handler_logger: NotRequired[Logger]
-  namespace_handler_policy: NotRequired[NamespacePolicy]
-  serializer: NotRequired[Serializer]
+  namespace_handler_policy: NotRequired[policy.NamespacePolicy]
+  serializer: NotRequired[serialization.Serializer]
   serializer_logger: NotRequired[Logger]
-  serializer_policy: NotRequired[XmlSerializationPolicy]
+  serializer_policy: NotRequired[policy.XmlSerializationPolicy]
+  serialization_handlers: NotRequired[Mapping[type, serialization.BaseElementSerializer]]
 
 
 def dump(
@@ -200,6 +187,16 @@ def dump(
       path: Output file path. Parent directories are created if needed.
       encoding: Character encoding (default: "utf-8").
       **kwargs: Additional configuration options (backend, policies, etc.).
+      backend: Custom XML backend (defaults to LxmlBackend if available else StandardBackend).
+      backend_logger: Logger to be used by the backend if backend is not provided.
+      nsmap: Custom namespace prefix-to-URI mappings to be used by the backend if backend is not provided.
+      namespace_handler: Custom namespace handler instance to be used by the backend if backend is not provided.
+      namespace_handler_logger: Logger for namespace operations to be used by the namespace handler if namespace_handler is not provided.
+      namespace_handler_policy: Policy for namespace handling to be used by the namespace handler if namespace_handler is not provided.
+      serializer: Custom serializer instance. Uses whatever backend is given or created using previous options.
+      serializer_logger: Logger for serialization operations to be used by the serializer if serializer is not provided.
+      serializer_policy: Policy for serialization error handling to be used by the serializer if serializer is not provided.
+      serializer_handlers: Custom element handlers for serialization to be used by the serializer if serializer is not provided.
 
   Raises:
       TypeError: If tmx is not a Tmx instance.
@@ -210,18 +207,18 @@ def dump(
       >>> dump(tmx, "output.tmx")
       >>> dump(tmx, "output.tmx", encoding="utf-16")
   """
-  if not isinstance(tmx, Tmx):
+  if not isinstance(tmx, TmxLike):
     raise TypeError(f"Root element is not a Tmx: {type(tmx)}")
 
-  _encoding = normalize_encoding(encoding) if encoding is not None else "utf-8"
+  _encoding = utils.normalize_encoding(encoding) if encoding is not None else "utf-8"
   _backend = kwargs.get(
     "backend",
-    StandardBackend(
+    DEFAULT_BACKEND(
       logger=kwargs.get("backend_logger"),
       default_encoding=_encoding,
       namespace_handler=kwargs.get(
         "namespace_handler",
-        NamespaceHandler(
+        backends.NamespaceHandler(
           nsmap=kwargs.get("nsmap"),
           logger=kwargs.get("namespace_handler_logger"),
           policy=kwargs.get("namespace_handler_policy"),
@@ -231,14 +228,14 @@ def dump(
   )
   _serializer = kwargs.get(
     "serializer",
-    Serializer(
+    serialization.Serializer(
       backend=_backend,
       policy=kwargs.get("serializer_policy"),
       logger=kwargs.get("serializer_logger"),
     ),
   )
 
-  _path = make_usable_path(path, mkdir=True)
+  _path = utils.make_usable_path(path, mkdir=True)
   xml_element = _serializer.serialize(tmx)
   if xml_element is None:
     raise ValueError("serializer returned None")
