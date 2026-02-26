@@ -161,3 +161,8 @@ cython_debug/
 *.pypirc
 
 .ruff_cache/
+
+node_modules/
+docs/.vitepress/cache/
+
+.opencode

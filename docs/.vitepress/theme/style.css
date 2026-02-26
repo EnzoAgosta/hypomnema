@@ -1,0 +1,759 @@
+/**
+ * Hypomnema Docs - Zen Minimalist Theme
+ * 
+ * Inspired by Japanese design principles: ma (間), wabi-sabi, kanso.
+ * Like a blank scroll waiting to be written, or a Zen garden at dawn.
+ * Restraint is the ultimate expression of refinement.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Noto+Sans+JP:wght@300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* =============================================================================
+   ROOT VARIABLES - Japanese Color System
+   ============================================================================= */
+
+:root {
+  /* Matcha & Moss - The green palette */
+  --zen-matcha: #6b8e4e;
+  --zen-matcha-light: #8fb06a;
+  --zen-matcha-dark: #4a6b34;
+  --zen-moss: #3d5a3d;
+  --zen-pine: #1a3a1a;
+  --zen-bamboo: #7d9a6b;
+  --zen-fern: #4a7c59;
+  
+  /* Neutrals - Paper & Ink */
+  --zen-washi: #f5f3ee;         /* Japanese paper - warmer, less bright */
+  --zen-ecru: #ebe9e2;
+  --zen-stone: #ddd9d0;
+  --zen-ink: #1a1a18;
+  --zen-ink-light: #3a3a38;
+  --zen-ink-muted: #6a6a68;
+  --zen-sumi: #2a2a28;          /* Sumi ink grey */
+  
+  /* Accent */
+  --zen-terracotta: #b87a56;
+  --zen-indigo: #4a5568;
+  
+  /* Override Vitepress */
+  --vp-c-bg: var(--zen-washi);
+  --vp-c-bg-soft: var(--zen-ecru);
+  --vp-c-bg-alt: var(--zen-ecru);
+  --vp-c-bg-mute: var(--zen-stone);
+  
+  --vp-c-text-1: var(--zen-ink);
+  --vp-c-text-2: var(--zen-ink-light);
+  --vp-c-text-3: var(--zen-ink-muted);
+  
+  --vp-c-border: rgba(26, 26, 24, 0.08);
+  --vp-c-divider: rgba(26, 26, 24, 0.05);
+  --vp-c-gutter: rgba(26, 26, 24, 0.03);
+  
+  --vp-c-brand-1: var(--zen-matcha);
+  --vp-c-brand-2: var(--zen-matcha-dark);
+  --vp-c-brand-3: var(--zen-pine);
+  --vp-c-brand-soft: rgba(107, 142, 78, 0.08);
+  
+  --vp-c-tip-1: var(--zen-matcha);
+  --vp-c-tip-2: var(--zen-matcha-dark);
+  --vp-c-tip-3: var(--zen-pine);
+  --vp-c-tip-soft: rgba(107, 142, 78, 0.08);
+  
+  --vp-c-warning-1: var(--zen-terracotta);
+  --vp-c-warning-2: #a86a46;
+  --vp-c-warning-3: #8a5a36;
+  --vp-c-warning-soft: rgba(184, 122, 86, 0.08);
+  
+  --vp-c-danger-1: #9a5a5a;
+  --vp-c-danger-2: #8a4a4a;
+  --vp-c-danger-3: #6a3a3a;
+  --vp-c-danger-soft: rgba(154, 90, 90, 0.08);
+  
+  /* Fonts */
+  --vp-font-family-base: 'Noto Sans JP', 'Noto Sans', system-ui, sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', monospace;
+  --zen-font-display: 'Cormorant Garamond', 'Noto Serif JP', Georgia, serif;
+  
+  /* Spacing - Generous */
+  --zen-space-xs: 0.5rem;
+  --zen-space-sm: 1rem;
+  --zen-space-md: 2rem;
+  --zen-space-lg: 4rem;
+  --zen-space-xl: 8rem;
+}
+
+/* Dark mode - Ink painting aesthetic */
+.dark {
+  --vp-c-bg: #111111;
+  --vp-c-bg-soft: #181818;
+  --vp-c-bg-alt: #1e1e1e;
+  --vp-c-bg-mute: #262626;
+  
+  --vp-c-text-1: #f0f0f0;
+  --vp-c-text-2: #c0c0c0;
+  --vp-c-text-3: #888888;
+  
+  --vp-c-border: rgba(255, 255, 255, 0.1);
+  --vp-c-divider: rgba(255, 255, 255, 0.06);
+  
+  --zen-washi: #111111;
+  --zen-ecru: #181818;
+  --zen-ink: #f0f0f0;
+  --zen-ink-light: #c0c0c0;
+  --zen-ink-muted: #888888;
+  
+  --zen-matcha: #8fb06a;
+  --zen-matcha-light: #a8c88a;
+  --zen-matcha-dark: #6b8e4e;
+  
+  --vp-c-brand-soft: rgba(143, 176, 106, 0.12);
+  --vp-c-tip-soft: rgba(143, 176, 106, 0.12);
+}
+
+/* =============================================================================
+   GLOBAL - The Art of Restraint
+   ============================================================================= */
+
+/* =============================================================================
+   TYPOGRAPHY - Breathing Room
+   ============================================================================= */
+
+/* Display headings - Green hierarchy */
+.vp-doc h1,
+.vp-doc h2,
+h1.title,
+.VPHero .name {
+  font-family: var(--zen-font-display);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+/* H1 - Dark green, most prominent */
+.vp-doc h1 {
+  font-size: 2.75rem;
+  line-height: 1.3;
+  margin-bottom: var(--zen-space-lg);
+  margin-top: var(--zen-space-md);
+  padding-bottom: var(--zen-space-sm);
+  border-bottom: 1px solid var(--vp-c-divider);
+  color: var(--zen-pine);
+}
+
+.dark .vp-doc h1 {
+  color: #a8c88a;
+}
+
+/* H2 - Medium green */
+.vp-doc h2 {
+  font-size: 1.75rem;
+  margin-top: var(--zen-space-lg);
+  margin-bottom: var(--zen-space-md);
+  padding-bottom: var(--zen-space-xs);
+  border-bottom: 1px solid var(--vp-c-divider);
+  color: var(--zen-matcha);
+}
+
+.dark .vp-doc h2 {
+  color: var(--zen-matcha-light);
+}
+
+/* H3 - Light green */
+.vp-doc h3 {
+  font-family: var(--vp-font-family-base);
+  font-weight: 500;
+  font-size: 1.25rem;
+  color: var(--zen-matcha-light);
+  margin-top: var(--zen-space-md);
+  margin-bottom: var(--zen-space-sm);
+}
+
+.dark .vp-doc h3 {
+  color: #c8daa8;
+}
+
+.vp-doc h4 {
+  font-weight: 500;
+  color: var(--zen-ink-light);
+}
+
+/* Body text */
+.vp-doc p {
+  font-size: 1rem;
+  line-height: 1.9;
+  margin-bottom: var(--zen-space-sm);
+  color: var(--zen-ink-light);
+}
+
+.dark .vp-doc p {
+  color: var(--vp-c-text-2);
+}
+
+/* Links - Subtle underline on hover */
+.vp-doc a {
+  color: var(--zen-matcha);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.vp-doc a:hover {
+  color: var(--zen-matcha-dark);
+}
+
+/* First paragraph - Slightly larger */
+.vp-doc > p:first-of-type {
+  font-size: 1.0625rem;
+  line-height: 2;
+}
+
+/* =============================================================================
+   NAVIGATION - Clean Lines
+   ============================================================================= */
+
+.VPNav {
+  background: var(--zen-washi) !important;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.dark .VPNav {
+  background: var(--vp-c-bg) !important;
+}
+
+.VPNavBar {
+  font-family: var(--vp-font-family-base);
+  font-weight: 400;
+}
+
+.VPNavBarTitle .title {
+  font-family: var(--zen-font-display);
+  font-weight: 400;
+  font-size: 1.25rem;
+  color: var(--zen-ink);
+  letter-spacing: 0.05em;
+}
+
+.dark .VPNavBarTitle .title {
+  color: #f0f0f0;
+}
+
+.vp-nav-link-link {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
+}
+
+.VPNavBarMenuLink:hover .text,
+.VPNavBarMenuGroup:hover .text {
+  color: var(--zen-matcha) !important;
+}
+
+.VPNavBarMenuLink.active .text {
+  color: var(--zen-matcha) !important;
+  font-weight: 500;
+}
+
+/* =============================================================================
+   SIDEBAR - Vertical Rhythm
+   ============================================================================= */
+
+.VPSidebar {
+  background: var(--zen-washi);
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+.dark .VPSidebar {
+  background: var(--vp-c-bg);
+}
+
+.vp-sidebar-group {
+  margin: var(--zen-space-sm) 0;
+}
+
+.vp-sidebar-group .title {
+  font-family: var(--vp-font-family-base);
+  font-weight: 400;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--zen-matcha-dark);
+  padding-left: 1rem;
+}
+
+.dark .vp-sidebar-group .title {
+  color: var(--zen-matcha-light);
+}
+
+.vp-sidebar-item .text {
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  transition: color 0.2s ease;
+}
+
+.vp-sidebar-item.link:hover .text {
+  color: var(--zen-matcha);
+}
+
+.vp-sidebar-item.link.active .text {
+  color: var(--zen-matcha);
+  font-weight: 500;
+}
+
+/* Active indicator - Vertical line */
+.vp-sidebar-item.link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  background: var(--zen-matcha);
+  border-radius: 1px;
+}
+
+/* =============================================================================
+   HOME / HERO - The Empty Space
+   ============================================================================= */
+
+.VPHero {
+  padding: var(--zen-space-xl) 1.5rem !important;
+}
+
+.VPHero .name {
+  font-family: var(--zen-font-display);
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: 300;
+  background: none;
+  -webkit-background-clip: unset;
+  background-clip: unset;
+  color: var(--zen-pine);
+  letter-spacing: 0.08em;
+  margin-bottom: var(--zen-space-sm);
+  text-align: center;
+}
+
+.dark .VPHero .name {
+  color: #a8c88a;
+}
+
+.VPHero .text {
+  font-family: var(--zen-font-display);
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-weight: 400;
+  color: var(--zen-ink-light);
+  letter-spacing: 0.1em;
+  margin-bottom: var(--zen-space-sm);
+  text-align: center;
+}
+
+.dark .VPHero .text {
+  color: #c0c0c0;
+}
+
+.VPHero .tagline {
+  font-family: var(--vp-font-family-base);
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--zen-ink-muted);
+  max-width: 400px;
+  line-height: 2;
+  letter-spacing: 0.02em;
+}
+
+/* Hero background - Enso circle inspiration */
+:root {
+  --vp-home-hero-image-background-image: none;
+  --vp-home-hero-image-filter: none;
+}
+
+/* =============================================================================
+   BUTTONS - Subtle & Refined
+   ============================================================================= */
+
+:root {
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: var(--zen-washi);
+  --vp-button-brand-bg: var(--zen-matcha);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: var(--zen-washi);
+  --vp-button-brand-hover-bg: var(--zen-matcha-dark);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: var(--zen-washi);
+  --vp-button-brand-active-bg: var(--zen-pine);
+  
+  --vp-button-alt-border: 1px solid var(--zen-matcha);
+  --vp-button-alt-text: var(--zen-matcha);
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-hover-border: 1px solid var(--zen-matcha);
+  --vp-button-alt-hover-text: var(--zen-washi);
+  --vp-button-alt-hover-bg: var(--zen-matcha);
+}
+
+.VPButton {
+  font-family: var(--vp-font-family-base);
+  font-weight: 400;
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+  padding: 0.75rem 1.5rem;
+}
+
+.VPButton.brand {
+  box-shadow: none;
+}
+
+.VPButton.brand:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(107, 142, 78, 0.15);
+}
+
+/* =============================================================================
+   CODE BLOCKS - Ink & Paper
+   ============================================================================= */
+
+.vp-doc [class*='language-'] {
+  border-radius: 2px;
+  background: var(--zen-ecru);
+  border: 1px solid var(--vp-c-border);
+  margin: var(--zen-space-md) 0;
+}
+
+.dark .vp-doc [class*='language-'] {
+  background: var(--vp-c-bg-alt);
+}
+
+.vp-doc [class*='language-'] code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.8125rem;
+  line-height: 1.8;
+}
+
+/* Inline code */
+.vp-doc :not(pre) > code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.8125em;
+  background: var(--vp-c-brand-soft);
+  color: var(--zen-matcha-dark);
+  padding: 0.15em 0.4em;
+  border-radius: 2px;
+  border: none;
+}
+
+.dark .vp-doc :not(pre) > code {
+  color: var(--zen-matcha-light);
+}
+
+/* Lang badge */
+.vp-doc [class*='language-'] > span.lang {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--zen-ink-muted);
+  padding: 0.25rem 0.5rem;
+  background: var(--zen-stone);
+  border-radius: 1px;
+}
+
+.dark .vp-doc [class*='language-'] > span.lang {
+  background: var(--vp-c-bg-mute);
+}
+
+/* =============================================================================
+   CUSTOM BLOCKS - Vertical Lines
+   ============================================================================= */
+
+.vp-doc .custom-block {
+  border-radius: 0;
+  border: none;
+  border-left: 3px solid;
+  padding: var(--zen-space-sm) var(--zen-space-md);
+  margin: var(--zen-space-md) 0;
+  background: transparent;
+}
+
+.vp-doc .custom-block .custom-block-title {
+  font-family: var(--vp-font-family-base);
+  font-weight: 500;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+.vp-doc .custom-block p {
+  font-size: 0.9375rem;
+  line-height: 1.8;
+}
+
+.vp-doc .custom-block.tip {
+  border-left-color: var(--zen-matcha);
+}
+
+.vp-doc .custom-block.tip .custom-block-title {
+  color: var(--zen-matcha-dark);
+}
+
+.vp-doc .custom-block.warning {
+  border-left-color: var(--zen-terracotta);
+}
+
+.vp-doc .custom-block.warning .custom-block-title {
+  color: var(--zen-terracotta);
+}
+
+.vp-doc .custom-block.danger {
+  border-left-color: #9a5a5a;
+}
+
+.vp-doc .custom-block.danger .custom-block-title {
+  color: #9a5a5a;
+}
+
+.vp-doc .custom-block.info {
+  border-left-color: var(--zen-indigo);
+}
+
+.vp-doc .custom-block.info .custom-block-title {
+  color: var(--zen-indigo);
+}
+
+/* =============================================================================
+   TABLES - Clean Grid
+   ============================================================================= */
+
+.vp-doc table {
+  border-radius: 0;
+  border: none;
+  border-collapse: collapse;
+}
+
+.vp-doc th {
+  font-family: var(--vp-font-family-base);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: transparent;
+  color: var(--zen-matcha-dark);
+  border-bottom: 2px solid var(--zen-matcha);
+}
+
+.dark .vp-doc th {
+  color: var(--zen-matcha-light);
+  border-bottom-color: var(--zen-matcha-light);
+}
+
+.vp-doc td {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.vp-doc tr:last-child td {
+  border-bottom: none;
+}
+
+.vp-doc tr:hover {
+  background: var(--vp-c-brand-soft);
+}
+
+/* =============================================================================
+   FEATURE CARDS - Tatami Grid
+   ============================================================================= */
+
+.VPFeatures {
+  padding: var(--zen-space-lg) 0 !important;
+}
+
+.vp-feature-item {
+  background: transparent;
+  border: 1px solid var(--vp-c-border);
+  border-radius: 2px;
+  padding: var(--zen-space-md);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.vp-feature-item:hover {
+  border-color: var(--zen-matcha);
+  box-shadow: 0 0 0 1px var(--zen-matcha);
+}
+
+.vp-feature-item .title {
+  font-family: var(--zen-font-display);
+  font-weight: 500;
+  font-size: 1.125rem;
+  color: var(--zen-matcha-dark);
+}
+
+.dark .vp-feature-item .title {
+  color: var(--zen-matcha-light);
+}
+
+.vp-feature-item .details {
+  color: var(--zen-ink-muted);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+/* =============================================================================
+   FOOTER & NAVIGATION
+   ============================================================================= */
+
+.VPDocFooter {
+  border-top: 1px solid var(--vp-c-divider);
+  margin-top: var(--zen-space-lg);
+  padding-top: var(--zen-space-md);
+}
+
+.VPPrevNext {
+  border: 1px solid var(--vp-c-border);
+  border-radius: 2px;
+}
+
+.pager-link:hover {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--zen-matcha);
+}
+
+.pager-link:hover .title {
+  color: var(--zen-matcha);
+}
+
+.pager-link .title {
+  font-family: var(--vp-font-family-base);
+  font-weight: 500;
+}
+
+.pager-link:hover .desc {
+  color: var(--zen-matcha-dark);
+}
+
+.dark .pager-link:hover .desc {
+  color: var(--zen-matcha-light);
+}
+
+/* =============================================================================
+   SEARCH - Minimal
+   ============================================================================= */
+
+.DocSearch-Button {
+  background: var(--zen-ecru);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 2px;
+}
+
+.dark .DocSearch-Button {
+  background: var(--vp-c-bg-alt);
+}
+
+.DocSearch-Button:hover {
+  border-color: var(--zen-matcha);
+}
+
+/* =============================================================================
+   SCROLLBAR - Thin & Subtle
+   ============================================================================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--zen-stone);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--zen-ink-muted);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--vp-c-bg-mute);
+}
+
+/* =============================================================================
+   ANIMATIONS - Slow & Intentional
+   ============================================================================= */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.VPHero .name,
+.VPHero .text,
+.VPHero .tagline {
+  animation: fadeIn 0.8s ease-out forwards;
+}
+
+.VPHero .text { animation-delay: 0.15s; opacity: 0; }
+.VPHero .tagline { animation-delay: 0.3s; opacity: 0; }
+
+/* Feature cards */
+.vp-feature-item {
+  opacity: 0;
+  animation: slideUp 0.6s ease-out forwards;
+}
+
+.vp-feature-item:nth-child(1) { animation-delay: 0.4s; }
+.vp-feature-item:nth-child(2) { animation-delay: 0.5s; }
+.vp-feature-item:nth-child(3) { animation-delay: 0.6s; }
+.vp-feature-item:nth-child(4) { animation-delay: 0.7s; }
+
+/* =============================================================================
+   RESPONSIVE
+   ============================================================================= */
+
+@media (max-width: 768px) {
+  :root {
+    --zen-space-lg: 2rem;
+    --zen-space-xl: 4rem;
+  }
+  
+  .vp-doc h1 {
+    font-size: 2rem;
+  }
+  
+  .vp-doc h2 {
+    font-size: 1.5rem;
+  }
+  
+  .VPHero {
+    padding: var(--zen-space-lg) 1rem !important;
+  }
+  
+  .VPHero .name {
+    font-size: 2.5rem;
+  }
+}
+
+/* =============================================================================
+   PRINT
+   ============================================================================= */
+
+@media print {
+  .VPNav,
+  .VPSidebar,
+  .VPLocalSearchBox,
+  .VPDocFooter,
+  .vp-doc::before {
+    display: none !important;
+  }
+  
+  .vp-doc {
+    max-width: 100% !important;
+  }
+}

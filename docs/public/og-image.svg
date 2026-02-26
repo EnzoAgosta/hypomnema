@@ -1,0 +1,70 @@
+<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="noise" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feBlend in="SourceGraphic" mode="multiply" result="blend"/>
+    </filter>
+  </defs>
+  
+  <!-- Background - Washi paper color -->
+  <rect width="1200" height="630" fill="#faf9f6"/>
+  
+  <!-- Subtle paper texture -->
+  <rect width="1200" height="630" fill="transparent" filter="url(#noise)" opacity="0.02"/>
+  
+  <!-- Vertical bamboo lines -->
+  <line x1="80" y1="100" x2="80" y2="530" stroke="#6b8e4e" stroke-width="1" opacity="0.12"/>
+  <line x1="110" y1="150" x2="110" y2="480" stroke="#6b8e4e" stroke-width="1" opacity="0.08"/>
+  <line x1="140" y1="180" x2="140" y2="450" stroke="#6b8e4e" stroke-width="1" opacity="0.06"/>
+  
+  <!-- Enso circle -->
+  <circle 
+    cx="900" 
+    cy="315" 
+    r="180" 
+    fill="none" 
+    stroke="#6b8e4e"
+    stroke-width="12"
+    stroke-linecap="round"
+    stroke-dasharray="905 1131"
+    transform="rotate(-45 900 315)"
+    opacity="0.12"
+  />
+  
+  <!-- Accent dot -->
+  <circle cx="1010" cy="200" r="12" fill="#6b8e4e" opacity="0.2"/>
+  
+  <!-- Main title -->
+  <text x="200" y="260" font-family="Georgia, serif" font-size="72" font-weight="400" fill="#1a1a18" letter-spacing="0.08em">
+    Hypomnema
+  </text>
+  
+  <!-- Vertical separator -->
+  <line x1="200" y1="290" x2="200" y2="340" stroke="#6b8e4e" stroke-width="2" opacity="0.5"/>
+  
+  <!-- Tagline -->
+  <text x="200" y="390" font-family="Georgia, serif" font-size="28" font-weight="400" fill="#6b8e4e" letter-spacing="0.1em">
+    TMX for Python
+  </text>
+  
+  <!-- Description -->
+  <text x="200" y="440" font-family="sans-serif" font-size="15" font-weight="300" fill="#6a6a68" letter-spacing="0.02em">
+    Type-safe • Policy-driven • Zero-dependency
+  </text>
+  
+  <!-- Feature list -->
+  <text x="200" y="490" font-family="sans-serif" font-size="13" fill="#3a3a38" letter-spacing="0.01em">
+    <tspan fill="#6b8e4e">●</tspan> Full TMX 1.4b support
+    <tspan dx="24" fill="#6b8e4e">●</tspan> Streaming for large files
+    <tspan dx="24" fill="#6b8e4e">●</tspan> Duck typing support
+  </text>
+  
+  <!-- Bottom info -->
+  <text x="200" y="570" font-family="sans-serif" font-size="12" fill="#6a6a68" letter-spacing="0.02em">
+    github.com/anomalyco/hypomnema
+  </text>
+  
+  <!-- Ink mark -->
+  <circle cx="180" cy="540" r="4" fill="#6b8e4e" opacity="0.3"/>
+</svg>
