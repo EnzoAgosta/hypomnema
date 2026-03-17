@@ -15,23 +15,23 @@ from hypomnema.domain.attributes import (
   TranslationUnitSpecDefinedAttributes,
   TranslationVariantSpecDefinedAttributes,
 )
-from hypomnema.domain.model import InlineNode, Node
+from hypomnema.domain.model import InlineContentItem, InlineNode, StructuralNode
 
 
 @dataclass(slots=True, kw_only=True)
-class Note(Node[NoteSpecDefinedAttributes]):
+class Note(StructuralNode[NoteSpecDefinedAttributes]):
   spec_attributes: NoteSpecDefinedAttributes
   text: str
 
 
 @dataclass(slots=True, kw_only=True)
-class Prop(Node[PropSpecDefinedAttributes]):
+class Prop(StructuralNode[PropSpecDefinedAttributes]):
   spec_attributes: PropSpecDefinedAttributes
   text: str
 
 
 @dataclass(slots=True, kw_only=True)
-class Header(Node[HeaderSpecDefinedAttributes]):
+class Header(StructuralNode[HeaderSpecDefinedAttributes]):
   spec_attributes: HeaderSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
@@ -68,14 +68,15 @@ class Sub(InlineNode[SubSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationVariant(InlineNode[TranslationVariantSpecDefinedAttributes]):
+class TranslationVariant(StructuralNode[TranslationVariantSpecDefinedAttributes]):
   spec_attributes: TranslationVariantSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
+  segment: list[InlineContentItem] = field(default_factory=list)
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationUnit(Node[TranslationUnitSpecDefinedAttributes]):
+class TranslationUnit(StructuralNode[TranslationUnitSpecDefinedAttributes]):
   spec_attributes: TranslationUnitSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
@@ -83,7 +84,7 @@ class TranslationUnit(Node[TranslationUnitSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationMemory(Node[TranslationMemorySpecDefinedAttributes]):
+class TranslationMemory(StructuralNode[TranslationMemorySpecDefinedAttributes]):
   spec_attributes: TranslationMemorySpecDefinedAttributes
   header: Header
   units: list[TranslationUnit] = field(default_factory=list)

@@ -2,7 +2,7 @@ from dataclasses import fields
 from datetime import datetime
 from typing import ClassVar, Type
 
-from hypomnema.domain.model import Node, SpecDefinedAttributes
+from hypomnema.domain.model import StructuralNode, SpecDefinedAttributes
 
 
 __cache: dict[int, frozenset[str]] = {}
@@ -36,13 +36,13 @@ class ProxyBase:
   __proxy_fields__: ClassVar[frozenset[str]] = frozenset()
   __allow_extra_attributes__: ClassVar[bool] = False
 
-  node: Node
+  node: StructuralNode
 
   def __init_subclass__(cls) -> None:
     super().__init_subclass__()
     cls.__proxy_fields__ = frozenset(_merged_proxy_annotations(cls))
 
-  def __init__(self, node: Node) -> None:
+  def __init__(self, node: StructuralNode) -> None:
     object.__setattr__(self, "node", node)
 
     proxy_fields = type(self).__proxy_fields__
@@ -61,7 +61,7 @@ class ProxyBase:
     if name not in proxy_fields:
       raise AttributeError(f"{type(self).__name__!s} has no declared attribute {name!r}")
 
-    node: Node = object.__getattribute__(self, "node")
+    node: StructuralNode = object.__getattribute__(self, "node")
 
     if hasattr(node.spec_attributes, name):
       return getattr(node.spec_attributes, name)
