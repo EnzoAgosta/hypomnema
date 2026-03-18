@@ -1,6 +1,6 @@
 from collections.abc import Callable, Generator
 from functools import singledispatch
-from typing import Any, TypeIs
+from typing import Any, Literal, TypeIs, overload
 
 from hypomnema.domain.model import InlineContentItem, InlineNode, StructuralNode, UnknownInlineNode
 from hypomnema.domain.nodes import (
@@ -42,6 +42,34 @@ def _iter_items(
         raise TypeError(f"Unexpected type {type(item)}")
 
 
+@overload
+def walk_content(
+  node: ContentNode,
+  yield_text: Literal[False],
+  recurse: bool = False,
+  yield_unknown: Literal[False] = False,
+) -> Generator[InlineNode, None, None]: ...
+@overload
+def walk_content(
+  node: ContentNode,
+  yield_text: Literal[True] = True,
+  recurse: bool = False,
+  yield_unknown: Literal[False] = False,
+) -> Generator[str | InlineNode, None, None]: ...
+@overload
+def walk_content(
+  node: ContentNode,
+  yield_text: Literal[False],
+  recurse: bool = False,
+  yield_unknown: Literal[True] = True,
+) -> Generator[InlineNode | UnknownInlineNode, None, None]: ...
+@overload
+def walk_content(
+  node: ContentNode,
+  yield_text: Literal[True] = True,
+  recurse: bool = False,
+  yield_unknown: Literal[True] = True,
+) -> Generator[InlineContentItem, None, None]: ...
 def walk_content(
   node: ContentNode, yield_text: bool = True, recurse: bool = False, yield_unknown: bool = False
 ) -> Generator[InlineContentItem, None, None]:
