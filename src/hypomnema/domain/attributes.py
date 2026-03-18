@@ -6,7 +6,7 @@ from hypomnema.domain.model import SpecDefinedAttributes
 
 
 @dataclass(slots=True, kw_only=True)
-class HeaderSpecDefinedAttributes(SpecDefinedAttributes):
+class TranslationMemoryHeaderSpecDefinedAttributes(SpecDefinedAttributes):
   creation_tool: str
   creation_tool_version: str
   segmentation_type: Segtype | Literal["block", "paragraph", "sentence", "phrase"]

@@ -4,7 +4,7 @@ from typing import Any, Literal, TypeIs, overload
 
 from hypomnema.domain.model import InlineContentItem, InlineNode, StructuralNode, UnknownInlineNode
 from hypomnema.domain.nodes import (
-  Header,
+  TranslationMemoryHeader,
   Note,
   Prop,
   TranslationMemory,
@@ -114,7 +114,7 @@ def walk_translation_memory(
 
 @walk.register
 def walk_header(
-  node: Header | TranslationVariant, recurse: bool = False
+  node: TranslationMemoryHeader | TranslationVariant, recurse: bool = False
 ) -> Generator[Prop | Note, None, None]:
   yield from node.notes
   yield from node.props

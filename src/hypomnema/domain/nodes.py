@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from hypomnema.domain.attributes import (
   BptSpecDefinedAttributes,
   EptSpecDefinedAttributes,
-  HeaderSpecDefinedAttributes,
+  TranslationMemoryHeaderSpecDefinedAttributes,
   HiSpecDefinedAttributes,
   ItSpecDefinedAttributes,
   NoteSpecDefinedAttributes,
@@ -31,8 +31,8 @@ class Prop(StructuralNode[PropSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class Header(StructuralNode[HeaderSpecDefinedAttributes]):
-  spec_attributes: HeaderSpecDefinedAttributes
+class TranslationMemoryHeader(StructuralNode[TranslationMemoryHeaderSpecDefinedAttributes]):
+  spec_attributes: TranslationMemoryHeaderSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
 
@@ -86,5 +86,5 @@ class TranslationUnit(StructuralNode[TranslationUnitSpecDefinedAttributes]):
 @dataclass(slots=True, kw_only=True)
 class TranslationMemory(StructuralNode[TranslationMemorySpecDefinedAttributes]):
   spec_attributes: TranslationMemorySpecDefinedAttributes
-  header: Header
+  header: TranslationMemoryHeader
   units: list[TranslationUnit] = field(default_factory=list)

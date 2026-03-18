@@ -2,7 +2,7 @@ from collections.abc import Generator
 from typing import Literal
 
 from hypomnema.domain.model import InlineContentItem, InlineNode
-from hypomnema.domain.nodes import TranslationVariant
+from hypomnema.domain.nodes import TranslationMemoryHeader, TranslationUnit, TranslationVariant
 from hypomnema.ops import walk
 
 type ContentNode = InlineNode | TranslationVariant
@@ -89,4 +89,32 @@ def strip_whitespace[T: ContentNode](
     for child in _iter_inline_nodes(node):
       child.content = _strip_items(child.content, mode)
 
+  return node
+
+
+def _deduplicated[T](items: list[T]) -> list[T]:
+  seen: list[T] = []
+  for item in items:
+    if item not in seen:
+      seen.append(item)
+  return seen
+
+
+def deduplicate_props[T: TranslationVariant | TranslationUnit | TranslationMemoryHeader](
+  node: T, recurse: bool = False
+) -> T:
+  node.props = _deduplicated(node.props)
+  if recurse and not isinstance(node, TranslationMemoryHeader):
+    for child in walk.walk(node, recurse=True):
+      child.props = _deduplicated(child.props)
+  return node
+
+
+def deduplicate_notes[T: TranslationVariant | TranslationUnit | TranslationMemoryHeader](
+  node: T, recurse: bool = False
+) -> T:
+  node.notes = _deduplicated(node.notes)
+  if recurse and not isinstance(node, TranslationMemoryHeader):
+    for child in walk.walk(node, recurse=True):
+      child.notes = _deduplicated(child.notes)
   return node
