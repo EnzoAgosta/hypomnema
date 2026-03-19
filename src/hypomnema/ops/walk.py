@@ -1,9 +1,9 @@
-from collections.abc import Callable, Generator
-from functools import singledispatch
+from collections.abc import Callable, Generator, Iterator
 from typing import Any, Literal, TypeIs, overload
 
 from hypomnema.domain.model import InlineContentItem, InlineNode, StructuralNode, UnknownInlineNode
 from hypomnema.domain.nodes import (
+  ContentNode,
   TranslationMemoryHeader,
   Note,
   Prop,
@@ -13,18 +13,12 @@ from hypomnema.domain.nodes import (
 )
 
 
-type ContentNode = InlineNode | TranslationVariant
 type StructuralPredicate = Callable[[StructuralNode], bool]
 type ContentPredicate = Callable[[InlineContentItem], bool]
 
 
-@singledispatch
-def walk(node, recurse=False):
-  raise TypeError(f"Unexpected type {type(node)} in walk")
-
-
-def _iter_items(
-  items: list[InlineContentItem], yield_text: bool, recurse: bool, yield_unknown: bool
+def _iter_items_flat(
+  items: list[InlineContentItem], yield_text: bool, yield_unknown: bool
 ) -> Generator[InlineContentItem, None, None]:
   for item in items:
     match item:
@@ -33,8 +27,6 @@ def _iter_items(
           yield item
       case InlineNode():
         yield item
-        if recurse:
-          yield from _iter_items(item.content, yield_text, recurse, yield_unknown)
       case UnknownInlineNode():
         if yield_unknown:
           yield item
@@ -73,10 +65,30 @@ def walk_content(
 def walk_content(
   node: ContentNode, yield_text: bool = True, recurse: bool = False, yield_unknown: bool = False
 ) -> Generator[InlineContentItem, None, None]:
-  if isinstance(node, TranslationVariant):
-    yield from _iter_items(node.segment, yield_text, recurse, yield_unknown)
-  else:
-    yield from _iter_items(node.content, yield_text, recurse, yield_unknown)
+  initial = node.segment if isinstance(node, TranslationVariant) else node.content
+
+  if not recurse:
+    yield from _iter_items_flat(initial, yield_text, yield_unknown)
+    return
+
+  stack: list[Iterator[InlineContentItem]] = [iter(initial)]
+  while stack:
+    for item in stack[-1]:
+      match item:
+        case str():
+          if yield_text:
+            yield item
+        case InlineNode():
+          yield item
+          stack.append(iter(item.content))
+          break
+        case UnknownInlineNode():
+          if yield_unknown:
+            yield item
+        case _:
+          raise TypeError(f"Unexpected type {type(item)}")
+    else:
+      stack.pop()
 
 
 def walk_content_filtered(
@@ -99,37 +111,44 @@ def walk_content_typed[T](
       yield child
 
 
-@walk.register
-def walk_translation_memory(
+@overload
+def walk(
   node: TranslationMemory, recurse: bool = False
-) -> Generator[StructuralNode, None, None]:
-  yield node.header
-  if recurse:
-    yield from walk(node.header, recurse=recurse)
-  for unit in node.units:
-    yield unit
-    if recurse:
-      yield from walk(unit, recurse=recurse)
-
-
-@walk.register
-def walk_header(
-  node: TranslationMemoryHeader | TranslationVariant, recurse: bool = False
-) -> Generator[Prop | Note, None, None]:
-  yield from node.notes
-  yield from node.props
-
-
-@walk.register
-def walk_unit(
-  node: TranslationUnit, recurse: bool = False
-) -> Generator[StructuralNode, None, None]:
-  yield from node.notes
-  yield from node.props
-  for variant in node.variants:
-    yield variant
-    if recurse:
-      yield from walk(variant, recurse=recurse)
+) -> Generator[StructuralNode, None, None]: ...
+@overload
+def walk(
+  node: TranslationMemoryHeader, recurse: bool = False
+) -> Generator[Prop | Note, None, None]: ...
+@overload
+def walk(node: TranslationUnit, recurse: bool = False) -> Generator[StructuralNode, None, None]: ...
+@overload
+def walk(node: TranslationVariant, recurse: bool = False) -> Generator[Prop | Note, None, None]: ...
+@overload
+def walk(node: StructuralNode, recurse: bool = False) -> Generator[StructuralNode, None, None]: ...
+def walk(
+  node: StructuralNode, recurse: bool = False
+) -> Generator[StructuralNode | Prop | Note, None, None]:
+  match node:
+    case TranslationMemory():
+      yield node.header
+      if recurse:
+        yield from walk(node.header, recurse=recurse)
+      for unit in node.units:
+        yield unit
+        if recurse:
+          yield from walk(unit, recurse=recurse)
+    case TranslationMemoryHeader() | TranslationVariant():
+      yield from node.notes
+      yield from node.props
+    case TranslationUnit():
+      yield from node.notes
+      yield from node.props
+      for variant in node.variants:
+        yield variant
+        if recurse:
+          yield from walk(variant, recurse=recurse)
+    case _:
+      raise TypeError(f"Unexpected type {type(node)} in walk")
 
 
 def walk_filtered(
@@ -144,5 +163,11 @@ def walk_typed[T: StructuralNode](
   node: StructuralNode, target_type: type[T] | tuple[type[T], ...], recurse: bool = False
 ) -> Generator[T, None, None]:
   for child in walk(node, recurse=recurse):
-    if isinstance(child, target_type):
+    if _is_of_type(child, target_type):
       yield child
+
+
+def walk_inline_nodes(
+  node: ContentNode, recurse: bool = False
+) -> Generator[InlineNode, None, None]:
+  return walk_content(node, yield_text=False, recurse=recurse, yield_unknown=False)

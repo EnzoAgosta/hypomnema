@@ -1,19 +1,13 @@
-from collections.abc import Generator
 from typing import Literal
 
-from hypomnema.domain.model import InlineContentItem, InlineNode
-from hypomnema.domain.nodes import TranslationMemoryHeader, TranslationUnit, TranslationVariant
+from hypomnema.domain.model import InlineContentItem
+from hypomnema.domain.nodes import (
+  ContentNode,
+  TranslationMemoryHeader,
+  TranslationUnit,
+  TranslationVariant,
+)
 from hypomnema.ops import walk
-
-type ContentNode = InlineNode | TranslationVariant
-
-
-def _iter_inline_nodes(node: ContentNode) -> Generator[InlineNode, None, None]:
-  stack = list(walk.walk_content(node, yield_text=False, recurse=False, yield_unknown=False))
-  while stack:
-    child = stack.pop()
-    yield child
-    stack.extend(walk.walk_content(child, yield_text=False, recurse=False, yield_unknown=False))
 
 
 def _collapsed_items(items: list[InlineContentItem]) -> list[InlineContentItem]:
@@ -33,7 +27,7 @@ def collapse_text[T: ContentNode](node: T, recurse: bool = False) -> T:
     node.content = _collapsed_items(node.content)
 
   if recurse:
-    for child in _iter_inline_nodes(node):
+    for child in walk.walk_inline_nodes(node, recurse=True):
       child.content = _collapsed_items(child.content)
   return node
 
@@ -49,7 +43,7 @@ def remove_empty_text[T: ContentNode](node: T, recurse: bool = False) -> T:
     node.content = _without_empty_text(node.content)
 
   if recurse:
-    for child in _iter_inline_nodes(node):
+    for child in walk.walk_inline_nodes(node, recurse=True):
       child.content = _without_empty_text(child.content)
   return node
 
@@ -86,7 +80,7 @@ def strip_whitespace[T: ContentNode](
     node.content = _strip_items(node.content, mode)
 
   if recurse:
-    for child in _iter_inline_nodes(node):
+    for child in walk.walk_inline_nodes(node, recurse=True):
       child.content = _strip_items(child.content, mode)
 
   return node
@@ -104,17 +98,19 @@ def deduplicate_props[T: TranslationVariant | TranslationUnit | TranslationMemor
   node: T, recurse: bool = False
 ) -> T:
   node.props = _deduplicated(node.props)
-  if recurse and not isinstance(node, TranslationMemoryHeader):
-    for child in walk.walk(node, recurse=True):
-      child.props = _deduplicated(child.props)
+  if not recurse or isinstance(node, (TranslationMemoryHeader, TranslationVariant)):
+    return node
+  for child in walk.walk_typed(node, TranslationVariant, recurse=True):
+    child.props = _deduplicated(child.props)
   return node
 
 
 def deduplicate_notes[T: TranslationVariant | TranslationUnit | TranslationMemoryHeader](
   node: T, recurse: bool = False
 ) -> T:
-  node.notes = _deduplicated(node.notes)
-  if recurse and not isinstance(node, TranslationMemoryHeader):
-    for child in walk.walk(node, recurse=True):
-      child.notes = _deduplicated(child.notes)
+  node.props = _deduplicated(node.props)
+  if not recurse or isinstance(node, (TranslationMemoryHeader, TranslationVariant)):
+    return node
+  for child in walk.walk_typed(node, TranslationVariant, recurse=True):
+    child.props = _deduplicated(child.props)
   return node

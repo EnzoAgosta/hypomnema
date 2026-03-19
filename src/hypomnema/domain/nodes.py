@@ -88,3 +88,6 @@ class TranslationMemory(StructuralNode[TranslationMemorySpecDefinedAttributes]):
   spec_attributes: TranslationMemorySpecDefinedAttributes
   header: TranslationMemoryHeader
   units: list[TranslationUnit] = field(default_factory=list)
+
+
+type ContentNode = InlineNode | TranslationVariant

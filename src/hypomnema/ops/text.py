@@ -2,10 +2,9 @@ from collections.abc import Callable, Generator
 import re
 
 from hypomnema.domain.model import InlineNode, UnknownInlineNode
-from hypomnema.domain.nodes import TranslationVariant
+from hypomnema.domain.nodes import ContentNode
 from hypomnema.ops import walk
 
-type ContentNode = InlineNode | TranslationVariant
 type FragmentSource = ContentNode | UnknownInlineNode
 
 
