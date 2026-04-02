@@ -40,7 +40,7 @@ from hypomnema.xml.utils import (
   make_usable_path,
   normalize_encoding,
   validate_ncname,
-  fast_validate_uri,
+  validate_uri,
 )
 
 
@@ -128,7 +128,7 @@ class NamespaceHandler:
           given_uri,
         )
         validate_ncname(prefix)
-        fast_validate_uri(given_uri)
+        validate_uri(given_uri)
         self.nsmap[prefix] = given_uri
       case _:
         raise InvalidPolicyActionError("existing_namespace", behavior.action, RaiseIgnoreOverwrite)
@@ -195,7 +195,7 @@ class NamespaceHandler:
       self._handle_existing_namespace(prefix, self.nsmap[prefix], uri)
       return
     validate_ncname(prefix)
-    fast_validate_uri(uri)
+    validate_uri(uri)
     self.nsmap[prefix] = uri
 
   def deregister_prefix(self, prefix: str) -> None:
@@ -246,7 +246,7 @@ class NamespaceHandler:
       if "}" not in _tag[1:]:
         raise ValueError(f"Malformed Clark notation: missing }} in {_tag!r}")
       uri, localname = _tag[1:].split("}", 1)
-      fast_validate_uri(uri)
+      validate_uri(uri)
       validate_ncname(localname)
       reverse_map = {v: k for k, v in nsmap.items()}
       if uri not in reverse_map:
@@ -261,7 +261,7 @@ class NamespaceHandler:
           return prefix, None, localname
         uri = nsmap[prefix]
         validate_ncname(localname)
-        fast_validate_uri(uri)
+        validate_uri(uri)
         return prefix, uri, localname
       case [localname]:
         validate_ncname(localname)

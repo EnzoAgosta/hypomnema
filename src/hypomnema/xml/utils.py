@@ -10,8 +10,8 @@ All public validators return ``None`` on success and raise
 identifying the exact check that failed.
 """
 
+from ipaddress import IPv4Address, IPv6Address
 from unicodedata import category
-import re
 
 
 from codecs import lookup
@@ -97,12 +97,12 @@ class QNameLike(Protocol):
 
 
 # ── NCName validation ────────────────────────────────────────────
-_NAME_START_CATEGORIES = {"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"}
+_NAME_START_CATEGORIES = frozenset({"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"})
 """Unicode general categories accepted for the first character of
 an XML Name, per XML 1.0 5th Edition §2.3 (excluding ``_`` and
 ``:``, which are tested explicitly)."""
 
-_NAME_CHAR_CATEGORIES = _NAME_START_CATEGORIES | {"Nd", "Mc", "Mn", "Pc"}
+_NAME_CHAR_CATEGORIES = _NAME_START_CATEGORIES | frozenset({"Nd", "Mc", "Mn", "Pc"})
 """Unicode general categories accepted for subsequent characters of
 an XML Name, per XML 1.0 5th Edition §2.3 (excluding ``-``, ``.``,
 and ``\\u00B7``, which are tested explicitly)."""
@@ -184,632 +184,317 @@ def validate_ncname(name: str) -> None:
     raise InvalidNCNameError(name) from err
 
 
-# ── RFC 3986 regex building blocks ───────────────────────────────
-#
-# Each constant below is a *string* containing a regex fragment,
-# built up compositionally from the ABNF in RFC 3986 §3.  They are
-# compiled into ``re.Pattern`` objects (prefixed ``_RE_``) further
-# below for use at match time.
+ALPHA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+DIGIT = frozenset("0123456789")
+HEXDIG = DIGIT | frozenset("ABCDEFabcdef")
+UNRESERVED = ALPHA | DIGIT | frozenset("-._~")
+SUB_DELIMS = frozenset("!$&'()*+,;=")
+GEN_DELIMS = frozenset(":/?#[]@")
+RESERVED = GEN_DELIMS | SUB_DELIMS
+PCHAR = UNRESERVED | SUB_DELIMS | frozenset(":@")
+SCHEME_CHARS = ALPHA | DIGIT | frozenset("+-.")
+USERINFO_CHARS = UNRESERVED | SUB_DELIMS | frozenset(":")
+REG_NAME_CHARS = UNRESERVED | SUB_DELIMS
+QUERY_CHARS = PCHAR | frozenset("/?")
+FRAGMENT_CHARS = PCHAR | frozenset("/?")
 
-# Atomic character classes
-ALPHA = r"[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]"
-"""``ALPHA`` from RFC 2234 §6.1."""
-
-AMPERSAND = r"\&"
-APOSTROPHE = r"\'"
-AT_SIGN = r"\@"
-COLON = r"\:"
-COMMA = r"\,"
-DIGIT = r"[0123456789]"
-"""``DIGIT`` from RFC 2234 §6.1."""
-
-DOLLAR_SIGN = r"\$"
-DOUBLE_COLON = r"\:\:"
-EQUAL_SIGN = r"\="
-EXCLAMATION_MARK = r"\!"
-FORWARD_SLASH = r"\/"
-HASHTAG = r"\#"
-HEXDIGITS = r"[0123456789abcdefABCDEF]"
-"""``HEXDIG`` from RFC 2234 §6.1."""
-
-HYPHEN = r"\-"
-LEFT_BRACKET = r"\("
-LEFT_SQUARE_BRACKET = r"\["
-PERCENT_SIGN = r"\%"
-PERIOD = r"\."
-PLUS_SIGN = r"\+"
-QUESTION_MARK = r"\?"
-RIGHT_BRACKET = r"\)"
-RIGHT_SQUARE_BRACKET = r"\]"
-SEMI_COLON = r"\;"
-STAR_SIGN = r"\*"
-TILDE = r"\~"
-UNDERSCORE = r"\_"
-
-# Composite productions – RFC 3986 §2
-UNRESERVED = (
-  rf"({ALPHA}|{DIGIT}|{HYPHEN}|{PERIOD}"
-  rf"|{UNDERSCORE}|{TILDE})"
-)
-"""``unreserved`` per RFC 3986 §2.3."""
-
-SUB_DELIMS = (
-  rf"({EXCLAMATION_MARK}|{DOLLAR_SIGN}|{AMPERSAND}"
-  rf"|{APOSTROPHE}|{LEFT_BRACKET}|{RIGHT_BRACKET}"
-  rf"|{STAR_SIGN}|{PLUS_SIGN}|{COMMA}|{SEMI_COLON}"
-  rf"|{EQUAL_SIGN})"
-)
-"""``sub-delims`` per RFC 3986 §2.2."""
-
-PCT_ENCODED = rf"{PERCENT_SIGN}{HEXDIGITS}{HEXDIGITS}"
-"""``pct-encoded`` per RFC 3986 §2.1."""
-
-DEC_OCTET = (
-  rf"({DIGIT}|[1-9]{DIGIT}|1{DIGIT}{{2}}"
-  rf"|2[01234]{DIGIT}|25[012345])"
-)
-"""``dec-octet`` per RFC 3986 §3.2.2 (0–255)."""
-
-# §3.3 – Path components
-REG_NAME = rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS})*"
-"""``reg-name`` per RFC 3986 §3.2.2."""
-
-PCHAR = (
-  rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS}"
-  rf"|{COLON}|{AT_SIGN})"
-)
-"""``pchar`` per RFC 3986 §3.3."""
-
-QUERY = FRAGMENT = rf"({PCHAR}|{FORWARD_SLASH}|{QUESTION_MARK})*"
-"""``query`` and ``fragment`` per RFC 3986 §3.4 / §3.5."""
-
-SEGMENT = rf"{PCHAR}*"
-"""``segment`` per RFC 3986 §3.3."""
-
-SEGMENT_NZ = rf"{PCHAR}+"
-"""``segment-nz`` per RFC 3986 §3.3."""
-
-SEGMENT_NZ_NC = rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS}|{AT_SIGN})+"
-"""``segment-nz-nc`` per RFC 3986 §3.3 (no colon)."""
-
-PATH_ABEMPTY = rf"({FORWARD_SLASH}{SEGMENT})*"
-"""``path-abempty`` per RFC 3986 §3.3."""
-
-PATH_ABSOLUTE = (
-  rf"{FORWARD_SLASH}"
-  rf"({SEGMENT_NZ}({FORWARD_SLASH}{SEGMENT})*)?"
-)
-"""``path-absolute`` per RFC 3986 §3.3."""
-
-PATH_NOSCHEME = rf"{SEGMENT_NZ_NC}({FORWARD_SLASH}{SEGMENT})*"
-"""``path-noscheme`` per RFC 3986 §3.3."""
-
-PATH_ROOTLESS = rf"{SEGMENT_NZ}({FORWARD_SLASH}{SEGMENT})*"
-"""``path-rootless`` per RFC 3986 §3.3."""
-
-# §3.2.2 – IP addresses
-IPV4ADDRESS = (
-  rf"{DEC_OCTET}{PERIOD}{DEC_OCTET}"
-  rf"{PERIOD}{DEC_OCTET}{PERIOD}{DEC_OCTET}"
-)
-"""``IPv4address`` per RFC 3986 §3.2.2."""
-
-H16 = rf"{HEXDIGITS}{{1,4}}"
-"""``h16`` per RFC 3986 §3.2.2 (1–4 hex digits)."""
-
-LS32 = rf"({H16}{COLON}{H16}|{IPV4ADDRESS})"
-"""``ls32`` per RFC 3986 §3.2.2."""
-
-IPV6ADDRESS = (
-  "("
-  rf"({H16}{COLON}){{6}}{LS32}"
-  "|"
-  rf"{DOUBLE_COLON}({H16}{COLON}){{5}}{LS32}"
-  "|"
-  rf"{H16}?{DOUBLE_COLON}({H16}{COLON}){{4}}{LS32}"
-  "|"
-  rf"(({H16}{COLON})?{H16})?{DOUBLE_COLON}"
-  rf"({H16}{COLON}){{3}}{LS32}"
-  "|"
-  rf"(({H16}{COLON}){{0,2}}{H16})?{DOUBLE_COLON}"
-  rf"({H16}{COLON}){{2}}{LS32}"
-  "|"
-  rf"(({H16}{COLON}){{0,3}}{H16})?{DOUBLE_COLON}"
-  rf"{H16}{COLON}{LS32}"
-  "|"
-  rf"(({H16}{COLON}){{0,4}}{H16})?{DOUBLE_COLON}{LS32}"
-  "|"
-  rf"(({H16}{COLON}){{0,5}}{H16})?{DOUBLE_COLON}{H16}"
-  "|"
-  rf"(({H16}{COLON}){{0,6}}{H16})?{DOUBLE_COLON}"
-  ")"
-)
-"""``IPv6address`` per RFC 3986 §3.2.2."""
-
-IPVFUTURE = (
-  rf"v{HEXDIGITS}+{PERIOD}"
-  rf"({UNRESERVED}|{SUB_DELIMS}|{COLON})+"
-)
-"""``IPvFuture`` per RFC 3986 §3.2.2."""
-
-IPLITERAL = (
-  rf"{LEFT_SQUARE_BRACKET}({IPV6ADDRESS}|{IPVFUTURE})"
-  rf"{RIGHT_SQUARE_BRACKET}"
-)
-"""``IP-literal`` per RFC 3986 §3.2.2."""
-
-# §3.2 – Authority
-PORT = rf"{DIGIT}*"
-"""``port`` per RFC 3986 §3.2.3."""
-
-HOST = rf"({IPLITERAL}|{IPV4ADDRESS}|{REG_NAME})"
-"""``host`` per RFC 3986 §3.2.2."""
-
-USERINFO = rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS}|{COLON})*"
-"""``userinfo`` per RFC 3986 §3.2.1."""
-
-AUTHORITY = rf"({USERINFO}{AT_SIGN})?{HOST}({COLON}{PORT})?"
-"""``authority`` per RFC 3986 §3.2."""
-
-# §3.1 – Scheme
-SCHEME = (
-  rf"{ALPHA}({ALPHA}|{DIGIT}|{PLUS_SIGN}"
-  rf"|{HYPHEN}|{PERIOD})*"
-)
-"""``scheme`` per RFC 3986 §3.1."""
-
-# §3 / §4 – Top-level productions
-HIER_PART = (
-  rf"({FORWARD_SLASH}{FORWARD_SLASH}{AUTHORITY}{PATH_ABEMPTY}"
-  rf"|{PATH_ABSOLUTE}|{PATH_ROOTLESS})?"
-)
-"""``hier-part`` per RFC 3986 §3."""
-
-RELATIVE_PART = (
-  rf"({FORWARD_SLASH}{FORWARD_SLASH}{AUTHORITY}{PATH_ABEMPTY}"
-  rf"|{PATH_ABSOLUTE}|{PATH_NOSCHEME})?"
-)
-"""``relative-part`` per RFC 3986 §4.2."""
-
-RELATIVE_REF = (
-  rf"{RELATIVE_PART}({QUESTION_MARK}{QUERY})?"
-  rf"({HASHTAG}{FRAGMENT})?"
-)
-"""``relative-ref`` per RFC 3986 §4.2."""
-
-URI = (
-  rf"{SCHEME}{COLON}{HIER_PART}"
-  rf"({QUESTION_MARK}{QUERY})?({HASHTAG}{FRAGMENT})?"
-)
-"""``URI`` per RFC 3986 §3."""
-
-URI_REFERENCE = rf"({URI}|{RELATIVE_REF})"
-"""``URI-reference`` per RFC 3986 §4.1."""
-
-# ── Pre-compiled patterns ────────────────────────────────────────
-_RE_URI_REFERENCE = re.compile(URI_REFERENCE)
-_RE_URI_DECOMPOSE = re.compile(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?$")
-_RE_SCHEME = re.compile(SCHEME)
-_RE_ALPHA = re.compile(ALPHA)
-_RE_SCHEME_TAIL_BAD = re.compile(
-  r"[^ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-  r"0123456789\+\-\.]"
-)
-_RE_FRAGMENT = re.compile(FRAGMENT)
-_RE_QUERY = re.compile(QUERY)
-_RE_AUTHORITY = re.compile(AUTHORITY)
-_RE_USERINFO = re.compile(USERINFO)
-_RE_HOST = re.compile(HOST)
-_RE_PORT = re.compile(PORT)
-_RE_PATH_ABEMPTY = re.compile(PATH_ABEMPTY)
-_RE_PATH_ABSOLUTE = re.compile(PATH_ABSOLUTE)
-_RE_PATH_ROOTLESS = re.compile(PATH_ROOTLESS)
-_RE_PATH_NOSCHEME = re.compile(PATH_NOSCHEME)
-_RE_IPV4_OVERRANGE = re.compile(
-  rf"{DEC_OCTET}{PERIOD}{DEC_OCTET}{PERIOD}{DEC_OCTET}"
-  rf"{PERIOD}\d+"
-)
-_RE_PCHAR_QF = re.compile(rf"({PCHAR}|{FORWARD_SLASH}|{QUESTION_MARK})")
-_RE_USERINFO_CHAR = re.compile(rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS}|{COLON})")
-_RE_REGNAME_CHAR = re.compile(rf"({UNRESERVED}|{PCT_ENCODED}|{SUB_DELIMS})")
-_RE_PATH_CHAR = re.compile(rf"({PCHAR}|{FORWARD_SLASH})")
-
-_FORBIDDEN_CHARS = frozenset('<>{}|\\`"')
-"""ASCII characters that are not permitted unencoded in a URI."""
-
-_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
-"""Valid hexadecimal digit characters for percent-encoding."""
+ALLOWED_IP_LITERAL = UNRESERVED | SUB_DELIMS | frozenset(":")
 
 
-# ── Internal helpers ─────────────────────────────────────────────
+def _validate_chars(
+  s: str, allowed: frozenset[str], component: str, start_position: int = 0
+) -> None:
+  """Validate a URI component against an allowed character set.
 
-
-def _find_bad_char(component: str, pattern: re.Pattern) -> str:
-  """Return the first character in *component* that does not
-  match *pattern*.
-
-  Percent-encoded triplets (``%XX``) are skipped as atomic units.
+  This helper accepts RFC 3986 percent-encoded triplets inline and
+  otherwise requires each character to be present in ``allowed``.
 
   Args:
-      component: The URI component to scan.
-      pattern: A compiled regex that matches a single valid
-          character.
-
-  Returns:
-      The first invalid character, or ``"<unknown>"`` if none
-      could be isolated.
-  """
-  i = 0
-  while i < len(component):
-    if component[i] == "%" and i + 2 < len(component):
-      i += 3
-      continue
-    if not pattern.fullmatch(component[i]):
-      return component[i]
-    i += 1
-  return "<unknown>"
-
-
-def _find_bad_pchar_qf(component: str) -> str:
-  """Return the first character in *component* invalid in a query
-  or fragment.
-
-  Valid characters are ``pchar / "/" / "?"``.
-
-  Args:
-      component: The query or fragment string (without the
-          leading ``?`` or ``#``).
-
-  Returns:
-      The first invalid character, or ``"<unknown>"`` if none
-      could be isolated.
-  """
-  i = 0
-  while i < len(component):
-    if component[i] == "%" and i + 2 < len(component):
-      i += 3
-      continue
-    if not _RE_PCHAR_QF.fullmatch(component[i]):
-      return component[i]
-    i += 1
-  return "<unknown>"
-
-
-def _validate_authority_detail(authority: str) -> None:
-  """Decompose *authority* and raise ``ValueError`` pinpointing
-  the first defective sub-component.
-
-  The authority is split into userinfo, host, and port.  Each is
-  validated individually so the error message identifies which
-  part is at fault.
-
-  Args:
-      authority: The authority string (without the leading
-          ``//``).
+      s: Component text to validate.
+      allowed: Allowed non-percent-encoded characters.
+      component: Component name for error reporting.
+      start_position: Offset applied to reported character positions.
 
   Raises:
-      ValueError: Always — either with a specific diagnostic or
-          a generic message if no sub-component check triggers.
+      ValueError: If the component contains an invalid character or an
+          invalid percent-encoded sequence.
   """
+  i = 0
+  while i < len(s):
+    char = s[i]
+    position = start_position + i
+    if char == "%":
+      if i + 2 >= len(s):
+        raise ValueError(f"Truncated percent-encoding at position {position} in {component}")
+      first_hex = s[i + 1]
+      if first_hex not in HEXDIG:
+        raise ValueError(
+          f"Invalid hex digit {first_hex!r} at position {position + 1} in {component}"
+        )
+      second_hex = s[i + 2]
+      if second_hex not in HEXDIG:
+        raise ValueError(
+          f"Invalid hex digit {second_hex!r} at position {position + 2} in {component}"
+        )
+      i += 3
+      continue
+    if char not in allowed:
+      raise ValueError(f"Invalid character {char!r} at position {position} in {component}")
+    i += 1
+
+
+def _validate_scheme(scheme: str) -> None:
+  """Validate a URI scheme.
+
+  The scheme must match RFC 3986 ``ALPHA *( ALPHA / DIGIT / "+" /
+  "-" / "." )``. Percent-encoding is not allowed.
+
+  Args:
+      scheme: Scheme text without the trailing ``:`` delimiter.
+
+  Raises:
+      ValueError: If the scheme is empty or contains invalid
+          characters.
+  """
+  if not scheme:
+    raise ValueError("Scheme cannot be empty")
+  if scheme[0] not in ALPHA:
+    raise ValueError(f"Scheme must begin with a letter, got {scheme[0]!r}")
+  for index in range(1, len(scheme)):
+    char = scheme[index]
+    if char not in SCHEME_CHARS:
+      raise ValueError(f"Invalid character {char!r} at position {index} in scheme")
+
+
+def _validate_userinfo(userinfo: str) -> None:
+  """Validate the userinfo subcomponent of an authority.
+
+  Args:
+      userinfo: Userinfo text before ``@``.
+
+  Raises:
+      ValueError: If the userinfo contains invalid characters or an
+          invalid percent-encoded sequence.
+  """
+  _validate_chars(userinfo, USERINFO_CHARS, "userinfo")
+
+
+def _validate_ip_literal(content: str) -> None:
+  """Validate bracketed host content as IPv6 or IPvFuture.
+
+  Args:
+      content: Text inside ``[`` and ``]``.
+
+  Raises:
+      ValueError: If the content is empty or is not a valid IPv6
+          address or IPvFuture literal.
+  """
+  if not content:
+    raise ValueError("Host IP literal cannot be empty")
+  if content[0] == "v" or content[0] == "V":
+    try:
+      separator_index = content.index(".")
+    except ValueError as err:
+      raise ValueError("Invalid IPvFuture in host: missing '.' after version") from err
+    version = content[1:separator_index]
+    if not version:
+      raise ValueError("Invalid IPvFuture in host: version is empty")
+    for index, char in enumerate(version, start=1):
+      if char not in HEXDIG:
+        raise ValueError(f"Invalid hex digit {char!r} at position {index} in host IP literal")
+    future = content[separator_index + 1 :]
+    if not future:
+      raise ValueError("Invalid IPvFuture in host: address part is empty")
+    for index, char in enumerate(future, start=separator_index + 1):
+      if char not in ALLOWED_IP_LITERAL:
+        raise ValueError(f"Invalid character {char!r} at position {index} in host IP literal")
+    return
+  try:
+    IPv6Address(content)
+  except ValueError as err:
+    raise ValueError(f"Invalid IPv6 address {content!r} in host") from err
+
+
+def _validate_host(host: str) -> None:
+  """Validate a non-literal host as IPv4 or registered name.
+
+  Args:
+      host: Host text without userinfo, brackets, or port.
+
+  Raises:
+      ValueError: If the host is neither a valid IPv4 address nor a
+          valid registered name.
+  """
+  try:
+    IPv4Address(host)
+    return
+  except ValueError:
+    _validate_chars(host, REG_NAME_CHARS, "host")
+
+
+def _validate_port(port: str) -> None:
+  """Validate a URI port.
+
+  Args:
+      port: Port text after ``:``. The empty string is valid.
+
+  Raises:
+      ValueError: If the port contains any non-digit character.
+  """
+  for index, char in enumerate(port):
+    if char not in DIGIT:
+      raise ValueError(f"Invalid character {char!r} at position {index} in port")
+
+
+def _validate_authority(authority: str) -> None:
+  """Validate an authority and its userinfo, host, and port parts.
+
+  Args:
+      authority: Raw authority text after ``//`` and before any path.
+
+  Raises:
+      ValueError: If authority splitting fails or any subcomponent is
+          invalid.
+  """
+  if not authority:
+    return
+
+  if authority.count("@") > 1:
+    raise ValueError("Multiple '@' characters in authority")
+
   host_and_port = authority
   if "@" in authority:
-    at_pos = authority.rfind("@")
-    userinfo_part = authority[:at_pos]
-    host_and_port = authority[at_pos + 1 :]
-    if not _RE_USERINFO.fullmatch(userinfo_part):
-      bad = _find_bad_char(userinfo_part, _RE_USERINFO_CHAR)
-      raise ValueError(
-        f"Userinfo {userinfo_part!r} contains invalid "
-        f"character {bad!r}. Allowed: unreserved / "
-        f"pct-encoded / sub-delims / ':'."
-      )
+    userinfo, _, host_and_port = authority.partition("@")
+    _validate_userinfo(userinfo)
 
-  host_part = host_and_port
-  port_part = None
   if host_and_port.startswith("["):
-    bracket_end = host_and_port.find("]")
-    if bracket_end == -1:
-      raise ValueError("Authority contains an unclosed '['. IP-literal brackets must be balanced.")
-    host_part = host_and_port[: bracket_end + 1]
-    remainder = host_and_port[bracket_end + 1 :]
-    if remainder.startswith(":"):
-      port_part = remainder[1:]
-    elif remainder:
-      raise ValueError(f"Unexpected characters {remainder!r} after IP-literal in authority.")
-  elif ":" in host_and_port:
-    last_colon = host_and_port.rfind(":")
-    possible_port = host_and_port[last_colon + 1 :]
-    if _RE_PORT.fullmatch(possible_port):
-      port_part = possible_port
-      host_part = host_and_port[:last_colon]
+    try:
+      bracket_index = host_and_port.index("]")
+    except ValueError as err:
+      raise ValueError("Unclosed '[' in host, IP literal missing closing ']'") from err
 
-  if not _RE_HOST.fullmatch(host_part):
-    if host_part.startswith("["):
-      inner = host_part[1:-1] if host_part.endswith("]") else host_part[1:]
-      if inner[:1] in ("v", "V"):
-        raise ValueError(
-          f"IPvFuture address {host_part!r} is malformed. Expected format: [v<hex>.<chars>]."
-        )
-      raise ValueError(
-        f"IPv6 address {host_part!r} is malformed. Ensure "
-        f"the address inside the brackets is a valid IPv6 "
-        f"representation per RFC 3986 §3.2.2."
-      )
-    if _RE_IPV4_OVERRANGE.fullmatch(host_part):
-      # Defensive check, REG_NAME pattern matches any digit/period combination
-      # so host validation should never reache this check
-      raise ValueError(
-        f"IPv4 address {host_part!r} has an octet out of the 0-255 range."
-      )  # pragma: no cover
-    bad = _find_bad_char(host_part, _RE_REGNAME_CHAR)
-    raise ValueError(
-      f"Host {host_part!r} contains invalid character "
-      f"{bad!r}. A reg-name may only contain unreserved / "
-      f"pct-encoded / sub-delims characters."
-    )
+    host = host_and_port[1:bracket_index]
+    port_suffix = host_and_port[bracket_index + 1 :]
+    if port_suffix and not port_suffix.startswith(":"):
+      raise ValueError("Unexpected characters after IP literal in host")
 
-  if port_part is not None and not _RE_PORT.fullmatch(port_part):
-    raise ValueError(f"Port {port_part!r} is invalid. It must consist of digits only.")
+    _validate_ip_literal(host)
 
-  raise ValueError(f"Authority {authority!r} is invalid per RFC 3986 §3.2.")
+    if port_suffix.startswith(":"):
+      _validate_port(port_suffix[1:])
+    return
+
+  separator_index = host_and_port.rfind(":")
+  if separator_index == -1:
+    _validate_host(host_and_port)
+    return
+
+  host = host_and_port[:separator_index]
+  port = host_and_port[separator_index + 1 :]
+  _validate_port(port)
+  _validate_host(host)
 
 
-def _raise_path_error(path: str, context: str) -> None:
-  """Raise ``ValueError`` for a path that is invalid in *context*.
+def _validate_path(path: str, has_authority: bool) -> None:
+  """Validate a URI path with authority-sensitive leading-slash rules.
 
   Args:
-      path: The path string that failed validation.
-      context: A human-readable description of the URI form
-          (e.g. ``"a URI without authority"``).
+      path: Raw path component.
+      has_authority: Whether the URI included an authority component.
 
   Raises:
-      ValueError: Always.
-  """
-  bad = _find_bad_char(path, _RE_PATH_CHAR)
-  if bad != "<unknown>":
-    raise ValueError(f"Path {path!r} contains invalid character {bad!r}.")
-  raise ValueError(f"Path {path!r} does not conform to RFC 3986 for {context}.")
-
-
-def _check_characters(uri: str) -> None:
-  """Scan *uri* for characters that are never valid in a URI.
-
-  Rejects non-ASCII (U+0080+), control characters (U+0000–U+001F
-  and U+007F), unencoded spaces, and the characters
-  ``< > {{ }} | \\\\ `` " ``.
-
-  Args:
-      uri: The candidate URI string.
-
-  Raises:
-      ValueError: On the first prohibited character found.
-  """
-  for pos, ch in enumerate(uri):
-    code = ord(ch)
-    if code > 127:
-      raise ValueError(
-        f"Non-ASCII character {ch!r} (U+{code:04X}) at "
-        f"position {pos}. RFC 3986 URIs must consist of "
-        f"ASCII characters only; use percent-encoding for "
-        f"non-ASCII data."
-      )
-    if code <= 0x1F or code == 0x7F:
-      raise ValueError(
-        f"Control character U+{code:04X} at position {pos} is not permitted in a URI."
-      )
-    if ch == " ":
-      raise ValueError(f"Unencoded space at position {pos}. Use '%20' instead.")
-    if ch in _FORBIDDEN_CHARS:
-      raise ValueError(
-        f"Character {ch!r} at position {pos} is not permitted in a URI. It must be percent-encoded."
-      )
-
-
-def _check_percent_encoding(uri: str) -> None:
-  """Verify that every ``%`` in *uri* is followed by exactly two
-  hexadecimal digits.
-
-  Args:
-      uri: The candidate URI string.
-
-  Raises:
-      ValueError: On the first malformed percent-encoding found.
-  """
-  idx = 0
-  while idx < len(uri):
-    if uri[idx] == "%":
-      if idx + 2 >= len(uri):
-        raise ValueError(
-          f"Incomplete percent-encoding at position "
-          f"{idx}: '%' must be followed by exactly two "
-          f"hexadecimal digits, but the string ends "
-          f"prematurely."
-        )
-      h1, h2 = uri[idx + 1], uri[idx + 2]
-      if h1 not in _HEX_CHARS or h2 not in _HEX_CHARS:
-        raise ValueError(
-          f"Invalid percent-encoding '%{h1}{h2}' at "
-          f"position {idx}: the two characters after "
-          f"'%' must both be hexadecimal digits "
-          f"(0-9, a-f, A-F)."
-        )
-      idx += 3
-    else:
-      idx += 1
-
-
-def _validate_path(path: str, *, has_scheme: bool, has_authority: bool) -> None:
-  """Validate *path* in the context of the surrounding URI
-  components.
-
-  Enforces the constraints from RFC 3986 §3.3:
-      - With authority present: ``path-abempty`` only.
-      - With scheme, no authority: ``path-absolute`` or
-        ``path-rootless``; must not start with ``//``.
-      - No scheme, with authority: ``path-abempty`` only.
-      - No scheme, no authority: ``path-absolute`` or
-        ``path-noscheme``; must not start with ``//``; first
-        segment must not contain ``:``.
-
-  Args:
-      path: The path component string.
-      has_scheme: Whether the URI has a scheme component.
-      has_authority: Whether the URI has an authority component.
-
-  Raises:
-      ValueError: If the path violates the applicable production.
+      ValueError: If the path violates RFC 3986 structure rules or
+          contains invalid characters.
   """
   if has_authority:
-    if not _RE_PATH_ABEMPTY.fullmatch(path):
-      raise ValueError(
-        f"Path {path!r} is invalid when an authority is "
-        f"present. It must be empty or begin with '/'."
-      )
-    return
+    if path and not path.startswith("/"):
+      raise ValueError("Path must begin with '/' when authority is present")
+    if path.startswith("//"):
+      raise ValueError("Path cannot begin with '//' when authority is present")
+  elif path.startswith("//"):
+    raise ValueError("Path cannot begin with '//' when authority is not present")
 
-  if path.startswith("//"):
-    raise ValueError(
-      f"Path {path!r} begins with '//' but no authority "
-      f"is present. This is ambiguous per RFC 3986 §3.3."
-    )
-
-  if not path:
-    return
-
-  if has_scheme:
-    if not (_RE_PATH_ABSOLUTE.fullmatch(path) or _RE_PATH_ROOTLESS.fullmatch(path)):
-      _raise_path_error(path, "a URI without authority")
-  else:
-    if not (_RE_PATH_ABSOLUTE.fullmatch(path) or _RE_PATH_NOSCHEME.fullmatch(path)):
-      first_seg = path.split("/")[0]
-      if ":" in first_seg:
-        raise ValueError(
-          f"Path {path!r} is a relative-reference "
-          f"whose first segment ({first_seg!r}) "
-          f"contains a colon. This is forbidden by "
-          f"RFC 3986 §4.2 because it would be "
-          f"mistaken for a scheme."
-        )
-      _raise_path_error(path, "a relative-reference")
+  segment_start = 0
+  for segment in path.split("/"):
+    _validate_chars(segment, PCHAR, "path", segment_start)
+    segment_start += len(segment) + 1
 
 
-# ── Public API ───────────────────────────────────────────────────
-
-
-def fast_validate_uri(uri: str) -> None:
-  """Fast URI-reference validation per RFC 3986 §4.1.
-
-  Performs a character-level scan, percent-encoding integrity
-  check, and a single fullmatch against the ``URI-reference``
-  production.  Errors identify the offending character or
-  percent-encoding but do not decompose the URI into components.
+def _validate_query(query: str) -> None:
+  """Validate a URI query component.
 
   Args:
-      uri: The candidate URI-reference string.
+      query: Query text after ``?``.
 
   Raises:
-      ValueError: If *uri* is not a string or is not a valid
-          URI-reference.
+      ValueError: If the query contains invalid characters or an
+          invalid percent-encoded sequence.
   """
-  if not isinstance(uri, str):
-    raise ValueError(f"Expected str, got {type(uri).__name__}.")
-  _check_characters(uri)
-  _check_percent_encoding(uri)
-  if _RE_URI_REFERENCE.fullmatch(uri):
-    return None
-  raise ValueError(f"Invalid URI-reference: {uri!r}")
+  if not query:
+    return
+  _validate_chars(query, QUERY_CHARS, "query")
+
+
+def _validate_fragment(fragment: str) -> None:
+  """Validate a URI fragment component.
+
+  Args:
+      fragment: Fragment text after ``#``.
+
+  Raises:
+      ValueError: If the fragment contains invalid characters or an
+          invalid percent-encoded sequence.
+  """
+  if not fragment:
+    return
+  _validate_chars(fragment, FRAGMENT_CHARS, "fragment")
 
 
 def validate_uri(uri: str) -> None:
-  """Validate a URI-reference per RFC 3986 §4.1 with detailed
-  diagnostics.
+  """Validate that a string is a syntactically valid RFC 3986 URI.
 
-  Decomposes the URI into scheme, authority, path, query, and
-  fragment using RFC 3986 Appendix B and validates each component
-  individually.  The raised ``ValueError`` identifies exactly
-  which component and character is at fault.
-
-  Suitable for use with any URI found in an XML document: by the
-  time an XML parser delivers an attribute value, character- and
-  entity-references are already resolved, so this function
-  validates the resolved string as a plain RFC 3986
-  URI-reference.
+  The validator performs purely syntactic checks. It does not verify
+  scheme registration, host reachability, port ranges, or query
+  semantics.
 
   Args:
-      uri: The candidate URI-reference string.
+      uri: URI string to validate.
 
   Raises:
-      ValueError: If *uri* is not a string or is not a valid
-          URI-reference.  The message identifies the specific
-          component and character that failed.
+      ValueError: If the URI is empty or any component is
+          syntactically invalid.
   """
-  if not isinstance(uri, str):
-    raise ValueError(f"Expected str, got {type(uri).__name__}.")
+  if not uri:
+    raise ValueError("URI cannot be empty")
 
-  _check_characters(uri)
-  _check_percent_encoding(uri)
+  remainder, fragment_separator, fragment = uri.partition("#")
+  has_fragment = fragment_separator == "#"
 
-  # ── Decompose (RFC 3986 Appendix B) ──────────────────────────
-  m = _RE_URI_DECOMPOSE.match(uri)
-  if not m:
-    # Defensive check, URI pattern matches any string
-    raise ValueError(f"URI {uri!r} could not be decomposed into components.")  # pragma: no cover
+  remainder, query_separator, query = remainder.partition("?")
+  has_query = query_separator == "?"
 
-  scheme = m.group(2)
-  authority = m.group(4)
-  path = m.group(5)
-  query = m.group(7)
-  fragment = m.group(9)
+  try:
+    scheme_separator = remainder.index(":")
+  except ValueError as err:
+    raise ValueError("Missing ':' delimiter after scheme") from err
 
-  has_scheme = scheme is not None
-  has_authority = authority is not None
+  scheme = remainder[:scheme_separator]
+  hier_part = remainder[scheme_separator + 1 :]
 
-  # ── Scheme ───────────────────────────────────────────────────
-  if has_scheme and not _RE_SCHEME.fullmatch(scheme):
-    if not scheme:
-      # Defensive check, The decomposition regex requires at least
-      # one char before : for scheme to be captured
-      raise ValueError(
-        "Scheme component is empty. A scheme must start with a letter."  # pragma: no cover
-      )
-    if not _RE_ALPHA.fullmatch(scheme[0]):
-      raise ValueError(
-        f"Scheme {scheme!r} must start with a letter (a-z, A-Z), but starts with {scheme[0]!r}."
-      )
-    bad = _RE_SCHEME_TAIL_BAD.search(scheme[1:])
-    if bad:
-      raise ValueError(
-        f"Scheme {scheme!r} contains invalid character "
-        f"{bad.group()!r} at offset {bad.start() + 1}. "
-        f"Only letters, digits, '+', '-', and '.' are "
-        f"allowed after the initial letter."
-      )
-    # Defensive check, Specific checks (empty, first char alpha, bad tail char) cover all failure cases
-    raise ValueError(f"Scheme {scheme!r} is invalid per RFC 3986.")  # pragma: no cover
+  _validate_scheme(scheme)
 
-  # ── Fragment ─────────────────────────────────────────────────
-  if fragment is not None and not _RE_FRAGMENT.fullmatch(fragment):
-    bad_fragment_char = _find_bad_pchar_qf(fragment)
-    raise ValueError(
-      f"Fragment component {fragment!r} contains invalid "
-      f"character {bad_fragment_char!r}. Allowed: unreserved / "
-      f"pct-encoded / sub-delims / ':' / '@' / '/' / '?'."
-    )
+  has_authority = hier_part.startswith("//")
+  if has_authority:
+    authority_and_path = hier_part[2:]
+    authority, path_separator, path_rest = authority_and_path.partition("/")
+    path = f"/{path_rest}" if path_separator else ""
+    _validate_authority(authority)
+  else:
+    path = hier_part
 
-  # ── Query ────────────────────────────────────────────────────
-  if query is not None and not _RE_QUERY.fullmatch(query):
-    bad_query_char = _find_bad_pchar_qf(query)
-    raise ValueError(
-      f"Query component {query!r} contains invalid "
-      f"character {bad_query_char!r}. Allowed: unreserved / "
-      f"pct-encoded / sub-delims / ':' / '@' / '/' / '?'."
-    )
+  _validate_path(path, has_authority)
 
-  # ── Authority ────────────────────────────────────────────────
-  if has_authority and not _RE_AUTHORITY.fullmatch(authority):
-    _validate_authority_detail(authority)
-
-  # ── Path ─────────────────────────────────────────────────────
-  _validate_path(path, has_scheme=has_scheme, has_authority=has_authority)
-
-  return None
+  if has_query:
+    _validate_query(query)
+  if has_fragment:
+    _validate_fragment(fragment)
