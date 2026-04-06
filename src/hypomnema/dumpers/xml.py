@@ -265,16 +265,21 @@ class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode
 
 class UnknownNodeDumper[BackendType](XmlDumper[BackendType, UnknownNode]):
   def dump(self, node: UnknownNode) -> BackendType:
-    unknown_elem = self.backend.create_element(tag=node.__class__.__name__)
-    self.backend.set_text(unknown_elem, str(node.payload))
-    return unknown_elem
+    if not isinstance(node.payload, bytes):
+      raise TypeError(
+        f"UnknownNode payload must be bytes for the built-in XML dumper, got {type(node.payload)!r}"
+      )
+    return self.backend.from_bytes(node.payload)
 
 
 class UnknownInlineNodeDumper[BackendType](XmlDumper[BackendType, UnknownInlineNode]):
   def dump(self, node: UnknownInlineNode) -> BackendType:
-    unknown_elem = self.backend.create_element(tag=node.__class__.__name__)
-    self.backend.set_text(unknown_elem, str(node.payload))
-    return unknown_elem
+    if not isinstance(node.payload, bytes):
+      raise TypeError(
+        "UnknownInlineNode payload must be bytes for the built-in XML dumper, "
+        f"got {type(node.payload)!r}"
+      )
+    return self.backend.from_bytes(node.payload)
 
 
 class PropDumper[BackendType](XmlDumper[BackendType, Prop]):

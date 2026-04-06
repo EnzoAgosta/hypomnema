@@ -217,6 +217,10 @@ class StandardBackend(XmlBackend[et.Element]):
     source = make_usable_path(path, mkdir=False)
     return et.parse(source, parser=et.XMLParser(encoding=encoding)).getroot()
 
+  def from_bytes(self, payload: bytes, encoding: str | None = None) -> et.Element:
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    return et.fromstring(payload, parser=et.XMLParser(encoding=encoding))
+
   def write(
     self, element: et.Element, path: str | PathLike[str], encoding: str | None = None
   ) -> None:

@@ -143,6 +143,12 @@ class LxmlBackend(XmlBackend[et._Element]):
       source, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
     ).getroot()
 
+  def from_bytes(self, payload: bytes, encoding: str | None = None) -> et._Element:
+    encoding = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    return et.fromstring(
+      payload, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
+    )
+
   def write(
     self, element: et._Element, path: str | PathLike[str], encoding: str | None = None
   ) -> None:

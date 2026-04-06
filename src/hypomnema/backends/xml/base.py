@@ -589,6 +589,19 @@ class XmlBackend[TypeOfBackendElement](ABC):
     ...
 
   @abstractmethod
+  def from_bytes(self, payload: bytes, encoding: str | None = None) -> TypeOfBackendElement:
+    """Parse XML bytes and return the root element.
+
+    Args:
+        payload: XML payload bytes.
+        encoding: Character encoding.
+
+    Returns:
+        Root element of parsed payload.
+    """
+    ...
+
+  @abstractmethod
   def write(
     self, element: TypeOfBackendElement, path: str | PathLike[str], encoding: str | None = None
   ) -> None:
