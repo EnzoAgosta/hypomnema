@@ -1,15 +1,14 @@
 from collections.abc import Callable, Generator
 import re
 
-from hypomnema.domain.model import InlineNode, UnknownInlineNode
-from hypomnema.domain.nodes import ContentNode
+from hypomnema.domain.nodes import Bpt, Ept, Hi, InlineNode, It, Ph, Sub, UnknownInlineNode
 from hypomnema.ops import walk
 
-type FragmentSource = ContentNode | UnknownInlineNode
+type FragmentSource = InlineNode | UnknownInlineNode
 
 
 def iter_fragments_with_source(
-  node: ContentNode,
+  node: InlineNode,
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> Generator[tuple[str, FragmentSource], None, None]:
@@ -20,7 +19,7 @@ def iter_fragments_with_source(
           yield unknown_formatter(fragment), fragment
       case str():
         yield fragment, node
-      case InlineNode():
+      case Bpt() | Ept() | It() | Ph() | Hi() | Sub():
         if recurse:
           yield from iter_fragments_with_source(
             fragment, recurse=True, unknown_formatter=unknown_formatter
@@ -30,7 +29,7 @@ def iter_fragments_with_source(
 
 
 def iter_fragments(
-  node: ContentNode,
+  node: InlineNode,
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> Generator[str, None, None]:
@@ -40,12 +39,12 @@ def iter_fragments(
     yield fragment
 
 
-def is_empty(node: ContentNode, recurse: bool = False) -> bool:
+def is_empty(node: InlineNode, recurse: bool = False) -> bool:
   return next(iter_fragments(node, recurse=recurse), None) is None
 
 
 def find(
-  node: ContentNode,
+  node: InlineNode,
   target: str | re.Pattern[str],
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
@@ -60,7 +59,7 @@ def find(
 
 
 def find_iter(
-  node: ContentNode,
+  node: InlineNode,
   target: str | re.Pattern[str],
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
@@ -74,7 +73,7 @@ def find_iter(
 
 
 def find_all(
-  node: ContentNode,
+  node: InlineNode,
   target: str | re.Pattern[str],
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
@@ -83,7 +82,7 @@ def find_all(
 
 
 def join(
-  node: ContentNode,
+  node: InlineNode,
   separator: str = "",
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,

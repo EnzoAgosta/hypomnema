@@ -1,8 +1,13 @@
-from typing import Literal
+from typing import Any, Iterable, Literal
 
-from hypomnema.domain.model import InlineContentItem
 from hypomnema.domain.nodes import (
+  Bpt,
   ContentNode,
+  Ept,
+  Hi,
+  It,
+  Ph,
+  Sub,
   TranslationMemoryHeader,
   TranslationUnit,
   TranslationVariant,
@@ -10,47 +15,61 @@ from hypomnema.domain.nodes import (
 from hypomnema.ops import walk
 
 
-def _collapsed_items(items: list[InlineContentItem]) -> list[InlineContentItem]:
-  result: list[InlineContentItem] = []
+def _with_collapsed_text[T](items: Iterable[T]) -> list[T]:
+  result: list[T] = []
+  previous_string: str | None = None
   for item in items:
-    if isinstance(item, str) and result and isinstance(result[-1], str):
-      result[-1] = result[-1] + item
+    if isinstance(item, str):
+      if previous_string is None:
+        previous_string = item
+        result.append(previous_string)
+        continue
+      else:
+        previous_string += item
+        continue
     else:
       result.append(item)
+      previous_string = None
   return result
 
 
 def collapse_text[T: ContentNode](node: T, recurse: bool = False) -> T:
-  if isinstance(node, TranslationVariant):
-    node.segment = _collapsed_items(node.segment)
-  else:
-    node.content = _collapsed_items(node.content)
+  match node:
+    case TranslationVariant():
+      node.segment = _with_collapsed_text(node.segment)
+    case Hi() | Sub():
+      node.content = _with_collapsed_text(node.content)
+    case Bpt() | Ept() | It() | Ph():
+      node.content = _with_collapsed_text(node.content)
+    case _:
+      raise TypeError(f"Unexpected type {type(node)}")
 
   if recurse:
     for child in walk.walk_inline_nodes(node, recurse=True):
-      child.content = _collapsed_items(child.content)
+      collapse_text(child, recurse=True)
   return node
 
 
-def _without_empty_text(items: list[InlineContentItem]) -> list[InlineContentItem]:
+def _without_empty_text[T](items: list[T]) -> list[T]:
   return [item for item in items if item != ""]
 
 
 def remove_empty_text[T: ContentNode](node: T, recurse: bool = False) -> T:
-  if isinstance(node, TranslationVariant):
-    node.segment = _without_empty_text(node.segment)
-  else:
-    node.content = _without_empty_text(node.content)
-
-  if recurse:
-    for child in walk.walk_inline_nodes(node, recurse=True):
-      child.content = _without_empty_text(child.content)
+  match node:
+    case TranslationVariant():
+      node.segment = _without_empty_text(node.segment)
+    case Hi() | Sub():
+      node.content = _without_empty_text(node.content)
+    case Bpt() | Ept() | It() | Ph():
+      node.content = _without_empty_text(node.content)
+    case _:
+      raise TypeError(f"Unexpected type {type(node)}")
   return node
 
 
-def _strip_items(
-  items: list[InlineContentItem], mode: Literal["both", "leading", "trailing"]
-) -> list[InlineContentItem]:
+def _with_stripped_whitespace[T: Any](
+  items: list[T], mode: Literal["both", "leading", "trailing"]
+) -> list[T]:
   first_idx = next((i for i, item in enumerate(items) if isinstance(item, str)), None)
   last_idx = next((i for i, item in enumerate(reversed(items)) if isinstance(item, str)), None)
   if last_idx is None or first_idx is None:
@@ -61,12 +80,10 @@ def _strip_items(
 
   result = list(items)
 
-  # need the type ignore because mypy can't understand that we know for sure the
-  # values at those indices are strings
   if mode in ("both", "leading"):
-    result[first_idx] = result[first_idx].lstrip()  # type: ignore[union-attr]
+    result[first_idx] = result[first_idx].lstrip()
   if mode in ("both", "trailing"):
-    result[last_idx] = result[last_idx].rstrip()  # type: ignore[union-attr]
+    result[last_idx] = result[last_idx].rstrip()
 
   return result
 
@@ -74,14 +91,19 @@ def _strip_items(
 def strip_whitespace[T: ContentNode](
   node: T, mode: Literal["both", "leading", "trailing"] = "both", recurse: bool = False
 ) -> T:
-  if isinstance(node, TranslationVariant):
-    node.segment = _strip_items(node.segment, mode)
-  else:
-    node.content = _strip_items(node.content, mode)
+  match node:
+    case TranslationVariant():
+      node.segment = _with_stripped_whitespace(node.segment, mode)
+    case Hi() | Sub():
+      node.content = _with_stripped_whitespace(node.content, mode)
+    case Bpt() | Ept() | It() | Ph():
+      node.content = _with_stripped_whitespace(node.content, mode)
+    case _:
+      raise TypeError(f"Unexpected type {type(node)}")
 
   if recurse:
     for child in walk.walk_inline_nodes(node, recurse=True):
-      child.content = _strip_items(child.content, mode)
+      strip_whitespace(child, mode, recurse=True)
 
   return node
 
@@ -94,23 +116,25 @@ def _deduplicated[T](items: list[T]) -> list[T]:
   return seen
 
 
-def deduplicate_props[T: TranslationVariant | TranslationUnit | TranslationMemoryHeader](
+def deduplicate_props[T: TranslationVariant | TranslationMemoryHeader | TranslationUnit](
   node: T, recurse: bool = False
 ) -> T:
   node.props = _deduplicated(node.props)
-  if not recurse or isinstance(node, (TranslationMemoryHeader, TranslationVariant)):
+  if not recurse:
     return node
-  for child in walk.walk_typed(node, TranslationVariant, recurse=True):
+  for child in walk.walk_filtered(node, lambda n: hasattr(n, "props")):
+    assert hasattr(child, "props")  # for mypy
     child.props = _deduplicated(child.props)
   return node
 
 
-def deduplicate_notes[T: TranslationVariant | TranslationUnit | TranslationMemoryHeader](
+def deduplicate_notes[T: TranslationVariant | TranslationMemoryHeader | TranslationUnit](
   node: T, recurse: bool = False
 ) -> T:
-  node.props = _deduplicated(node.props)
-  if not recurse or isinstance(node, (TranslationMemoryHeader, TranslationVariant)):
+  node.notes = _deduplicated(node.notes)
+  if not recurse:
     return node
-  for child in walk.walk_typed(node, TranslationVariant, recurse=True):
-    child.props = _deduplicated(child.props)
+  for child in walk.walk_filtered(node, lambda n: hasattr(n, "notes")):
+    assert hasattr(child, "notes")  # for mypy
+    child.notes = _deduplicated(child.notes)
   return node
