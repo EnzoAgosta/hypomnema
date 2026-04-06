@@ -1,15 +1,20 @@
 from __future__ import annotations
-import codecs
-from collections.abc import Iterable, Mapping, Buffer
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, SupportsIndex, SupportsInt, cast
+from typing import Literal
 
 
-from hypomnema.base.types import Assoc, Pos, Segtype
 from hypomnema.domain.attributes import (
+  Assoc,
   BptSpecDefinedAttributes,
+  EncodingString,
   EptSpecDefinedAttributes,
+  ISODateString,
+  IntOrConvertibleToInt,
+  LanguageCodeString,
+  Pos,
+  Segtype,
   TranslationMemoryHeaderSpecDefinedAttributes,
   HiSpecDefinedAttributes,
   ItSpecDefinedAttributes,
@@ -20,84 +25,38 @@ from hypomnema.domain.attributes import (
   TranslationMemorySpecDefinedAttributes,
   TranslationUnitSpecDefinedAttributes,
   TranslationVariantSpecDefinedAttributes,
-)
-from hypomnema.domain.model import (
-  AttributeValue,
-  InlineContentItem,
-  InlineNode,
-  StructuralNode,
-  UnknownNode,
+  _verify_encoding,
+  _verify_language_code,
 )
 
-# basically anything that can be passed to int()
-type IntOrConvertibleToInt = str | Buffer | SupportsIndex | SupportsInt
 
-
-# This one doesn't follow the below pattern as we'll actualy convert it to a datetime
-# when creating a node, so it's only used for typing in functions to let users know the
-# str should be a valid ISO 8601 datetime string
-type ISODateString = str
-
-
-# Python's type system is not able to narrow the type of a string literal like TypeScript
-# does. To get around it we define two types:
-#
-# - A public alias `type Foo = str`: used in public-facing signatures to signal intent
-#   ("this should be a valid Foo") without burdening callers with a custom type. Follows
-#   the "lax input" half of the "lax input, strict output" philosophy.
-#
-# - An internal subclass `class _VerifiedFoo(str)`: a nominally distinct type used in
-#   internal APIs to indicate the value has been validated. At runtime it remains a plain
-#   str (we use `cast` rather than constructing a subclass instance), so the distinction
-#   is purely for the type checker. This enforces that validation happens at the boundary
-#   before values flow into internal code.
-#
-# The intended flow is:
-#   1. Public functions accept the wide alias (e.g. `Encoding`, `LanguageCode`).
-#   2. A `_verify_*` function validates and narrows the type to the internal subclass.
-#   3. Internal APIs declare the subclass in their signatures, making the validation
-#      requirement explicit and statically checkable.
-#
-# This gives us self-documenting APIs, enforced validation boundaries, and zero runtime
-# overhead from the type narrowing itself.
-
-type LanguageCode = str
-type Encoding = str
-
-
-class _VerifiedEncoding(str):
-  """A str that has been verified to be a valid encoding via codecs.lookup."""
-
-  pass
-
-
-class _VerifiedLanguageCode(str):
-  """A str that has been verified to be a valid language code via iso639.db."""
-
-  pass
-
-
-def _verify_encoding(encoding: str) -> _VerifiedEncoding:
-  codecs.lookup(encoding)
-  return cast(_VerifiedEncoding, encoding)
-
-
-def _verify_language_code(language_code: str) -> _VerifiedLanguageCode:
-  # TODO: fiure out how we want to handle language codes
-  return cast(_VerifiedLanguageCode, language_code)
+type AttributeValue = object
+type UnknownPayload = object
 
 
 @dataclass(slots=True, kw_only=True)
-class Note(StructuralNode[NoteSpecDefinedAttributes]):
+class UnknownInlineNode:
+  payload: UnknownPayload
+
+
+@dataclass(slots=True, kw_only=True)
+class UnknownNode:
+  payload: UnknownPayload
+
+
+@dataclass(slots=True, kw_only=True)
+class Note:
   spec_attributes: NoteSpecDefinedAttributes
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
   text: str
 
   @classmethod
   def create(
     cls,
     text: str,
-    language: LanguageCode | None = None,
-    original_encoding: Encoding | None = None,
+    language: LanguageCodeString | None = None,
+    original_encoding: EncodingString | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Note:
@@ -116,8 +75,10 @@ class Note(StructuralNode[NoteSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class Prop(StructuralNode[PropSpecDefinedAttributes]):
+class Prop:
   spec_attributes: PropSpecDefinedAttributes
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
   text: str
 
   @classmethod
@@ -125,8 +86,8 @@ class Prop(StructuralNode[PropSpecDefinedAttributes]):
     cls,
     text: str,
     kind: str,
-    language: LanguageCode | None = None,
-    original_encoding: Encoding | None = None,
+    language: LanguageCodeString | None = None,
+    original_encoding: EncodingString | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Prop:
@@ -145,8 +106,10 @@ class Prop(StructuralNode[PropSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationMemoryHeader(StructuralNode[TranslationMemoryHeaderSpecDefinedAttributes]):
+class TranslationMemoryHeader:
   spec_attributes: TranslationMemoryHeaderSpecDefinedAttributes
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
 
@@ -157,10 +120,10 @@ class TranslationMemoryHeader(StructuralNode[TranslationMemoryHeaderSpecDefinedA
     creation_tool_version: str,
     segmentation_type: Segtype | Literal["block", "paragraph", "sentence", "phrase"],
     original_translation_memory_format: str,
-    admin_language: LanguageCode,
-    source_language: LanguageCode,
+    admin_language: LanguageCodeString,
+    source_language: LanguageCodeString,
     original_data_type: str,
-    original_encoding: Encoding | None = None,
+    original_encoding: EncodingString | None = None,
     created_at: datetime | ISODateString | None = None,
     created_by: str | None = None,
     last_modified_at: datetime | ISODateString | None = None,
@@ -185,7 +148,7 @@ class TranslationMemoryHeader(StructuralNode[TranslationMemoryHeaderSpecDefinedA
     return TranslationMemoryHeader(
       spec_attributes=TranslationMemoryHeaderSpecDefinedAttributes(
         creation_tool=creation_tool,
-        creation_tool_version=str(creation_tool_version),
+        creation_tool_version=creation_tool_version,
         segmentation_type=segmentation_type,
         original_translation_memory_format=original_translation_memory_format,
         admin_language=admin_language,
@@ -205,18 +168,19 @@ class TranslationMemoryHeader(StructuralNode[TranslationMemoryHeaderSpecDefinedA
 
 
 @dataclass(slots=True, kw_only=True)
-class Bpt(InlineNode[BptSpecDefinedAttributes]):
+class Bpt:
   spec_attributes: BptSpecDefinedAttributes
+  content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Sub],
     internal_id: IntOrConvertibleToInt,
     external_id: IntOrConvertibleToInt | None = None,
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Bpt:
     internal_id = int(internal_id)
     if external_id is not None:
@@ -228,44 +192,44 @@ class Bpt(InlineNode[BptSpecDefinedAttributes]):
       ),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class Ept(InlineNode[EptSpecDefinedAttributes]):
+class Ept:
   spec_attributes: EptSpecDefinedAttributes
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Sub],
     internal_id: IntOrConvertibleToInt,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Ept:
     internal_id = int(internal_id)
     return Ept(
       spec_attributes=EptSpecDefinedAttributes(internal_id=internal_id),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class It(InlineNode[ItSpecDefinedAttributes]):
+class It:
   spec_attributes: ItSpecDefinedAttributes
+  content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Sub],
     position: Literal["begin", "end"] | Pos,
     external_id: IntOrConvertibleToInt | None = None,
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> It:
     position = Pos(position)
     if external_id is not None:
@@ -277,23 +241,23 @@ class It(InlineNode[ItSpecDefinedAttributes]):
       ),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class Ph(InlineNode[PhSpecDefinedAttributes]):
+class Ph:
   spec_attributes: PhSpecDefinedAttributes
+  content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Sub],
     association: Literal["p", "f", "b"] | Assoc | None = None,
     external_id: IntOrConvertibleToInt | None = None,
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Ph:
     if association is not None:
       association = Assoc(association)
@@ -305,22 +269,22 @@ class Ph(InlineNode[PhSpecDefinedAttributes]):
       ),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class Hi(InlineNode[HiSpecDefinedAttributes]):
+class Hi:
   spec_attributes: HiSpecDefinedAttributes
+  content: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi],
     external_id: IntOrConvertibleToInt | None = None,
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Hi:
     if external_id is not None:
       external_id = int(external_id)
@@ -328,43 +292,44 @@ class Hi(InlineNode[HiSpecDefinedAttributes]):
       spec_attributes=HiSpecDefinedAttributes(external_id=external_id, kind=kind),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class Sub(InlineNode[SubSpecDefinedAttributes]):
+class Sub:
   spec_attributes: SubSpecDefinedAttributes
+  content: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
 
   @classmethod
   def create(
     cls,
-    content: Iterable[InlineContentItem],
+    content: Iterable[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi],
     original_data_type: str | None = None,
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
-    extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Sub:
     return Sub(
       spec_attributes=SubSpecDefinedAttributes(original_data_type=original_data_type, kind=kind),
       content=list(content),
       extra_attributes={k: v for k, v in (extra_attributes or {}).items()},
-      extra_nodes=list(extra_nodes or []),
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationVariant(StructuralNode[TranslationVariantSpecDefinedAttributes]):
+class TranslationVariant:
   spec_attributes: TranslationVariantSpecDefinedAttributes
+  segment: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
-  segment: list[InlineContentItem] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
 
   @classmethod
   def create(
     cls,
-    language: LanguageCode,
-    original_encoding: Encoding | None = None,
+    language: LanguageCodeString,
+    original_encoding: EncodingString | None = None,
     original_data_type: str | None = None,
     usage_count: IntOrConvertibleToInt | None = None,
     last_used_at: datetime | ISODateString | None = None,
@@ -377,7 +342,7 @@ class TranslationVariant(StructuralNode[TranslationVariantSpecDefinedAttributes]
     original_tm_format: str | None = None,
     notes: Iterable[Note] | None = None,
     props: Iterable[Prop] | None = None,
-    segment: Iterable[InlineContentItem] | None = None,
+    segment: Iterable[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> TranslationVariant:
@@ -417,17 +382,19 @@ class TranslationVariant(StructuralNode[TranslationVariantSpecDefinedAttributes]
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationUnit(StructuralNode[TranslationUnitSpecDefinedAttributes]):
+class TranslationUnit:
   spec_attributes: TranslationUnitSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
   variants: list[TranslationVariant] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
 
   @classmethod
   def create(
     cls,
     translation_unit_id: str | None = None,
-    original_encoding: Encoding | None = None,
+    original_encoding: EncodingString | None = None,
     original_data_type: str | None = None,
     usage_count: IntOrConvertibleToInt | None = None,
     last_used_at: datetime | ISODateString | None = None,
@@ -439,7 +406,7 @@ class TranslationUnit(StructuralNode[TranslationUnitSpecDefinedAttributes]):
     segmentation_type: Segtype | None = None,
     last_modified_by: str | None = None,
     original_tm_format: str | None = None,
-    source_language: LanguageCode | None = None,
+    source_language: LanguageCodeString | None = None,
     notes: Iterable[Note] | None = None,
     props: Iterable[Prop] | None = None,
     variants: Iterable[TranslationVariant] | None = None,
@@ -487,10 +454,12 @@ class TranslationUnit(StructuralNode[TranslationUnitSpecDefinedAttributes]):
 
 
 @dataclass(slots=True, kw_only=True)
-class TranslationMemory(StructuralNode[TranslationMemorySpecDefinedAttributes]):
+class TranslationMemory:
   spec_attributes: TranslationMemorySpecDefinedAttributes
   header: TranslationMemoryHeader
   units: list[TranslationUnit] = field(default_factory=list)
+  extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
+  extra_nodes: list[UnknownNode] = field(default_factory=list)
 
   @classmethod
   def create(
@@ -510,4 +479,11 @@ class TranslationMemory(StructuralNode[TranslationMemorySpecDefinedAttributes]):
     )
 
 
+type StructuralNode = (
+  TranslationMemory | TranslationMemoryHeader | TranslationUnit | TranslationVariant
+)
+type LeafNode = Prop | Note
+type InlineNode = Bpt | Ept | It | Ph | Hi | Sub
 type ContentNode = InlineNode | TranslationVariant
+type AnyNode = StructuralNode | LeafNode | InlineNode
+type InlineContentItem = str | InlineNode | UnknownInlineNode
