@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ast import Sub
 from collections.abc import Callable, Iterable, Iterator
 import re
 from typing import Any, cast
@@ -14,6 +13,7 @@ from hypomnema.domain.nodes import (
   InlineNode,
   It,
   Ph,
+  Sub,
   TranslationVariant,
   UnknownInlineNode,
 )

@@ -254,7 +254,9 @@ class NamespaceHandler:
       uri, localname = _tag[1:].split("}", 1)
       validate_uri(uri)
       validate_ncname(localname)
-      reverse_map = {v: k for k, v in nsmap.items()}
+      reverse_map = {"http://www.w3.org/XML/1998/namespace": "xml"} | {
+        v: k for k, v in nsmap.items()
+      }
       if uri not in reverse_map:
         self._handle_inexistent_uri(uri)
         return None, uri, localname
@@ -262,6 +264,9 @@ class NamespaceHandler:
 
     match _tag.split(":"):
       case [prefix, localname]:
+        if prefix == "xml":
+          validate_ncname(localname)
+          return prefix, "http://www.w3.org/XML/1998/namespace", localname
         if prefix not in nsmap:
           self._handle_inexistent_prefix(prefix)
           return prefix, None, localname
@@ -607,7 +612,12 @@ class XmlBackend[TypeOfBackendElement](ABC):
 
   @abstractmethod
   def to_bytes(
-    self, element: TypeOfBackendElement, encoding: str | None = None, self_closing: bool = False
+    self,
+    element: TypeOfBackendElement,
+    encoding: str | None = None,
+    self_closing: bool = False,
+    *,
+    strip_tail: bool = False,
   ) -> bytes:
     """Serialize element to bytes.
 
@@ -615,6 +625,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
         element: Element to serialize.
         encoding: Character encoding.
         self_closing: Whether to use self-closing tags.
+        strip_tail: Whether to omit the element tail from the serialized payload.
 
     Returns:
         Serialized XML bytes.

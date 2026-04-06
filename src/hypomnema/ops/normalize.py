@@ -17,19 +17,12 @@ from hypomnema.ops import walk
 
 def _with_collapsed_text[T](items: Iterable[T]) -> list[T]:
   result: list[T] = []
-  previous_string: str | None = None
   for item in items:
-    if isinstance(item, str):
-      if previous_string is None:
-        previous_string = item
-        result.append(previous_string)
-        continue
-      else:
-        previous_string += item
-        continue
-    else:
-      result.append(item)
-      previous_string = None
+    if isinstance(item, str) and result and isinstance(result[-1], str):
+      # TODO: mypy limitation, can't infer that both item and result[-1] are str
+      result[-1] += item  # type: ignore[assignment]
+      continue
+    result.append(item)
   return result
 
 

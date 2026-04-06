@@ -32,7 +32,7 @@ class UnknownNodeLoader[T]:
     self.backend = backend
 
   def load(self, element: T) -> UnknownNode:
-    return UnknownNode(payload=self.backend.to_bytes(element))
+    return UnknownNode(payload=self.backend.to_bytes(element, strip_tail=True))
 
 
 class UnknownInlineNodeLoader[T]:
@@ -44,7 +44,7 @@ class UnknownInlineNodeLoader[T]:
     self.backend = backend
 
   def load(self, element: T) -> UnknownInlineNode:
-    return UnknownInlineNode(payload=self.backend.to_bytes(element))
+    return UnknownInlineNode(payload=self.backend.to_bytes(element, strip_tail=True))
 
 
 class XmlLoaderLike[T](Protocol):
@@ -413,6 +413,8 @@ class ItLoader[T](XmlLoader[T]):
             content.append(loader.load(child))  # type: ignore[arg-type]
           else:
             content.append(unknown_inline_loader.load(child))
+      if (tail := self.backend.get_tail(child)) is not None:
+        content.append(tail)
     return It.create(
       content=content, position=position, external_id=external_id, kind=kind, extra_attributes=attrs
     )

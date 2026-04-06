@@ -189,8 +189,28 @@ class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode
       dumper = NoteDumper(self.backend, self.logger, self._overrides)
     elif node_type is TranslationMemoryHeader:
       dumper = TranslationMemoryHeaderDumper(self.backend, self.logger, self._overrides)
+    elif node_type is Bpt:
+      dumper = BptDumper(self.backend, self.logger, self._overrides)
+    elif node_type is Ept:
+      dumper = EptDumper(self.backend, self.logger, self._overrides)
+    elif node_type is It:
+      dumper = ItDumper(self.backend, self.logger, self._overrides)
+    elif node_type is Ph:
+      dumper = PhDumper(self.backend, self.logger, self._overrides)
+    elif node_type is Hi:
+      dumper = HiDumper(self.backend, self.logger, self._overrides)
+    elif node_type is Sub:
+      dumper = SubDumper(self.backend, self.logger, self._overrides)
+    elif node_type is TranslationVariant:
+      dumper = TranslationVariantDumper(self.backend, self.logger, self._overrides)
+    elif node_type is TranslationUnit:
+      dumper = TranslationUnitDumper(self.backend, self.logger, self._overrides)
+    elif node_type is TranslationMemory:
+      dumper = TranslationMemoryDumper(self.backend, self.logger, self._overrides)
     elif node_type is UnknownNode:
       dumper = UnknownNodeDumper(self.backend, self.logger, self._overrides)
+    elif node_type is UnknownInlineNode:
+      dumper = UnknownInlineNodeDumper(self.backend, self.logger, self._overrides)
     else:
       raise ValueError(f"No dumper registered for type {node_type!r}")
 

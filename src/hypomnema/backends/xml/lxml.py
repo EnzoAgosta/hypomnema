@@ -12,6 +12,24 @@ from hypomnema.backends.xml.utils import QNameLike, make_usable_path, normalize_
 class LxmlBackend(XmlBackend[et._Element]):
   __slots__: tuple[str, ...] = tuple()
 
+  def _normalize_attribute_name(self, attribute_name: TagLike) -> str:
+    key = self.normalize_tag_name(attribute_name)
+    prefix, uri, localname = self._namespace_handler.qualify_name(key, nsmap=self.nsmap)
+    match prefix, uri, localname:
+      case None, None, str():
+        return localname
+      case str() | None, str(), str():
+        return f"{{{uri}}}{localname}"
+      case str(), None, str():
+        self._log(
+          self._namespace_handler.policy.inexistent_namespace,
+          "Namespace prefix %r is not registered. Using local attribute name only.",
+          prefix,
+        )
+        return localname
+      case _:
+        raise ValueError("Could not resolve a usable attribute name")
+
   def __init__(
     self,
     logger: Logger | None = None,
@@ -73,21 +91,25 @@ class LxmlBackend(XmlBackend[et._Element]):
   def get_attribute[TypeOfDefault](
     self, element: et._Element, attribute_name: TagLike, *, default: TypeOfDefault | None = None
   ) -> str | TypeOfDefault | None:
-    key = self.normalize_tag_name(attribute_name)
+    key = self._normalize_attribute_name(attribute_name)
     return element.get(key, default)
 
   def set_attribute(
     self, element: et._Element, attribute_name: TagLike, attribute_value: str
   ) -> None:
-    key = self.normalize_tag_name(attribute_name)
+    key = self._normalize_attribute_name(attribute_name)
     element.set(key, attribute_value)
 
   def delete_attribute(self, element: et._Element, attribute_name: TagLike) -> None:
-    key = self.normalize_tag_name(attribute_name)
+    key = self._normalize_attribute_name(attribute_name)
     element.attrib.pop(key, None)
 
   def get_attribute_map(self, element: et._Element) -> dict[str, str]:
-    return {k: v for k, v in element.attrib.items()}
+    attribute_map: dict[str, str] = {}
+    for k, v in element.attrib.items():
+      _, _, localname = self._namespace_handler.qualify_name(k, nsmap=self.nsmap)
+      attribute_map[localname] = v
+    return attribute_map
 
   def get_text(self, element: et._Element) -> str | None:
     return element.text
@@ -135,15 +157,19 @@ class LxmlBackend(XmlBackend[et._Element]):
     element.clear()
 
   def to_bytes(
-    self, element: et._Element, encoding: str | None = None, self_closing: bool = False
+    self,
+    element: et._Element,
+    encoding: str | None = None,
+    self_closing: bool = False,
+    *,
+    strip_tail: bool = False,
   ) -> bytes:
     encoding = normalize_encoding(encoding)
-    if not self_closing:
-      if element.text is None:
-        element = copy(element)
-        element.text = ""
+    if not self_closing and element.text is None:
+      element = copy(element)
+      element.text = ""
 
-    return et.tostring(element, encoding=encoding, xml_declaration=False)
+    return et.tostring(element, encoding=encoding, xml_declaration=False, with_tail=not strip_tail)
 
   def iterparse(
     self,

@@ -6,6 +6,7 @@ and is always available.
 """
 
 from collections.abc import Generator, Iterable, Mapping
+from copy import copy
 from logging import Logger
 from os import PathLike
 from typing import Literal, cast, overload
@@ -239,7 +240,12 @@ class StandardBackend(XmlBackend[et.Element]):
     element.clear()
 
   def to_bytes(
-    self, element: et.Element, encoding: str | None = None, self_closing: bool = False
+    self,
+    element: et.Element,
+    encoding: str | None = None,
+    self_closing: bool = False,
+    *,
+    strip_tail: bool = False,
   ) -> bytes:
     """Serialize element to bytes.
 
@@ -247,11 +253,15 @@ class StandardBackend(XmlBackend[et.Element]):
         element: Element to serialize.
         encoding: Character encoding.
         self_closing: Whether to use self-closing tags.
+        strip_tail: Whether to omit the element tail from the serialized payload.
 
     Returns:
         Serialized XML bytes.
     """
     encoding = normalize_encoding(encoding)
+    if strip_tail and element.tail is not None:
+      element = copy(element)
+      element.tail = None
     return cast(
       bytes,
       et.tostring(

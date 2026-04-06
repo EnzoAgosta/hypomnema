@@ -84,6 +84,7 @@ def walk_content(
         yield from _iter_items_flat(node.content, yield_text, yield_unknown)
       case _:
         raise TypeError(f"Unexpected type {type(node)}")
+    return
 
   stack: list[Iterator[str | InlineNode | UnknownInlineNode]] = [iter(initial)]
   while stack:
