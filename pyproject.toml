@@ -6,7 +6,7 @@ name = "hypomnema"
 version = "0.7"
 authors = [{ name = "Enzo Agosta", email = "agosta.enzowork@gmail.com" }]
 description = "Python library for manipulating, creating and editing tmx files"
-readme = { file = "README.MD", content-type = "text/markdown" }
+readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
 requires-python = ">=3.13"
 classifiers = [

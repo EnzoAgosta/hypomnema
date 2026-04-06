@@ -1,3 +1,9 @@
+"""In-place transformation helpers for inline TMX content.
+
+Every public helper in this module mutates the node it receives and returns the
+same node for convenience.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
@@ -62,6 +68,7 @@ def remove[T: InlineNode](
   predicate: type[InlineNode] | tuple[type[InlineNode], ...] | TagPredicate,
   recurse: bool = False,
 ) -> T:
+  """Remove matching inline nodes from `node` in place."""
   resolved = _as_predicate(predicate)
 
   match node:
@@ -86,6 +93,7 @@ def unwrap[T: InlineNode](
   predicate: type[InlineNode] | tuple[type[InlineNode], ...] | TagPredicate,
   recurse: bool = False,
 ) -> T:
+  """Replace matching inline nodes with their child content in place."""
   resolved = _as_predicate(predicate)
 
   match node:
@@ -134,6 +142,11 @@ def _with_promoted_items[T: InlineContentItem](
 def promote_match[T: ContentNode](
   node: T, pattern: re.Pattern[str], factory: Callable[[re.Match[str]], Any], recurse: bool = False
 ) -> T:
+  """Replace regex matches inside string fragments with promoted inline items.
+
+  Each regex match is replaced with the object returned by `factory`, while the
+  unmatched text on either side stays as plain strings.
+  """
   match node:
     case TranslationVariant():
       node.segment = _with_promoted_items(node.segment, pattern, factory)
@@ -170,6 +183,7 @@ def replace_text[T: ContentNode](
   replacement: str | Callable[[re.Match[str]], str],
   recurse: bool = False,
 ) -> T:
+  """Apply `re.Pattern.sub()` to string fragments in place."""
   match node:
     case TranslationVariant():
       node.segment = _with_replaced_items(node.segment, pattern, replacement)

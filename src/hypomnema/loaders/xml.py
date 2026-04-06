@@ -1,3 +1,15 @@
+"""XML element loaders for the public TMX node model.
+
+The classes in this module translate backend-specific XML elements into the
+typed dataclasses from `hypomnema.domain.nodes`. Unknown structural children
+are preserved as `UnknownNode` payloads and unknown inline children are
+preserved as `UnknownInlineNode` payloads.
+
+`XmlLoader` also exposes a tag-based override registry. Overrides let callers
+swap in custom loaders for known tags or teach the built-in traversal logic how
+to load additional elements while still using the same backend abstraction.
+"""
+
 from abc import ABC, abstractmethod
 from logging import Logger, getLogger
 from typing import Literal, Protocol, overload
@@ -24,6 +36,8 @@ from hypomnema.domain.nodes import (
 
 
 class UnknownNodeLoader[T]:
+  """Load unsupported structural XML into `UnknownNode` payloads."""
+
   logger: Logger
   backend: XmlBackend[T]
 
@@ -32,10 +46,13 @@ class UnknownNodeLoader[T]:
     self.backend = backend
 
   def load(self, element: T) -> UnknownNode:
+    """Serialize an unmodelled child element for later round-tripping."""
     return UnknownNode(payload=self.backend.to_bytes(element, strip_tail=True))
 
 
 class UnknownInlineNodeLoader[T]:
+  """Load unsupported inline XML into `UnknownInlineNode` payloads."""
+
   logger: Logger
   backend: XmlBackend[T]
 
@@ -44,14 +61,24 @@ class UnknownInlineNodeLoader[T]:
     self.backend = backend
 
   def load(self, element: T) -> UnknownInlineNode:
+    """Serialize an unmodelled inline child element for later round-tripping."""
     return UnknownInlineNode(payload=self.backend.to_bytes(element, strip_tail=True))
 
 
 class XmlLoaderLike[T](Protocol):
+  """Protocol implemented by loader objects that can turn one element into a node."""
+
   def load(self, element: T) -> AnyNode | UnknownNode | UnknownInlineNode: ...
 
 
 class XmlLoader[T](ABC):
+  """Base class for XML-to-node loaders.
+
+  Concrete loaders are resolved by TMX tag name. The built-in registry covers
+  the supported TMX elements, while `register_override()` lets callers attach
+  custom loaders for additional tags.
+  """
+
   logger: Logger
   backend: XmlBackend[T]
   _overrides: dict[str, XmlLoaderLike[T]]
@@ -145,13 +172,22 @@ class XmlLoader[T](ABC):
     return loader
 
   def register_override(self, tag: str, loader: XmlLoaderLike[T]) -> None:
+    """Register a custom loader for a tag name.
+
+    Overrides are consulted before the built-in loader cache, so they apply to
+    both direct use and recursive child loading.
+    """
     self._overrides[tag] = loader
 
   @abstractmethod
-  def load(self, element: T) -> AnyNode: ...
+  def load(self, element: T) -> AnyNode:
+    """Convert a backend element into the corresponding domain node."""
+    ...
 
 
 class PropLoader[T](XmlLoader[T]):
+  """Load TMX `<prop>` elements into `Prop` nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Prop:
@@ -183,6 +219,8 @@ class PropLoader[T](XmlLoader[T]):
 
 
 class NoteLoader[T](XmlLoader[T]):
+  """Load TMX `<note>` elements into `Note` nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Note:
@@ -207,6 +245,8 @@ class NoteLoader[T](XmlLoader[T]):
 
 
 class TranslationMemoryHeaderLoader[T](XmlLoader[T]):
+  """Load TMX `<header>` elements into `TranslationMemoryHeader` nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> TranslationMemoryHeader:
@@ -265,6 +305,8 @@ class TranslationMemoryHeaderLoader[T](XmlLoader[T]):
 
 
 class BptLoader[T](XmlLoader[T]):
+  """Load TMX `<bpt>` elements into `Bpt` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Bpt:
@@ -306,6 +348,8 @@ class BptLoader[T](XmlLoader[T]):
 
 
 class SubLoader[T](XmlLoader[T]):
+  """Load TMX `<sub>` elements into `Sub` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Sub:
@@ -351,6 +395,8 @@ class SubLoader[T](XmlLoader[T]):
 
 
 class EptLoader[T](XmlLoader[T]):
+  """Load TMX `<ept>` elements into `Ept` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Ept:
@@ -384,6 +430,8 @@ class EptLoader[T](XmlLoader[T]):
 
 
 class ItLoader[T](XmlLoader[T]):
+  """Load TMX `<it>` elements into `It` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> It:
@@ -421,6 +469,8 @@ class ItLoader[T](XmlLoader[T]):
 
 
 class PhLoader[T](XmlLoader[T]):
+  """Load TMX `<ph>` elements into `Ph` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Ph:
@@ -461,6 +511,8 @@ class PhLoader[T](XmlLoader[T]):
 
 
 class HiLoader[T](XmlLoader[T]):
+  """Load TMX `<hi>` elements into `Hi` inline nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> Hi:
@@ -503,6 +555,14 @@ class HiLoader[T](XmlLoader[T]):
 
 
 class TranslationVariantLoader[T](XmlLoader[T]):
+  """Load TMX `<tuv>` elements into `TranslationVariant` nodes.
+
+  The loader expects exactly one `<seg>` child. Notes, props, extra
+  attributes, and unknown structural children remain attached to the variant,
+  while unknown inline children inside `<seg>` become `UnknownInlineNode`
+  payloads.
+  """
+
   __slots__ = ()
 
   def load(self, element: T) -> TranslationVariant:
@@ -608,6 +668,8 @@ class TranslationVariantLoader[T](XmlLoader[T]):
 
 
 class TranslationUnitLoader[T](XmlLoader[T]):
+  """Load TMX `<tu>` elements into `TranslationUnit` nodes."""
+
   __slots__ = ()
 
   def load(self, element: T) -> TranslationUnit:
@@ -677,6 +739,13 @@ class TranslationUnitLoader[T](XmlLoader[T]):
 
 
 class TranslationMemoryLoader[T](XmlLoader[T]):
+  """Load TMX `<tmx>` documents into `TranslationMemory` nodes.
+
+  The loader requires exactly one `<header>` and one `<body>` child. Unknown
+  top-level children are preserved as `UnknownNode` payloads on the returned
+  translation memory.
+  """
+
   __slots__ = ()
 
   def load(self, element: T) -> TranslationMemory:

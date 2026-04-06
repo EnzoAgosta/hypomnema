@@ -1,3 +1,15 @@
+"""XML dumpers for the public TMX node model.
+
+The classes in this module turn Hypomnema's typed domain nodes back into
+backend-specific XML elements through the shared `XmlBackend` abstraction.
+Unknown structural and inline payloads are re-materialized through the backend
+so preserved XML can round-trip back into output.
+
+`XmlDumper` also exposes a type-based override registry. Overrides let callers
+swap in custom dumpers for supported node classes or extend dumping for custom
+node types used alongside the built-in tree.
+"""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from logging import Logger, getLogger
@@ -27,6 +39,8 @@ DumperType = TypeVar("DumperType", contravariant=True)
 
 
 class XmlDumperLike[BackendType, DumperType](Protocol):
+  """Protocol implemented by objects that can dump a node into one element."""
+
   def dump(self, node: DumperType) -> BackendType: ...
 
 
@@ -49,6 +63,13 @@ type XmlRegisteredDumper[BackendType] = (
 
 
 class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode](ABC):
+  """Base class for node-to-XML dumpers.
+
+  Concrete dumpers are resolved by node type. The built-in registry covers the
+  supported TMX node classes, while `register_override()` lets callers provide
+  custom dumpers that participate in recursive dumping.
+  """
+
   logger: Logger
   backend: XmlBackend[BackendType]
   _overrides: dict[type, XmlRegisteredDumper[BackendType]]
@@ -135,6 +156,11 @@ class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode
     self, node_type: type, dumper: XmlRegisteredDumper[BackendType]
   ) -> None: ...
   def register_override(self, node_type: type, dumper: XmlRegisteredDumper[BackendType]) -> None:
+    """Register a custom dumper for a node class.
+
+    Overrides are consulted before the built-in dumper cache, so nested dumping
+    uses the custom dumper automatically.
+    """
     self._overrides[node_type] = dumper
 
   @overload
@@ -218,7 +244,9 @@ class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode
     return dumper
 
   @abstractmethod
-  def dump(self, node: NodeType) -> BackendType: ...
+  def dump(self, node: NodeType) -> BackendType:
+    """Convert one domain node into a backend XML element."""
+    ...
 
   def _add_extra(self, elem: BackendType, node: NodeType) -> None:
     if hasattr(node, "extra_attributes") and node.extra_attributes:
@@ -264,6 +292,8 @@ class XmlDumper[BackendType, NodeType: AnyNode | UnknownNode | UnknownInlineNode
 
 
 class UnknownNodeDumper[BackendType](XmlDumper[BackendType, UnknownNode]):
+  """Dump preserved structural payloads back into backend elements."""
+
   def dump(self, node: UnknownNode) -> BackendType:
     if not isinstance(node.payload, bytes):
       raise TypeError(
@@ -273,6 +303,8 @@ class UnknownNodeDumper[BackendType](XmlDumper[BackendType, UnknownNode]):
 
 
 class UnknownInlineNodeDumper[BackendType](XmlDumper[BackendType, UnknownInlineNode]):
+  """Dump preserved inline payloads back into backend elements."""
+
   def dump(self, node: UnknownInlineNode) -> BackendType:
     if not isinstance(node.payload, bytes):
       raise TypeError(
@@ -283,6 +315,8 @@ class UnknownInlineNodeDumper[BackendType](XmlDumper[BackendType, UnknownInlineN
 
 
 class PropDumper[BackendType](XmlDumper[BackendType, Prop]):
+  """Dump `Prop` nodes as TMX `<prop>` elements."""
+
   def dump(self, node: Prop) -> BackendType:
     prop_elem = self.backend.create_element(
       tag="prop", attributes={"type": node.spec_attributes.kind}
@@ -299,6 +333,8 @@ class PropDumper[BackendType](XmlDumper[BackendType, Prop]):
 
 
 class NoteDumper[BackendType](XmlDumper[BackendType, Note]):
+  """Dump `Note` nodes as TMX `<note>` elements."""
+
   def dump(self, node: Note) -> BackendType:
     note_elem = self.backend.create_element(tag="note")
     self.backend.set_text(note_elem, node.text)
@@ -313,6 +349,8 @@ class NoteDumper[BackendType](XmlDumper[BackendType, Note]):
 
 
 class TranslationMemoryHeaderDumper[BackendType](XmlDumper[BackendType, TranslationMemoryHeader]):
+  """Dump `TranslationMemoryHeader` nodes as TMX `<header>` elements."""
+
   def dump(self, node: TranslationMemoryHeader) -> BackendType:
     header_elem = self.backend.create_element(
       tag="header",
@@ -349,6 +387,8 @@ class TranslationMemoryHeaderDumper[BackendType](XmlDumper[BackendType, Translat
 
 
 class BptDumper[BackendType](XmlDumper[BackendType, Bpt]):
+  """Dump `Bpt` nodes as TMX `<bpt>` elements."""
+
   def dump(self, node: Bpt) -> BackendType:
     bpt_elem = self.backend.create_element(
       tag="bpt", attributes={"i": str(node.spec_attributes.internal_id)}
@@ -364,6 +404,8 @@ class BptDumper[BackendType](XmlDumper[BackendType, Bpt]):
 
 
 class EptDumper[BackendType](XmlDumper[BackendType, Ept]):
+  """Dump `Ept` nodes as TMX `<ept>` elements."""
+
   def dump(self, node: Ept) -> BackendType:
     ept_elem = self.backend.create_element(
       tag="ept", attributes={"i": str(node.spec_attributes.internal_id)}
@@ -375,6 +417,8 @@ class EptDumper[BackendType](XmlDumper[BackendType, Ept]):
 
 
 class ItDumper[BackendType](XmlDumper[BackendType, It]):
+  """Dump `It` nodes as TMX `<it>` elements."""
+
   def dump(self, node: It) -> BackendType:
     it_elem = self.backend.create_element(
       tag="it", attributes={"pos": node.spec_attributes.position.value}
@@ -390,6 +434,8 @@ class ItDumper[BackendType](XmlDumper[BackendType, It]):
 
 
 class PhDumper[BackendType](XmlDumper[BackendType, Ph]):
+  """Dump `Ph` nodes as TMX `<ph>` elements."""
+
   def dump(self, node: Ph) -> BackendType:
     ph_elem = self.backend.create_element(tag="ph")
     if node.spec_attributes.association is not None:
@@ -405,6 +451,8 @@ class PhDumper[BackendType](XmlDumper[BackendType, Ph]):
 
 
 class HiDumper[BackendType](XmlDumper[BackendType, Hi]):
+  """Dump `Hi` nodes as TMX `<hi>` elements."""
+
   def dump(self, node: Hi) -> BackendType:
     hi_elem = self.backend.create_element(tag="hi")
     if node.spec_attributes.external_id is not None:
@@ -418,6 +466,8 @@ class HiDumper[BackendType](XmlDumper[BackendType, Hi]):
 
 
 class SubDumper[BackendType](XmlDumper[BackendType, Sub]):
+  """Dump `Sub` nodes as TMX `<sub>` elements."""
+
   def dump(self, node: Sub) -> BackendType:
     sub_elem = self.backend.create_element(tag="sub")
     if node.spec_attributes.original_data_type is not None:
@@ -431,6 +481,13 @@ class SubDumper[BackendType](XmlDumper[BackendType, Sub]):
 
 
 class TranslationVariantDumper[BackendType](XmlDumper[BackendType, TranslationVariant]):
+  """Dump `TranslationVariant` nodes as TMX `<tuv>` elements.
+
+  The variant's inline content is always written into a single `<seg>` child.
+  Notes, props, extra attributes, and preserved unknown structural children are
+  emitted on the surrounding `<tuv>` element.
+  """
+
   def dump(self, node: TranslationVariant) -> BackendType:
     variant_elem = self.backend.create_element(tag="tuv")
     if node.spec_attributes.language is not None:
@@ -480,6 +537,8 @@ class TranslationVariantDumper[BackendType](XmlDumper[BackendType, TranslationVa
 
 
 class TranslationUnitDumper[BackendType](XmlDumper[BackendType, TranslationUnit]):
+  """Dump `TranslationUnit` nodes as TMX `<tu>` elements."""
+
   def dump(self, node: TranslationUnit) -> BackendType:
     tu_elem = self.backend.create_element(tag="tu")
     if node.spec_attributes.translation_unit_id is not None:
@@ -531,6 +590,8 @@ class TranslationUnitDumper[BackendType](XmlDumper[BackendType, TranslationUnit]
 
 
 class TranslationMemoryDumper[BackendType](XmlDumper[BackendType, TranslationMemory]):
+  """Dump `TranslationMemory` nodes as TMX `<tmx>` documents."""
+
   def dump(self, node: TranslationMemory) -> BackendType:
     tmx_elem = self.backend.create_element(
       tag="tmx", attributes={"version": node.spec_attributes.version}

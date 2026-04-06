@@ -1,8 +1,7 @@
-"""Standard library xml.etree backend implementation.
+"""`xml.etree.ElementTree` implementation of the shared XML backend contract.
 
-Provides XmlBackend implementation using Python's standard library
-xml.etree.ElementTree module. This backend has no external dependencies
-and is always available.
+`StandardBackend` is the always-available backend with no optional dependency.
+It shares the same public `XmlBackend` contract as `LxmlBackend`.
 """
 
 from collections.abc import Generator, Iterable, Mapping
@@ -20,8 +19,8 @@ class StandardBackend(XmlBackend[et.Element]):
   """XML backend using Python's standard library xml.etree.ElementTree.
 
   This backend provides portable XML parsing without external dependencies.
-  While functional, it is slower than lxml for large files and has
-  less sophisticated namespace handling.
+  While functional, it is slower than `lxml` for large files and has less
+  sophisticated namespace handling.
 
   Args:
       logger: Logger for backend operations.

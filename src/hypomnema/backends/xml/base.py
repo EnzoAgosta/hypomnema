@@ -1,19 +1,12 @@
-"""Abstract base classes for XML backend implementations.
+"""Shared XML backend abstractions.
 
-This module defines the XmlBackend abstract base class and NamespaceHandler
-for abstracting XML parser implementations. The backend abstraction allows
-Hypomnema to work with different XML libraries (stdlib xml.etree, lxml, etc.)
-without code changes.
+This module defines `NamespaceHandler` and the generic `XmlBackend` contract
+used by loaders, dumpers, and tests. Code outside the backend layer should work
+through this interface instead of reading backend-specific element attributes or
+methods directly.
 
-All code outside this module must interact with XML elements only through
-the XmlBackend interface - never access element.tag, element.attrib, etc.
-directly.
-
-Classes:
-    NamespaceHandler: Manages XML namespace prefix-to-URI mappings with
-        policy-driven handling of namespace conflicts and resolution.
-    XmlBackend: Abstract base class defining the XML backend interface.
-        Implementations must provide concrete versions of all abstract methods.
+Concrete backends are expected to provide behavioral parity, not byte-identical
+serialization.
 """
 
 from abc import ABC, abstractmethod
@@ -307,6 +300,8 @@ class XmlBackend[TypeOfBackendElement](ABC):
   Note:
       The generic type parameter TypeOfBackendElement represents the underlying
       XML element type (e.g., xml.etree.ElementTree.Element for StandardBackend).
+      Backends should agree on observable XML behavior even when serializer
+      details differ.
   """
 
   __slots__ = ("_namespace_handler", "logger", "default_encoding")

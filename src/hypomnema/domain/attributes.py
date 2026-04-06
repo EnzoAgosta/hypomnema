@@ -1,3 +1,11 @@
+"""TMX attribute enums, verified-string helpers, and spec-defined dataclasses.
+
+The public aliases in this module describe the shape user code may pass into
+node constructors. The private `_Verified*` subclasses are a static-typing tool
+used internally to mark values that have already crossed the library's current
+validation boundary.
+"""
+
 import codecs
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,7 +38,7 @@ type ISODateString = str
 #   before values flow into internal code.
 #
 # The intended flow is:
-#   1. Public functions accept the wide alias (e.g. `Encoding`, `LanguageCode`).
+#   1. Public functions accept the wide alias (e.g. `EncodingString`, `LanguageCodeString`).
 #   2. A `_verify_*` function validates and narrows the type to the internal subclass.
 #   3. Internal APIs declare the subclass in their signatures, making the validation
 #      requirement explicit and statically checkable.
@@ -49,23 +57,31 @@ class _VerifiedEncoding(str):
 
 
 class _VerifiedLanguageCode(str):
-  """A str that has been verified to be a valid language code via iso639.db."""
+  """A language-code string that has crossed Hypomnema's current boundary check."""
 
   pass
 
 
 def _verify_encoding(encoding: str) -> _VerifiedEncoding:
+  """Validate an encoding name with `codecs.lookup()` and narrow its type."""
   codecs.lookup(encoding)
   return cast(_VerifiedEncoding, encoding)
 
 
 def _verify_language_code(language_code: str) -> _VerifiedLanguageCode:
+  """Narrow a language-code string for internal use.
+
+  The current implementation does not perform standards validation yet; it only
+  marks the boundary between public input aliases and internal verified types.
+  """
   # TODO: fiure out how we want to handle language codes
   return cast(_VerifiedLanguageCode, language_code)
 
 
 @dataclass(slots=True, kw_only=True)
 class SpecDefinedAttributes:
+  """Base class for dataclasses that store TMX spec-defined attributes."""
+
   pass
 
 
@@ -125,6 +141,8 @@ class Segtype(StrEnum):
 
 @dataclass(slots=True, kw_only=True)
 class TranslationMemoryHeaderSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `TranslationMemoryHeader`."""
+
   creation_tool: str
   creation_tool_version: str
   segmentation_type: Segtype
@@ -141,6 +159,8 @@ class TranslationMemoryHeaderSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class PropSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Prop`."""
+
   kind: str
   language: _VerifiedLanguageCode | None = None
   original_encoding: _VerifiedEncoding | None = None
@@ -148,12 +168,16 @@ class PropSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class NoteSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Note`."""
+
   language: _VerifiedLanguageCode | None = None
   original_encoding: _VerifiedEncoding | None = None
 
 
 @dataclass(slots=True, kw_only=True)
 class BptSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Bpt`."""
+
   internal_id: int
   external_id: int | None = None
   kind: str | None = None
@@ -161,17 +185,23 @@ class BptSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class EptSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Ept`."""
+
   internal_id: int
 
 
 @dataclass(slots=True, kw_only=True)
 class HiSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Hi`."""
+
   external_id: int | None = None
   kind: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)
 class ItSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `It`."""
+
   position: Pos
   external_id: int | None = None
   kind: str | None = None
@@ -179,6 +209,8 @@ class ItSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class PhSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Ph`."""
+
   association: Assoc | None = None
   external_id: int | None = None
   kind: str | None = None
@@ -186,12 +218,16 @@ class PhSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class SubSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `Sub`."""
+
   original_data_type: str | None = None
   kind: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)
 class TranslationVariantSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `TranslationVariant`."""
+
   language: _VerifiedLanguageCode
   original_encoding: _VerifiedEncoding | None = None
   original_data_type: str | None = None
@@ -208,6 +244,8 @@ class TranslationVariantSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class TranslationUnitSpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `TranslationUnit`."""
+
   translation_unit_id: str | None = None
   original_encoding: _VerifiedEncoding | None = None
   original_data_type: str | None = None
@@ -226,4 +264,6 @@ class TranslationUnitSpecDefinedAttributes(SpecDefinedAttributes):
 
 @dataclass(slots=True, kw_only=True)
 class TranslationMemorySpecDefinedAttributes(SpecDefinedAttributes):
+  """Spec-defined attributes stored on `TranslationMemory`."""
+
   version: str = "1.4"

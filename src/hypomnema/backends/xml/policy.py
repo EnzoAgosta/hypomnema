@@ -18,7 +18,7 @@ Available Actions:
     DELETE: Delete the problematic element.
 
 Example:
-    >>> from hypomnema.xml.policy import XmlDeserializationPolicy, Behavior, RaiseIgnore
+    >>> from hypomnema.backends.xml.policy import Behavior, RaiseIgnore, XmlDeserializationPolicy
     >>> policy = XmlDeserializationPolicy(
     ...   missing_seg=Behavior(RaiseIgnore.IGNORE), extra_text=Behavior(RaiseIgnore.IGNORE)
     ... )

@@ -1,3 +1,9 @@
+"""In-place normalization helpers for content and attachment lists.
+
+Every public helper in this module mutates the node it receives and returns the
+same node for convenience.
+"""
+
 from typing import Any, Iterable, Literal
 
 from hypomnema.domain.nodes import (
@@ -27,6 +33,7 @@ def _with_collapsed_text[T](items: Iterable[T]) -> list[T]:
 
 
 def collapse_text[T: ContentNode](node: T, recurse: bool = False) -> T:
+  """Merge adjacent string items inside a content-bearing node in place."""
   match node:
     case TranslationVariant():
       node.segment = _with_collapsed_text(node.segment)
@@ -48,6 +55,11 @@ def _without_empty_text[T](items: list[T]) -> list[T]:
 
 
 def remove_empty_text[T: ContentNode](node: T, recurse: bool = False) -> T:
+  """Remove empty string items from a content-bearing node in place.
+
+  This helper only touches the node passed to it. It does not recurse into
+  nested inline nodes, even when `recurse=True` is supplied.
+  """
   match node:
     case TranslationVariant():
       node.segment = _without_empty_text(node.segment)
@@ -84,6 +96,7 @@ def _with_stripped_whitespace[T: Any](
 def strip_whitespace[T: ContentNode](
   node: T, mode: Literal["both", "leading", "trailing"] = "both", recurse: bool = False
 ) -> T:
+  """Strip leading and/or trailing whitespace from edge text fragments in place."""
   match node:
     case TranslationVariant():
       node.segment = _with_stripped_whitespace(node.segment, mode)
@@ -112,6 +125,7 @@ def _deduplicated[T](items: list[T]) -> list[T]:
 def deduplicate_props[T: TranslationVariant | TranslationMemoryHeader | TranslationUnit](
   node: T, recurse: bool = False
 ) -> T:
+  """Remove duplicate `Prop` objects from `node.props` in place."""
   node.props = _deduplicated(node.props)
   if not recurse:
     return node
@@ -124,6 +138,7 @@ def deduplicate_props[T: TranslationVariant | TranslationMemoryHeader | Translat
 def deduplicate_notes[T: TranslationVariant | TranslationMemoryHeader | TranslationUnit](
   node: T, recurse: bool = False
 ) -> T:
+  """Remove duplicate `Note` objects from `node.notes` in place."""
   node.notes = _deduplicated(node.notes)
   if not recurse:
     return node

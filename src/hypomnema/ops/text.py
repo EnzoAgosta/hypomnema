@@ -1,3 +1,5 @@
+"""Read-only text extraction helpers for inline TMX content."""
+
 from collections.abc import Callable, Generator
 import re
 
@@ -12,6 +14,11 @@ def iter_fragments_with_source(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> Generator[tuple[str, FragmentSource], None, None]:
+  """Yield text fragments together with the node that produced each fragment.
+
+  Plain strings are associated with the inline node that owns them. Unknown
+  inline nodes only contribute a fragment when `unknown_formatter` is provided.
+  """
   for fragment in walk.walk_content(node, recurse=False, yield_unknown=True):
     match fragment:
       case UnknownInlineNode():
@@ -33,6 +40,7 @@ def iter_fragments(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> Generator[str, None, None]:
+  """Yield text fragments from an inline node, optionally descending into children."""
   for fragment, _ in iter_fragments_with_source(
     node, recurse=recurse, unknown_formatter=unknown_formatter
   ):
@@ -40,6 +48,7 @@ def iter_fragments(
 
 
 def is_empty(node: InlineNode, recurse: bool = False) -> bool:
+  """Return `True` when no text fragments are available from `node`."""
   return next(iter_fragments(node, recurse=recurse), None) is None
 
 
@@ -49,6 +58,7 @@ def find(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> str | None:
+  """Return the first fragment whose text matches `target`, if any."""
   if isinstance(target, str):
     target = re.compile(target)
 
@@ -64,6 +74,7 @@ def find_iter(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> Generator[str, None, None]:
+  """Yield every fragment whose text matches `target`."""
   if isinstance(target, str):
     target = re.compile(target)
 
@@ -78,6 +89,7 @@ def find_all(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> list[str]:
+  """Collect `find_iter()` results into a list."""
   return list(find_iter(node, target, recurse=recurse, unknown_formatter=unknown_formatter))
 
 
@@ -87,4 +99,5 @@ def join(
   recurse: bool = False,
   unknown_formatter: Callable[[UnknownInlineNode], str] | None = None,
 ) -> str:
+  """Join extracted fragments into one string."""
   return separator.join(iter_fragments(node, recurse=recurse, unknown_formatter=unknown_formatter))

@@ -1,3 +1,15 @@
+"""Typed TMX domain nodes.
+
+This module defines the dataclasses that make up Hypomnema's in-memory TMX
+tree. Public code is expected to build nodes with the `create()` constructors,
+which perform the library's current boundary coercions and copy caller-owned
+iterables into owned lists and dicts.
+
+Unknown XML that does not map to one of these dataclasses is preserved through
+`UnknownNode` and `UnknownInlineNode` payloads so the XML loaders and dumpers
+can round-trip unsupported content.
+"""
+
 from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -36,16 +48,30 @@ type UnknownPayload = object
 
 @dataclass(slots=True, kw_only=True)
 class UnknownInlineNode:
+  """Opaque inline XML preserved inside segment-like content lists.
+
+  For the built-in XML loaders, `payload` is the serialized child element as
+  `bytes`.
+  """
+
   payload: UnknownPayload
 
 
 @dataclass(slots=True, kw_only=True)
 class UnknownNode:
+  """Opaque structural XML preserved on nodes with `extra_nodes`.
+
+  For the built-in XML loaders, `payload` is the serialized child element as
+  `bytes`.
+  """
+
   payload: UnknownPayload
 
 
 @dataclass(slots=True, kw_only=True)
 class Note:
+  """A TMX `<note>` attached to a header, translation unit, or variant."""
+
   spec_attributes: NoteSpecDefinedAttributes
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
   extra_nodes: list[UnknownNode] = field(default_factory=list)
@@ -60,6 +86,7 @@ class Note:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Note:
+    """Build a `Note` and validate its optional encoding and language values."""
     if original_encoding is not None:
       original_encoding = _verify_encoding(original_encoding)
     if language is not None:
@@ -76,6 +103,8 @@ class Note:
 
 @dataclass(slots=True, kw_only=True)
 class Prop:
+  """A TMX `<prop>` attached to a header, translation unit, or variant."""
+
   spec_attributes: PropSpecDefinedAttributes
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
   extra_nodes: list[UnknownNode] = field(default_factory=list)
@@ -91,6 +120,7 @@ class Prop:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> Prop:
+    """Build a `Prop` and validate its optional encoding and language values."""
     if original_encoding is not None:
       original_encoding = _verify_encoding(original_encoding)
     if language is not None:
@@ -107,6 +137,8 @@ class Prop:
 
 @dataclass(slots=True, kw_only=True)
 class TranslationMemoryHeader:
+  """The TMX `<header>` node and its child notes, props, and unknown nodes."""
+
   spec_attributes: TranslationMemoryHeaderSpecDefinedAttributes
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
   extra_nodes: list[UnknownNode] = field(default_factory=list)
@@ -133,6 +165,11 @@ class TranslationMemoryHeader:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> TranslationMemoryHeader:
+    """Build a header node from user-facing values.
+
+    Datetime strings are parsed with `datetime.fromisoformat()`. Enum-like
+    values are coerced to their TMX enum classes.
+    """
     if isinstance(created_at, str):
       created_at = datetime.fromisoformat(created_at)
     if isinstance(last_modified_at, str):
@@ -169,6 +206,8 @@ class TranslationMemoryHeader:
 
 @dataclass(slots=True, kw_only=True)
 class Bpt:
+  """A TMX `<bpt>` paired-begin tag stored inside inline content."""
+
   spec_attributes: BptSpecDefinedAttributes
   content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
@@ -182,6 +221,7 @@ class Bpt:
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> Bpt:
+    """Build a begin paired-tag node and coerce integer-like identifiers."""
     internal_id = int(internal_id)
     if external_id is not None:
       external_id = int(external_id)
@@ -197,6 +237,8 @@ class Bpt:
 
 @dataclass(slots=True, kw_only=True)
 class Ept:
+  """A TMX `<ept>` paired-end tag stored inside inline content."""
+
   spec_attributes: EptSpecDefinedAttributes
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
   content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
@@ -208,6 +250,7 @@ class Ept:
     internal_id: IntOrConvertibleToInt,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> Ept:
+    """Build an end paired-tag node and coerce its internal identifier."""
     internal_id = int(internal_id)
     return Ept(
       spec_attributes=EptSpecDefinedAttributes(internal_id=internal_id),
@@ -218,6 +261,8 @@ class Ept:
 
 @dataclass(slots=True, kw_only=True)
 class It:
+  """A TMX `<it>` isolated tag stored inside inline content."""
+
   spec_attributes: ItSpecDefinedAttributes
   content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
@@ -231,6 +276,7 @@ class It:
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> It:
+    """Build an isolated-tag node and coerce its enum and integer metadata."""
     position = Pos(position)
     if external_id is not None:
       external_id = int(external_id)
@@ -246,6 +292,8 @@ class It:
 
 @dataclass(slots=True, kw_only=True)
 class Ph:
+  """A TMX `<ph>` placeholder node stored inside inline content."""
+
   spec_attributes: PhSpecDefinedAttributes
   content: list[str | UnknownInlineNode | Sub] = field(default_factory=list)
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
@@ -259,6 +307,7 @@ class Ph:
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> Ph:
+    """Build a placeholder node and coerce its optional association metadata."""
     if association is not None:
       association = Assoc(association)
     if external_id is not None:
@@ -274,6 +323,8 @@ class Ph:
 
 @dataclass(slots=True, kw_only=True)
 class Hi:
+  """A TMX `<hi>` inline highlight container."""
+
   spec_attributes: HiSpecDefinedAttributes
   content: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
@@ -286,6 +337,7 @@ class Hi:
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> Hi:
+    """Build a highlight node and copy its inline content into an owned list."""
     if external_id is not None:
       external_id = int(external_id)
     return Hi(
@@ -297,6 +349,12 @@ class Hi:
 
 @dataclass(slots=True, kw_only=True)
 class Sub:
+  """A TMX `<sub>` inline subflow container.
+
+  `Sub` can contain nested inline markup and plain text, but not structural
+  nodes such as notes or translation units.
+  """
+
   spec_attributes: SubSpecDefinedAttributes
   content: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   extra_attributes: dict[str, AttributeValue] = field(default_factory=dict)
@@ -309,6 +367,7 @@ class Sub:
     kind: str | None = None,
     extra_attributes: Mapping[str, AttributeValue] | None = None,
   ) -> Sub:
+    """Build a subflow node and copy its inline content into an owned list."""
     return Sub(
       spec_attributes=SubSpecDefinedAttributes(original_data_type=original_data_type, kind=kind),
       content=list(content),
@@ -318,6 +377,13 @@ class Sub:
 
 @dataclass(slots=True, kw_only=True)
 class TranslationVariant:
+  """A TMX `<tuv>` translation variant.
+
+  The `segment` field stores the inline content of the single `<seg>` child,
+  while notes, props, extra attributes, and unknown extra nodes remain attached
+  to the variant itself.
+  """
+
   spec_attributes: TranslationVariantSpecDefinedAttributes
   segment: list[str | UnknownInlineNode | Bpt | Ept | It | Ph | Hi] = field(default_factory=list)
   notes: list[Note] = field(default_factory=list)
@@ -346,6 +412,13 @@ class TranslationVariant:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> TranslationVariant:
+    """Build a translation variant from user-facing values.
+
+    Datetime strings are parsed with `datetime.fromisoformat()`. Integer-like
+    counters are coerced with `int()`. Language strings pass through the
+    current language-code verifier before being stored in the internal
+    spec-defined attribute dataclass.
+    """
     language = _verify_language_code(language)
     if original_encoding is not None:
       original_encoding = _verify_encoding(original_encoding)
@@ -383,6 +456,8 @@ class TranslationVariant:
 
 @dataclass(slots=True, kw_only=True)
 class TranslationUnit:
+  """A TMX `<tu>` translation unit containing one or more variants."""
+
   spec_attributes: TranslationUnitSpecDefinedAttributes
   notes: list[Note] = field(default_factory=list)
   props: list[Prop] = field(default_factory=list)
@@ -413,6 +488,11 @@ class TranslationUnit:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> TranslationUnit:
+    """Build a translation unit from user-facing values.
+
+    Datetime strings are parsed with `datetime.fromisoformat()`. Enum-like and
+    integer-like metadata is coerced before the node is created.
+    """
     if original_encoding is not None:
       original_encoding = _verify_encoding(original_encoding)
     if usage_count is not None:
@@ -455,6 +535,12 @@ class TranslationUnit:
 
 @dataclass(slots=True, kw_only=True)
 class TranslationMemory:
+  """The root TMX document.
+
+  A translation memory always has a header and may carry translation units,
+  extra attributes, and preserved unknown top-level children.
+  """
+
   spec_attributes: TranslationMemorySpecDefinedAttributes
   header: TranslationMemoryHeader
   units: list[TranslationUnit] = field(default_factory=list)
@@ -470,6 +556,7 @@ class TranslationMemory:
     extra_attributes: Mapping[str, AttributeValue] | None = None,
     extra_nodes: Iterable[UnknownNode] | None = None,
   ) -> TranslationMemory:
+    """Build a translation memory and copy units, attributes, and unknown nodes."""
     return TranslationMemory(
       spec_attributes=TranslationMemorySpecDefinedAttributes(version=version),
       header=header,
@@ -479,6 +566,8 @@ class TranslationMemory:
     )
 
 
+# These aliases are part of the public type-level vocabulary used across the
+# traversal and transformation helpers.
 type StructuralNode = (
   TranslationMemory | TranslationMemoryHeader | TranslationUnit | TranslationVariant
 )
