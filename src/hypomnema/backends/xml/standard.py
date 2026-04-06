@@ -6,12 +6,13 @@ and is always available.
 """
 
 from collections.abc import Generator, Iterable, Mapping
+from logging import Logger
 from os import PathLike
-from typing import Literal, overload
+from typing import Literal, cast, overload
 import xml.etree.ElementTree as et
 
-from hypomnema.xml.backends.base import TagLike, XmlBackend
-from hypomnema.xml.utils import QNameLike, make_usable_path, normalize_encoding
+from hypomnema.backends.xml.base import NamespaceHandler, TagLike, XmlBackend
+from hypomnema.backends.xml.utils import QNameLike, make_usable_path, normalize_encoding
 
 
 class StandardBackend(XmlBackend[et.Element]):
@@ -33,7 +34,13 @@ class StandardBackend(XmlBackend[et.Element]):
 
   __slots__: tuple[str, ...] = tuple()
 
-  def __init__(self, logger=None, default_encoding=None, *, namespace_handler=None):
+  def __init__(
+    self,
+    logger: Logger | None = None,
+    default_encoding: str | None = None,
+    *,
+    namespace_handler: NamespaceHandler | None = None,
+  ) -> None:
     super().__init__(logger, default_encoding, namespace_handler=namespace_handler)
 
   def get_tag(
@@ -153,7 +160,11 @@ class StandardBackend(XmlBackend[et.Element]):
     Returns:
         Mapping of attribute names to values.
     """
-    return {k: v for k, v in element.attrib.items()}
+    attribute_map: dict[str, str] = {}
+    for k, v in element.attrib.items():
+      _, _, localname = self._namespace_handler.qualify_name(k, nsmap=self.nsmap)
+      attribute_map[localname] = v
+    return attribute_map
 
   def get_text(self, element: et.Element) -> str | None:
     """Get text content of element."""
@@ -191,7 +202,7 @@ class StandardBackend(XmlBackend[et.Element]):
       if tag_set is None or child_tag in tag_set:
         yield child
 
-  def parse(self, path: str | PathLike, encoding: str | None = None) -> et.Element:
+  def parse(self, path: str | PathLike[str], encoding: str | None = None) -> et.Element:
     """Parse XML file and return root element.
 
     Args:
@@ -205,7 +216,9 @@ class StandardBackend(XmlBackend[et.Element]):
     source = make_usable_path(path, mkdir=False)
     return et.parse(source, parser=et.XMLParser(encoding=encoding)).getroot()
 
-  def write(self, element: et.Element, path: str | PathLike, encoding: str | None = None) -> None:
+  def write(
+    self, element: et.Element, path: str | PathLike[str], encoding: str | None = None
+  ) -> None:
     """Write XML element to file.
 
     Args:
@@ -239,13 +252,16 @@ class StandardBackend(XmlBackend[et.Element]):
         Serialized XML bytes.
     """
     encoding = normalize_encoding(encoding)
-    return et.tostring(
-      element, encoding=encoding, xml_declaration=False, short_empty_elements=self_closing
+    return cast(
+      bytes,
+      et.tostring(
+        element, encoding=encoding, xml_declaration=False, short_empty_elements=self_closing
+      ),
     )
 
   def iterparse(
     self,
-    path: str | PathLike,
+    path: str | PathLike[str],
     tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Generator[et.Element]:
     """Iteratively parse XML file yielding matching elements.

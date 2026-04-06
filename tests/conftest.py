@@ -1,6 +1,7 @@
 import pytest
 
-from hypomnema.xml.backends import LxmlBackend, StandardBackend
+from hypomnema.backends.xml.lxml import LxmlBackend
+from hypomnema.backends.xml.standard import StandardBackend
 
 
 @pytest.fixture(params=[StandardBackend, LxmlBackend])

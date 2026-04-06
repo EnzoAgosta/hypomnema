@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from hypomnema.base.errors import InvalidNCNameError
-from hypomnema.xml.utils import (
+from hypomnema.backends.xml.errors import InvalidNCNameError
+from hypomnema.backends.xml.utils import (
   QNameLike,
-  _validate_nc_start_char,
   _validate_ncname_char,
+  _validate_nc_start_char,
   make_usable_path,
   normalize_encoding,
   validate_ncname,

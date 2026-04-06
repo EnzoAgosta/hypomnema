@@ -20,8 +20,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Literal, Protocol, overload, runtime_checkable
 
-
-from hypomnema.base.errors import InvalidNCNameError
+from hypomnema.backends.xml.errors import InvalidNCNameError
 
 
 @overload
@@ -61,7 +60,7 @@ def normalize_encoding(encoding: str | None) -> str:
     raise ValueError(f"Unknown encoding: {normalized_encoding}") from e
 
 
-def make_usable_path(path: str | PathLike, *, mkdir: bool = True) -> Path:
+def make_usable_path(path: str | PathLike[str], *, mkdir: bool = True) -> Path:
   """Convert path string to resolved Path object.
 
   Expands user directories (~), resolves to absolute path,
@@ -175,7 +174,7 @@ def validate_ncname(name: str) -> None:
   """
   try:
     if not name:
-      raise ValueError("NCName cannot be empty")
+      raise InvalidNCNameError("NCName cannot be empty")
     _validate_nc_start_char(name[0])
     for ch in name[1:]:
       _validate_ncname_char(ch)

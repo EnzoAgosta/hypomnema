@@ -23,9 +23,9 @@ from io import BufferedIOBase
 from logging import Logger, getLogger
 from os import PathLike
 from pathlib import Path
-from typing import Literal, overload
+from typing import Any, Literal, overload
 
-from hypomnema.base.errors import (
+from hypomnema.backends.xml.errors import (
   ExistingNamespaceError,
   InvalidPolicyActionError,
   MultiplePrefixesError,
@@ -34,8 +34,14 @@ from hypomnema.base.errors import (
   UnregisteredPrefixError,
   UnregisteredURIError,
 )
-from hypomnema.xml.policy import Behavior, NamespacePolicy, RaiseIgnore, RaiseIgnoreOverwrite
-from hypomnema.xml.utils import (
+from hypomnema.backends.xml.policy import (
+  ActionEnum,
+  Behavior,
+  NamespacePolicy,
+  RaiseIgnore,
+  RaiseIgnoreOverwrite,
+)
+from hypomnema.backends.xml.utils import (
   QNameLike,
   make_usable_path,
   normalize_encoding,
@@ -81,7 +87,7 @@ class NamespaceHandler:
     for prefix, uri in (nsmap if nsmap is not None else {}).items():
       self.register_namespace(prefix, uri)
 
-  def _log(self, behavior: Behavior, message: str, *args: object) -> None:
+  def _log[T: ActionEnum](self, behavior: Behavior[T], message: str, *args: object) -> None:
     """Log a message at the behavior's configured log level.
 
     Args:
@@ -327,7 +333,8 @@ class XmlBackend[TypeOfBackendElement](ABC):
     """
     result: set[str] = set()
 
-    def _flatten(x: TagLike | Iterable[TagLike | Iterable]) -> None:
+    # Need to use Any here because of the potentially infinite recursion
+    def _flatten(x: TagLike | Iterable[TagLike | Iterable[Any]]) -> None:
       if isinstance(x, (str, bytes, bytearray, QNameLike)):
         x = self.normalize_tag_name(x)
         result.add(x)
@@ -360,7 +367,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
       case _:
         raise TypeError(f"Unexpected tag type: {type(tag)}")
 
-  def _log(self, behavior: Behavior, message: str, *args: object) -> None:
+  def _log[T: ActionEnum](self, behavior: Behavior[T], message: str, *args: object) -> None:
     """Log a message at the behavior's configured log level.
 
     Args:
@@ -564,7 +571,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
     ...
 
   @abstractmethod
-  def parse(self, path: str | PathLike, encoding: str | None = None) -> TypeOfBackendElement:
+  def parse(self, path: str | PathLike[str], encoding: str | None = None) -> TypeOfBackendElement:
     """Parse XML file and return root element.
 
     Args:
@@ -578,7 +585,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
 
   @abstractmethod
   def write(
-    self, element: TypeOfBackendElement, path: str | PathLike, encoding: str | None = None
+    self, element: TypeOfBackendElement, path: str | PathLike[str], encoding: str | None = None
   ) -> None:
     """Write XML element to file.
 
@@ -617,7 +624,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
   @abstractmethod
   def iterparse(
     self,
-    path: str | PathLike,
+    path: str | PathLike[str],
     tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Iterator[TypeOfBackendElement]:
     """Iteratively parse XML file yielding matching elements.
@@ -672,7 +679,7 @@ class XmlBackend[TypeOfBackendElement](ABC):
 
   def iterwrite(
     self,
-    path: str | PathLike | BufferedIOBase,
+    path: str | PathLike[str] | BufferedIOBase,
     elements: Iterable[TypeOfBackendElement],
     encoding: str | None = None,
     *,

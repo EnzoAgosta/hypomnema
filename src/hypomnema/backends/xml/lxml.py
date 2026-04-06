@@ -1,17 +1,24 @@
 from collections.abc import Generator, Iterable, Mapping
 from copy import copy
+from logging import Logger
 from os import PathLike
 from typing import Literal, overload
 import lxml.etree as et
 
-from hypomnema.xml.backends.base import TagLike, XmlBackend
-from hypomnema.xml.utils import QNameLike, make_usable_path, normalize_encoding
+from hypomnema.backends.xml.base import NamespaceHandler, TagLike, XmlBackend
+from hypomnema.backends.xml.utils import QNameLike, make_usable_path, normalize_encoding
 
 
 class LxmlBackend(XmlBackend[et._Element]):
   __slots__: tuple[str, ...] = tuple()
 
-  def __init__(self, logger=None, default_encoding=None, *, namespace_handler=None) -> None:
+  def __init__(
+    self,
+    logger: Logger | None = None,
+    default_encoding: str | None = None,
+    *,
+    namespace_handler: NamespaceHandler | None = None,
+  ) -> None:
     super().__init__(logger, default_encoding, namespace_handler=namespace_handler)
 
   def get_tag(
@@ -107,14 +114,16 @@ class LxmlBackend(XmlBackend[et._Element]):
       if tag_set is None or child_tag in tag_set:
         yield child
 
-  def parse(self, path: str | PathLike, encoding: str | None = None) -> et._Element:
+  def parse(self, path: str | PathLike[str], encoding: str | None = None) -> et._Element:
     encoding = normalize_encoding(encoding)
     source = make_usable_path(path, mkdir=False)
     return et.parse(
       source, parser=et.XMLParser(encoding=encoding, recover=True, resolve_entities=False)
     ).getroot()
 
-  def write(self, element: et._Element, path: str | PathLike, encoding: str | None = None) -> None:
+  def write(
+    self, element: et._Element, path: str | PathLike[str], encoding: str | None = None
+  ) -> None:
     encoding = normalize_encoding(encoding)
     source = make_usable_path(path, mkdir=True)
     with et.xmlfile(source, encoding=encoding) as f:
@@ -138,7 +147,7 @@ class LxmlBackend(XmlBackend[et._Element]):
 
   def iterparse(
     self,
-    path: str | PathLike,
+    path: str | PathLike[str],
     tag_filter: str | QNameLike | Iterable[str | QNameLike] | None = None,
   ) -> Generator[et._Element]:
     source = make_usable_path(path, mkdir=False)
