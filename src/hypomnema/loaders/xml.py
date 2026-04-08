@@ -197,7 +197,7 @@ class PropLoader[T](XmlLoader[T]):
     text = self.backend.get_text(element)
     if text is None:
       raise ValueError("Missing text content for <prop> element")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       kind = attrs.pop("type")
     except KeyError as e:
@@ -230,7 +230,7 @@ class NoteLoader[T](XmlLoader[T]):
     text = self.backend.get_text(element)
     if text is None:
       raise ValueError("Missing text content for <note> element")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     language = attrs.pop("lang", None)
     encoding = attrs.pop("o-encoding", None)
     unknown_loader = self._get_loader("unknown")
@@ -253,7 +253,7 @@ class TranslationMemoryHeaderLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "header":
       raise ValueError(f"Expected <header> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       creation_tool = attrs.pop("creationtool")
       creation_tool_version = attrs.pop("creationtoolversion")
@@ -313,7 +313,7 @@ class BptLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "bpt":
       raise ValueError(f"Expected <bpt> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       internal_id = attrs.pop("i")
     except KeyError as e:
@@ -356,7 +356,7 @@ class SubLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "sub":
       raise ValueError(f"Expected <sub> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     datatype = attrs.pop("datatype", None)
     kind = attrs.pop("type", None)
     bpt_loader = self._get_loader("bpt")
@@ -403,7 +403,7 @@ class EptLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "ept":
       raise ValueError(f"Expected <ept> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       internal_id = attrs.pop("i")
     except KeyError as e:
@@ -438,7 +438,7 @@ class ItLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "it":
       raise ValueError(f"Expected <it> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       position = Pos(attrs.pop("pos"))
     except KeyError as e:
@@ -477,7 +477,7 @@ class PhLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "ph":
       raise ValueError(f"Expected <ph> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     association = attrs.pop("assoc", None)
     if association is not None:
       association = Assoc(association)
@@ -519,7 +519,7 @@ class HiLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "hi":
       raise ValueError(f"Expected <hi> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     external_id = attrs.pop("x", None)
     kind = attrs.pop("type", None)
     bpt_loader = self._get_loader("bpt")
@@ -572,7 +572,7 @@ class TranslationVariantLoader[T](XmlLoader[T]):
     if (text := self.backend.get_text(element)) is not None:
       if text.strip():
         raise ValueError(f"Text content for <tuv> element must be empty, got {text!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     try:
       language = attrs.pop("lang")
     except KeyError as e:
@@ -676,7 +676,7 @@ class TranslationUnitLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "tu":
       raise ValueError(f"Expected <tu> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     translation_unit_id = attrs.pop("tuid", None)
     original_encoding = attrs.pop("o-encoding", None)
     original_data_type = attrs.pop("datatype", None)
@@ -752,7 +752,7 @@ class TranslationMemoryLoader[T](XmlLoader[T]):
     parent_tag = self.backend.get_tag(element)
     if parent_tag != "tmx":
       raise ValueError(f"Expected <tmx> element but got {parent_tag!r}")
-    attrs = self.backend.get_attribute_map(element)
+    attrs = self.backend.get_attribute_map(element, notation="local")
     version = attrs.pop("version")
     header_loader = self._get_loader("header")
     units_loader = self._get_loader("tu")

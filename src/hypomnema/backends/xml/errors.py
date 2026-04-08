@@ -44,8 +44,6 @@ Note:
 """
 
 from collections.abc import Iterable, Mapping
-from enum import Enum
-from typing import Any
 
 
 class DeserializationError(Exception):
@@ -245,31 +243,6 @@ class MissingDeserializationHandlerError(DeserializationError):
   def __init__(self, obj: str) -> None:
     self.tag = obj
     self.message = f"Missing handler for <{obj}>"
-    super().__init__(self.message)
-
-
-class InvalidPolicyActionError(Exception):
-  """Raised when a policy specifies an invalid action.
-
-  Args:
-      policy_name: The policy setting name.
-      action: The invalid action value.
-      expected: The expected action enum type.
-
-  Attributes:
-      policy_name: Policy setting name.
-      action: Invalid action value.
-      expected: Expected enum type.
-      message: Human-readable error message.
-  """
-
-  def __init__(self, policy_name: str, action: Any, expected: type[Enum]) -> None:
-    self.policy_name = policy_name
-    self.action = action
-    self.expected = expected
-    self.message = (
-      f"Invalid behavior for {policy_name!r}: received {action!r}, expected {expected!r}"
-    )
     super().__init__(self.message)
 
 
