@@ -1,387 +1,190 @@
 # Hypomnema
 
-A type-safe Python library for manipulating, creating, and editing TMX (Translation Memory eXchange) files.
+A type-safe, dependency-free Python library for TMX 1.4B.
 
-[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+Python 3.13+ | MIT License | `mypy --strict` clean
 
-## Overview
+> [!warning]
+> Hypomnema is still in active development and considered alpha quality. The API is subject to change without warning and no backwards compatibility is guaranteed until 1.0.
 
-Hypomnema provides a robust, typed interface for working with TMX files — the industry-standard XML format for exchanging translation memory data between CAT tools and localization platforms.
+## Why this exists
 
-Unlike generic XML libraries that treat TMX as untyped document trees, Hypomnema models the entire TMX specification as Python dataclasses. This gives you:
+TMX is 25 years old. Every CAT tool produces it, but the Python ecosystem has no library that gives you typed, validated, round-trippable TMX without forcing you to think about XML internals. Hypomnema fixes that.
 
-- **Compile-time validation** of TMX structure through type checkers
-- **IDE autocomplete** for all TMX elements and attributes
-- **Runtime safety** with validation of language codes, encodings, and enum values
-- **Round-trip fidelity** — unknown elements are preserved, not discarded
+It is an **infrastructure library** — the pandas of TMX, if you will. It gives you a typed domain model you can reason about, operations you can compose, and backends you can swap. It does not validate your semantics (if your "English" variant contains French, that's your problem), but it does ensure structural validity: every node enforces its invariants at construction time, and unknown elements are preserved as opaque payloads rather than silently dropped.
 
-## Key Features
+What it is **not**: a segmentation engine, a corpus manager, an alignment tool, or an MT pipeline. Those are things you _build with_ Hypomnema, not things it does for you.
 
-- **Fully Typed Domain Model** — Every TMX element (`<tu>`, `<tuv>`, `<seg>`, `<bpt>`, etc.) is a type-safe dataclass
-- **Decoupled Architecture** — Domain, Operations, and Backends are strictly separated layers
-- **Pluggable XML Backends** — Use standard library `xml.etree` or `lxml` without changing your code
-- **Streaming Support** — Memory-efficient iterparse/iterwrite for large TMX files
-- **Extensible** — Register custom loaders/dumpers for non-standard elements
-- **Future-Proof** — Architecture designed to support JSON, CSV, and other formats
+## Philosophy
 
-## Design Philosophy & Architecture
+**Dependency-free by default.** The standard library is all you need. `lxml` is an opt-in extra for performance. The aim is for this to stay true forever — optional dependencies for things like language-code validation may appear, but `pip install hypomnema` will always give you a working library with no transitive deps.
 
-Hypomnema follows a strict three-layer architecture with clear boundaries:
+**Type safety is non-negotiable.** Everything passes `mypy --strict`. We lean hard on modern Python — generic syntax (`E` instead of `TypeVar`), `match`/`case`, union types as `X | Y`, `dataclass(frozen=True, slots=True)`. The floor is 3.13 and will probably become 3.14 before 1.0. There is no reason a new project should carry compatibility baggage for EOL Python releases.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DOMAIN LAYER                         │
-│         (hypomnema.domain.nodes/attributes)             │
-│                                                         │
-│   • Typed dataclasses for all TMX elements              │
-│   • Validation at construction time                     │
-│   • Immutable, slot-based for memory efficiency         │
-└─────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                 OPERATIONS LAYER                        │
-│     (hypomnema.loaders, dumpers, ops.*)                 │
-│                                                         │
-│   • Loaders: XML → Domain objects                       │
-│   • Dumpers: Domain objects → XML                       │
-│   • Transformations: Walk, normalize, extract text      │
-└─────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                   BACKEND LAYER                         │
-│      (hypomnema.backends.xml.standard/lxml)             │
-│                                                         │
-│   • Abstract XmlBackend interface                       │
-│   • Swappable implementations (stdlib, lxml, future)    │
-│   • Handles serialization/deserialization details       │
-└─────────────────────────────────────────────────────────┘
-```
+**Round-trip fidelity.** Anything Hypomnema doesn't model explicitly is captured verbatim as `UnknownNode` / `UnknownInlineNode` payloads (raw bytes). Loading a TMX file and dumping it back produces structurally equivalent output regardless of which backend you pick.
 
-**Why this matters:**
+**Backend parity.** `StandardBackend` and `LxmlBackend` are first-class citizens. They share all namespace logic through pure functions. Every test that touches a backend is parametrized over both. If one can do something the other can't, that's a bug.
 
-- **Swap backends without touching business logic** — Your code works with `TranslationUnit` objects, not XML elements
-- **Add formats without rewrites** — A JSON backend would use the same domain objects
-- **Testability** — Mock backends for unit tests, no file I/O required
-- **Strict boundaries** — Each layer has a single responsibility and well-defined interface
+## Architecture
 
-## Installation
-
-```bash
-# Core library (uses standard library xml.etree)
-pip install hypomnema
-
-# With lxml backend for better performance
-pip install hypomnema[lxml]
-
-# Development dependencies
-pip install hypomnema[dev]
+```text
+┌─────────────────────────────────────────────────────┐
+│                    OPERATIONS                       │
+│         (ops/ — walk, text, transform, normalize)   │
+│         Pure functions on domain nodes. No I/O.     │
+└──────────────────────┬──────────────────────────────┘
+                       │
+              domain nodes only
+              (no backend, no XML)
+                       │
+┌──────────────────────┴──────────────────────────────┐
+│                     DOMAIN                          │
+│        (domain/ — nodes, attributes, value types)   │
+│        Immutable dataclasses. The IR.               │
+└──────────────────────┬──────────────────────────────┘
+                       │
+        domain nodes in, domain nodes out
+                       │
+┌──────────────────────┴──────────────────────────────┐
+│              LOADERS  ←→  DUMPERS                   │
+│            (format-specific entry points)           │
+│                                                     │
+│   XML ── XmlLoader → domain → XmlDumper ── XML      │
+│   JSON ─ JsonLoader → domain → JsonDumper ── JSON   │
+│   CSV  ─ CsvLoader  → domain → CsvDumper  ── CSV    │
+└──────────────────────┬──────────────────────────────┘
+                       │
+backend elements (et.Element, lxml._Element, dict, …)
+                       │
+┌──────────────────────┴──────────────────────────────┐
+│                    BACKENDS                         │
+│    (backends/xml/ — standard, lxml, namespace)      │
+│    XmlBackendLike[E] protocol, XmlBackend[E] ABC    │
+└─────────────────────────────────────────────────────┘
 ```
 
-Requires Python 3.13 or later.
+The domain layer is the intermediate representation. Loaders convert serialized content into domain nodes. Dumpers convert domain nodes back into serialized content. Backends handle the low-level serialization details. Operations run on domain nodes and never touch XML.
 
-## Quick Start
+This separation means you can add a JSON backend (for FastAPI interop), a CSV backend (for spreadsheet workflows), or a Polars backend (for dataframe-scale analysis) without touching a single line of the domain model. The domain is format-agnostic — it's an IR.
+
+## Domain model
+
+Every TMX element is a `dataclass(slots=True)` with two distinct attribute regions:
+
+- **`spec_attributes`** — a separate slotted dataclass holding the fields defined by the TMX 1.4B specification. Typed, validated at construction, IDE-autocompletable.
+- **`extra_attributes`** — a plain `dict[str, str]` for vendor extensions, non-standard attributes, or anything not in the spec. Preserved through round-trips.
+
+This split makes it immediately obvious what's spec and what's vendor contamination. No guessing.
+
+### Attribute renaming
+
+TMX attribute names are mapped to readable Python. Hyphens aren't valid identifiers, and abbreviations hide intent:
+
+| TMX attribute         | Domain name             | Notes                              |
+| --------------------- | ----------------------- | ---------------------------------- |
+| `creationdate`        | `created_at`            | `datetime` — not a string          |
+| `changedate`          | `last_modified_at`      | `datetime`                         |
+| `creationid`          | `created_by`            | It's a user, not an ID             |
+| `changeid`            | `last_modified_by`      | Same                               |
+| `creationtool`        | `creation_tool`         | Readable                           |
+| `creationtoolversion` | `creation_tool_version` | Readable                           |
+| `o-encoding`          | `original_encoding`     | Hyphens → underscores              |
+| `o-tmf`               | `original_tm_format`    | Abbreviation expanded              |
+| `srclang`             | `source_language`       | Readable                           |
+| `adminlang`           | `admin_language`        | Readable                           |
+| `segtype`             | `segmentation_type`     | Readable                           |
+| `datatype`            | `original_data_type`    | It's "original data type" per spec |
+| `tuid`                | `translation_unit_id`   | Readable                           |
+| `usagecount`          | `usage_count`           | Underscore                         |
+| `lastusagedate`       | `last_used_at`          | `datetime`                         |
+| `version`             | `version`               | Kept as-is                         |
+| `lang`                | `language`              | It's a language code               |
+
+Datetime attributes (`created_at`, `last_modified_at`, `last_used_at`) are stored as `datetime` objects, not strings — they're parsed on load and formatted on dump. TMX recommends the `YYYYMMDDTHHMMSSZ` format so that's what Hypomnema dumps to by default.
+
+> [!note]
+> Hypomnema parses datetime via datetime.fromisoformat() and formats to YYYYMMDDTHHMMSSZ regardless of the original format. If you need a different output format, you'll need to override the dumpers for the relevant elements.
+
+### Inline content
+
+Segment content isn't a string — it's a mixed list of `str`, the allowed type of content node for that element (so `Sub` or `Bpt | Ept | It | Ph | Hi | Sub`) and `UnknownInlineNode`. This preserves markup structure so you can query, transform, and round-trip it.
+
+> [!important]
+> The structure of the TMX format means it can technically be infinitely recursive and Hypomnema is the same. Be careful when using recursion and infinite loops. For memory efficiency, Hypomnema uses a stack-based approach to recursion internally.
 
 ```python
-from hypomnema.domain.nodes import (
-    TranslationMemory,
-    TranslationMemoryHeader,
-    TranslationUnit,
-    TranslationVariant,
-)
-from hypomnema.backends.xml.standard import StandardBackend
-from hypomnema.loaders.xml import XmlLoader
-from hypomnema.dumpers.xml import XmlDumper
-
-# Create a backend (could use LxmlBackend instead)
-backend = StandardBackend()
-
-# Load a TMX file
-loader = XmlLoader(backend)
-tmx_element = backend.parse("translation_memory.tmx")
-tm = loader.load(tmx_element)
-
-# Work with typed objects
-# reveal_type(tm)  # TranslationMemory
-# reveal_type(tm.units[0])  # TranslationUnit
-# reveal_type(tm.units[0].variants[0].segment)  # list[str | InlineNode | UnknownInlineNode]
-
-# Modify the translation memory
-tm.units.append(
-    TranslationUnit.create(
-        variants=[
-            TranslationVariant.create(language="en-US", segment=["Hello"]),
-            TranslationVariant.create(language="fr-FR", segment=["Bonjour"]),
-        ]
-    )
-)
-
-# Save back to XML
-dumper = XmlDumper(backend)
-output_element = dumper.dump(tm)
-backend.write(output_element, "updated_memory.tmx")
-```
-
-## Type Safety First
-
-Hypomnema's core philosophy is **type safety at every level**. The entire TMX structure is modeled as precise dataclasses:
-
-### Domain Model Types
-
-```python
-from hypomnema.domain.nodes import (
-    TranslationMemory,      # Root <tmx> element
-    TranslationMemoryHeader, # <header> with metadata
-    TranslationUnit,        # <tu> containing translation pairs
-    TranslationVariant,     # <tuv> with language-specific content
-    Bpt, Ept, It, Ph, Hi,   # Inline markup elements
-    Note, Prop,             # Metadata elements
-)
-
-from hypomnema.domain.attributes import (
-    LanguageCodeString,     # Validated BCP 47 codes
-    EncodingString,         # Validated encoding names
-    Segtype,                # Enum: block | paragraph | sentence | phrase
-)
-```
-
-### Type-Safe Construction
-
-All nodes provide `create()` class methods that validate inputs:
-
-```python
-from hypomnema.domain.nodes import TranslationVariant
-
-# This works — language code is validated
-variant = TranslationVariant.create(
-    language="en-US",  # Validated against BCP 47
-    segment=["Hello, world!"]
-)
-
-# This raises ValueError — invalid language code
-variant = TranslationVariant.create(
-    language="not_a_language",  # Raises: Invalid language code
-    segment=["Hello"]
-)
-
-# This raises ValueError — invalid encoding
-variant = TranslationVariant.create(
-    language="en-US",
-    original_encoding="not_an_encoding",  # Raises: Invalid encoding
-    segment=["Hello"]
-)
-```
-
-### Type-Safe Navigation
-
-The type system guides you through the TMX structure:
-
-```python
-def process_unit(unit: TranslationUnit) -> None:
-    # Type checker knows unit.variants is list[TranslationVariant]
-    for variant in unit.variants:
-        # Type checker knows variant.segment is InlineContent
-        for item in variant.segment:
-            match item:
-                case str():
-                    print(f"Text: {item}")
-                case Bpt() | Ept() | It() | Ph() | Hi():
-                    print(f"Tag: {type(item).__name__}")
-                case UnknownInlineNode():
-                    print("Unknown inline element (preserved)")
-```
-
-### Generic Backend Abstraction
-
-The backend system uses Python 3.12+ generics for type-safe backend swapping:
-
-```python
-from hypomnema.backends.xml.standard import StandardBackend
-from hypomnema.backends.xml.lxml import LxmlBackend
-from hypomnema.loaders.xml import XmlLoader
-
-# Both backends work identically
-std_backend: StandardBackend = StandardBackend()
-lxml_backend: LxmlBackend = LxmlBackend()
-
-# Loader is generic over backend element type
-loader = XmlLoader(std_backend)  # XmlLoader[Element]
-# or
-loader = XmlLoader(lxml_backend)  # XmlLoader[_Element]
-
-# Domain objects are identical regardless of backend
-tm = loader.load(element)  # TranslationMemory either way
-```
-
-### Static Type Checking
-
-Hypomnema is fully typed and validated with mypy:
-
-```python
-# mypy will catch this error at check time:
-tm: TranslationMemory = loader.load(element)
-unit = tm.units[0]
-print(unit.invalid_attribute)  # error: "TranslationUnit" has no attribute "invalid_attribute"
-```
-
-## Common Tasks
-
-### Loading TMX Files
-
-```python
-from hypomnema.backends.xml.standard import StandardBackend
-from hypomnema.loaders.xml import XmlLoader
-
-backend = StandardBackend()
-loader = XmlLoader(backend)
-
-# Parse and load entire file
-tmx_element = backend.parse("memory.tmx")
-tm = loader.load(tmx_element)
-
-# Or stream large files with iterparse
-for tu_element in backend.iterparse("huge_memory.tmx", tag_filter="tu"):
-    unit = loader.load_unit(tu_element)
-    process_unit(unit)
-    backend.clear(tu_element)  # Free memory
-```
-
-### Creating TMX from Scratch
-
-```python
-from datetime import datetime
-from hypomnema.domain.nodes import (
-    TranslationMemory,
-    TranslationMemoryHeader,
-    TranslationUnit,
-    TranslationVariant,
-    Note,
-)
-
-header = TranslationMemoryHeader.create(
-    creation_tool="MyTool",
-    creation_tool_version="1.0",
-    segmentation_type="sentence",
-    original_translation_memory_format="PlainText",
-    admin_language="en-US",
-    source_language="en-US",
-    original_data_type="plaintext",
-    created_at=datetime.now(),
-)
-
-tm = TranslationMemory.create(
-    header=header,
-    units=[
-        TranslationUnit.create(
-            notes=[Note.create(text="Important translation")],
-            variants=[
-                TranslationVariant.create(language="en-US", segment=["Hello"]),
-                TranslationVariant.create(language="de-DE", segment=["Hallo"]),
-            ]
-        )
-    ]
-)
-```
-
-### Extracting Text Content
-
-```python
-from hypomnema.ops.text import join, iter_fragments, find
-
-variant: TranslationVariant = ...
-
-# Get all text as a single string
-text = join(variant, recurse=True)
-
-# Iterate over fragments
-for fragment in iter_fragments(variant, recurse=True):
-    print(fragment)
-
-# Search with regex
-match = find(variant, r"\{[^}]+\}", recurse=True)
-```
-
-### Walking the Tree
-
-```python
-from hypomnema.ops.walk import walk_units, walk_variants, walk_content
-
-# Iterate over all translation units
-for unit in walk_units(tm):
-    print(f"Unit ID: {unit.spec_attributes.translation_unit_id}")
-
-# Iterate over all variants
-for variant in walk_variants(tm):
-    print(f"Language: {variant.spec_attributes.language}")
-
-# Walk inline content (respects nesting)
-for item in walk_content(variant, recurse=True):
+for item in variant.segment:
     match item:
         case str():
-            print(f"Text: {item}")
-        case Bpt():
-            print(f"Begin tag: i={item.spec_attributes.internal_id}")
+            ...
+        case Bpt(spec_attributes=a):
+            print(a.internal_id)
+        case UnknownInlineNode(payload=bytes):
+            # preserved for round-trip, never touched
+            ...
 ```
 
-### Custom Loaders for Non-Standard Elements
+## Type safety
 
-```python
-from hypomnema.loaders.xml import XmlLoader, XmlLoaderLike
+The entire codebase is `mypy --strict` clean. We use modern Python features throughout:
 
-class MyCustomElementLoader(XmlLoaderLike):
-    def load(self, element) -> AnyNode:
-        # Custom loading logic
-        return CustomNode(...)
+- **PEP 695 generics** — `XmlBackend[E]` instead of `XmlBackend(Generic[E])`, `XmlLoader[T]` instead of `TypeVar` boilerplate
+- **`match`/`case`** — for namespace resolution (`namespace.py`), event dispatch in iterparse, and tag dispatch in loaders
+- **Union types as `X | Y`** — no `Optional`, no `Union`
+- **`dataclass(frozen=True, slots=True)`** — immutable, memory-efficient, hashable
+- **Protocol-based backend contract** — `XmlBackendLike[E]` is a `Protocol` so you can mock it, proxy it, or implement it without inheriting. `XmlBackend[E]` is the shared ABC that both concrete backends inherit from.
+- **NamedTuples for resolution results** — `ResolveResult(prefix, uri, localname, clark)` is explicit and typed, not a 4-tuple
 
-backend = StandardBackend()
-loader = XmlLoader(backend)
-loader.register_override("custom-element", MyCustomElementLoader())
+The generic `E` parameter threads the element type through the entire stack — `XmlLoader[et.Element]` vs `XmlLoader[et._Element]` produce the same domain nodes but are statically distinguished at the backend layer.
 
-# Now <custom-element> tags are handled by your loader
-tm = loader.load(backend.parse("file.tmx"))
+## Xml Backend details
+
+### Namespace handling
+
+All namespace logic lives in pure functions in `namespace.py`. No class, no state — just functions that take maps and return results:
+
+```text
+resolve("ns:item", global_nsmap={...}, nsmap={...}) → ResolveResult
+format_notation(result, "local", global_nsmap={...}) → str
+register_namespace(nsmap, "ns", "http://...")  # mutates dict in-place
 ```
 
-### Streaming Large Files
+Resolution uses **successive lookups**: per-call `nsmap` first, then `global_nsmap`. No dict merging, no copies. The `xml` prefix is built-in and always maps to `http://www.w3.org/XML/1998/namespace`.
 
-```python
-from hypomnema.backends.xml.standard import StandardBackend
-from hypomnema.dumpers.xml import XmlDumper
+Clark notation (`{uri}local`) is the internal representation. Prefixed names and default-namespace names are resolved at the boundary. `format_notation` with `"prefixed"` raises `MultiplePrefixesError` if the URI maps to ambiguity in one map.
 
-backend = StandardBackend()
-dumper = XmlDumper(backend)
+### LxmlBackend and element.nsmap
 
-# Generate units on the fly
-def generate_units():
-    for source, target in translation_pairs:
-        yield TranslationUnit.create(
-            variants=[
-                TranslationVariant.create(language="en-US", segment=[source]),
-                TranslationVariant.create(language="fr-FR", segment=[target]),
-            ]
-        )
+Lxml elements expose `element.nsmap` — in-scope namespace declarations. Methods that resolve names (`get_tag`, `get_attribute`, etc.) merge this into a fresh dict alongside the caller's `nsmap` for the resolution call. The caller's dict is never mutated.
 
-# Write incrementally (memory-efficient)
-backend.iterwrite(
-    "output.tmx",
-    (dumper.dump_unit(unit) for unit in generate_units()),
-    write_xml_declaration=True,
-    write_doctype=True,
-)
+### Streaming
+
+`iterparse` yields elements whose closing tag is reached. Unmatched elements are cleared immediately to bound memory. `iterwrite` writes in batches with configurable buffer size, optional root wrapper, XML declaration, and doctype.
+
+### Parsing
+
+Both `parse()` methods use single-pass `iterparse` with `start` and `start-ns` events. `from_bytes` and `from_string` wrap the input in a `BytesIO`/`StringIO` and delegate to `parse()`. No double-scanning.
+
+## What's not here yet
+
+**Language code validation.** `lang` attributes are stored as strings. Proper BCP 47 validation would require an external dependency, which contradicts the zero-dep default. This will likely become an optional extra (`hypomnema[langcode]`) using `langcodes` or similar.
+
+**`<map>` and `<ude>` tags.** These relate to custom character encodings and mapping tables. Supporting them properly would add significant complexity for negligible benefit since virtually no modern TMX file uses them. If broad demand emerges, they can be added.
+
+**`<ut>` tag.** Will be modeled in a coming update.
+
+**TMX versions other than 1.4B.** This is the de facto standard — every tool produces it, virtually no tool produces anything else. TMX 2.0 (which was only ever a Committee Draft) will be considered if it ever becomes real.
+
+## Development
+
+The project uses **uv** for everything — dependency management, virtual environments, testing, linting, type checking, publishing.
+
+```bash
+uv run pytest                  # run tests
+uv run ruff check src/ tests/  # lint
+uv run mypy --strict src/      # type check
 ```
-
-## Contributing
-
-Contributions are welcome! Please see the [GitHub repository](https://github.com/EnzoAgosta/hypomnema) for:
-
-- [Issue Tracker](https://github.com/EnzoAgosta/hypomnema/issues)
-- [Source Code](https://github.com/EnzoAgosta/hypomnema)
 
 ## License
 
-Hypomnema is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-_Hypomnema_ (ὑπόμνημα) — from Ancient Greek: "that which is written underneath," a reminder or memorandum. A fitting name for a translation memory library.
+MIT. See [LICENSE](LICENSE).
