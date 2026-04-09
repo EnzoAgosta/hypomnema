@@ -4,7 +4,7 @@ import pytest
 
 from hypomnema.backends.xml.base import XmlBackend
 from hypomnema.domain.attributes import Assoc, Pos
-from hypomnema.domain.nodes import Bpt, Ept, Hi, It, Ph, Sub, UnknownInlineNode
+from hypomnema.domain.nodes import Bpt, Hi, It, Ph, Sub, UnknownInlineNode
 from hypomnema.loaders.xml import BptLoader, EptLoader, HiLoader, ItLoader, PhLoader, SubLoader
 
 

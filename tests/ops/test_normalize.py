@@ -2,7 +2,6 @@ from hypomnema.domain.nodes import (
   Hi,
   Note,
   Prop,
-  TranslationMemory,
   TranslationMemoryHeader,
   TranslationUnit,
   TranslationVariant,

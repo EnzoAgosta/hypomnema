@@ -96,7 +96,7 @@ wheels = [
 
 [[package]]
 name = "hypomnema"
-version = "0.7"
+version = "0.8"
 source = { editable = "." }
 
 [package.optional-dependencies]
