@@ -27,6 +27,16 @@ class XmlBackendLike[E](Protocol):
   """Protocol defining the public contract for XML backends.
 
   Loaders, dumpers, and external code type against this interface.
+  Concrete backends (:class:`StandardBackend`, :class:`LxmlBackend`) satisfy
+  this protocol.
+
+  The ``nsmap`` parameter on most methods accepts a ``MutableMapping`` so
+  callers can pass a dict that the backend may merge with element-local
+  namespaces (e.g. lxml ``element.nsmap``) without creating copies.
+
+  Path-like parameters accept ``str``, ``PathLike[str]``, ``PathLike[bytes]``,
+  or file-like objects (``BinaryIO`` for binary, ``TextIO | BinaryIO`` for
+  parse/iterparse which support text streams too).
   """
 
   default_encoding: str
@@ -173,10 +183,15 @@ class XmlBackend[E](ABC):
   and streaming I/O. Subclassed by :class:`StandardBackend` and
   :class:`LxmlBackend`.
 
+  The ``global_nsmap`` dict is the backend's persistent namespace registry.
+  Per-call ``nsmap`` arguments are merged at resolution time via successive
+  lookup (nsmap first, then global_nsmap), never by mutating the caller's dict.
+
   Args:
       default_encoding: Default character encoding (keyword-only).
       logger: Logger for backend operations.
-      global_nsmap: Initial namespace mappings.
+      global_nsmap: Initial namespace mappings, validated via
+          :func:`~hypomnema.backends.xml.namespace.register_namespace`.
   """
 
   __slots__ = ("_global_nsmap", "logger", "default_encoding")

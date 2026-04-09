@@ -1,8 +1,16 @@
 """`lxml.etree` implementation of the shared XML backend contract.
 
-`LxmlBackend` provides the same public `XmlBackend` interface as the standard
-library backend while using `lxml`'s parser and serializer primitives under the
-covers.
+`LxmlBackend` provides the same public :class:`XmlBackend` interface as the
+standard library backend while using `lxml`'s parser and serializer primitives
+under the covers.
+
+Parsing uses a single-pass ``iterparse`` with ``start`` and ``start-ns``
+events, collecting namespace declarations as they are encountered. Name
+resolution uses successive lookup — per-call ``nsmap`` first, then
+``global_nsmap`` — via :func:`resolve` and :func:`format_notation`. Where
+relevant, the element's own ``nsmap`` attribute is merged into a fresh dict
+(non-mutating) so lxml-specific namespace declarations are visible to the
+resolution layer.
 """
 
 from collections.abc import Generator, Iterable, Mapping, MutableMapping
@@ -21,8 +29,13 @@ from hypomnema.backends.xml.utils import normalize_encoding
 class LxmlBackend(XmlBackend[et._Element]):
   """XML backend built on `lxml.etree`.
 
-  This backend keeps the same behavioral contract as `StandardBackend` but uses
-  `lxml`'s element type, parser configuration, and streaming writer.
+  This backend keeps the same behavioral contract as :class:`StandardBackend`
+  but uses `lxml`'s element type, parser configuration, and streaming writer.
+
+  Where lxml exposes per-element namespace maps (``element.nsmap``), this
+  backend merges them into a fresh dict alongside the caller-provided ``nsmap``
+  so that prefix resolution sees in-scope declarations without mutating the
+  caller's dict.
 
   Args:
       default_encoding: Default character encoding.
@@ -48,6 +61,11 @@ class LxmlBackend(XmlBackend[et._Element]):
     notation: Literal["qualified", "local", "prefixed"] = "qualified",
     nsmap: MutableMapping[str, str] | None = None,
   ) -> str:
+    """Return the element's tag in the requested notation.
+
+    Merges ``element.nsmap`` into the resolution map so lxml-specific
+    namespace declarations are visible.
+    """
     tag = str(element.tag)
     element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
     merged_nsmap: MutableMapping[str, str] = (
@@ -65,6 +83,11 @@ class LxmlBackend(XmlBackend[et._Element]):
     *,
     nsmap: MutableMapping[str, str] | None = None,
   ) -> et._Element:
+    """Create an ``lxml.etree._Element`` with names resolved to Clark notation.
+
+    If the resolved tag carries a prefix and URI, an lxml ``nsmap`` is passed
+    to the element constructor so lxml records the namespace declaration.
+    """
     if isinstance(tag, bytes):
       tag = tag.decode(self.default_encoding)
     result = resolve(tag, global_nsmap=self._global_nsmap, nsmap=nsmap)
@@ -79,6 +102,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     return et.Element(result.clark, attrib=resolved_attribs)
 
   def append_child(self, parent: et._Element, child: et._Element) -> None:
+    """Append *child* as a subelement of *parent*."""
     parent.append(child)
 
   @overload
@@ -102,6 +126,10 @@ class LxmlBackend(XmlBackend[et._Element]):
     default: D | None = None,
     nsmap: MutableMapping[str, str] | None = None,
   ) -> str | D | None:
+    """Return the value of attribute *name*, or *default* if missing.
+
+    Merges ``element.nsmap`` into the resolution map.
+    """
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
     element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
@@ -119,6 +147,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     *,
     nsmap: MutableMapping[str, str] | None = None,
   ) -> None:
+    """Set attribute *name* to *value*, merging ``element.nsmap`` for resolution."""
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
     element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
@@ -131,6 +160,7 @@ class LxmlBackend(XmlBackend[et._Element]):
   def delete_attribute(
     self, element: et._Element, name: str | bytes, *, nsmap: MutableMapping[str, str] | None = None
   ) -> None:
+    """Remove attribute *name* if it exists, merging ``element.nsmap`` for resolution."""
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
     element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
@@ -147,6 +177,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     notation: Literal["qualified", "local", "prefixed"] = "qualified",
     nsmap: MutableMapping[str, str] | None = None,
   ) -> dict[str, str]:
+    """Return all attributes as ``{formatted_name: value}``, merging ``element.nsmap``."""
     element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
     merged_nsmap: MutableMapping[str, str] = (
       {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
@@ -157,15 +188,19 @@ class LxmlBackend(XmlBackend[et._Element]):
     }
 
   def get_text(self, element: et._Element) -> str | None:
+    """Return the text content of *element*, or ``None``."""
     return element.text
 
   def set_text(self, element: et._Element, text: str | None) -> None:
+    """Set the text content of *element*."""
     element.text = text
 
   def get_tail(self, element: et._Element) -> str | None:
+    """Return the tail text of *element*, or ``None``."""
     return element.tail
 
   def set_tail(self, element: et._Element, tail: str | None) -> None:
+    """Set the tail text of *element*."""
     element.tail = tail
 
   def iter_children(
@@ -175,6 +210,11 @@ class LxmlBackend(XmlBackend[et._Element]):
     tag_filter: str | bytes | Iterable[str | bytes] | None = None,
     nsmap: MutableMapping[str, str] | None = None,
   ) -> Generator[et._Element]:
+    """Yield direct children of *element*, optionally filtered by *tag_filter*.
+
+    When *tag_filter* is not None, ``element.nsmap`` is merged into the
+    namespace resolution map so lxml-specific declarations are visible.
+    """
     if not len(element):
       return
     if tag_filter is not None:
@@ -198,6 +238,12 @@ class LxmlBackend(XmlBackend[et._Element]):
     nsmap: MutableMapping[str, str] | None = None,
     populate_nsmap: bool = False,
   ) -> et.Element:
+    """Parse an XML document from *path* and return the root element.
+
+    Uses a single-pass ``iterparse``. If *populate_nsmap* is True,
+    encountered namespace declarations are registered into the backend's
+    ``global_nsmap``.
+    """
     collected_ns: dict[str, str] = {}
     root: et.Element | None = None
     events: tuple[Literal["start", "start-ns"], ...]
@@ -226,6 +272,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     nsmap: MutableMapping[str, str] | None = None,
     populate_nsmap: bool = False,
   ) -> et.Element:
+    """Parse an XML document from a ``bytes`` object via :meth:`parse`."""
     enc = normalize_encoding(encoding) if encoding is not None else self.default_encoding
     fake_file = BytesIO(data)
     return self.parse(fake_file, encoding=enc, nsmap=nsmap, populate_nsmap=populate_nsmap)
@@ -238,6 +285,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     nsmap: MutableMapping[str, str] | None = None,
     populate_nsmap: bool = False,
   ) -> et.Element:
+    """Parse an XML document from a ``str`` via :meth:`parse`."""
     enc = normalize_encoding(encoding) if encoding is not None else self.default_encoding
     return self.parse(
       BytesIO(data.encode(enc)), encoding=enc, nsmap=nsmap, populate_nsmap=populate_nsmap
@@ -251,6 +299,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     encoding: str | None = None,
     doctype: str | None = "<!DOCTYPE tmx SYSTEM 'tmx14.dtd'>",
   ) -> None:
+    """Write *element* to *path* as an XML document via :meth:`iterwrite`."""
     enc = normalize_encoding(encoding) if encoding is not None else self.default_encoding
     self.iterwrite(
       path,
@@ -262,6 +311,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     )
 
   def clear(self, element: et.Element) -> None:
+    """Remove all children, attributes, and text from *element*."""
     element.clear()
 
   def to_bytes(
@@ -272,7 +322,18 @@ class LxmlBackend(XmlBackend[et._Element]):
     self_closing: bool = False,
     strip_tail: bool = False,
   ) -> bytes:
+    """Serialize *element* to bytes.
+
+    Args:
+        element: The element to serialize.
+        encoding: Character encoding (defaults to ``default_encoding``).
+        self_closing: If True, empty elements render as ``<tag/>``.
+        strip_tail: If True, remove tail text before serializing.
+    """
     enc = normalize_encoding(encoding) if encoding is not None else self.default_encoding
+    if strip_tail and element.tail is not None:
+      element = copy(element)
+      element.tail = None
     if not self_closing and element.text is None:
       element = copy(element)
       element.text = ""
@@ -281,13 +342,19 @@ class LxmlBackend(XmlBackend[et._Element]):
   def to_string(
     self, element: et.Element, *, self_closing: bool = False, strip_tail: bool = False
   ) -> str:
+    """Serialize *element* to a Unicode string (encoding ``"unicode"``).
+
+    Args:
+        element: The element to serialize.
+        self_closing: If True, empty elements render as ``<tag/>``.
+        strip_tail: If True, remove tail text before serializing.
+    """
     if strip_tail and element.tail is not None:
       element = copy(element)
       element.tail = None
     if not self_closing and element.text is None:
       element = copy(element)
       element.text = ""
-    # for some reason mypy thinks lxml returns bytes when it should return str if encoding="unicode"
     return cast(str, et.tostring(element, encoding="unicode", xml_declaration=False))
 
   def iterparse(
@@ -298,6 +365,15 @@ class LxmlBackend(XmlBackend[et._Element]):
     nsmap: MutableMapping[str, str] | None = None,
     populate_nsmap: bool = False,
   ) -> Generator[et.Element]:
+    """Incrementally parse *path*, yielding elements matching *tag_filter*.
+
+    Uses a single-pass ``iterparse`` with ``start``, ``end``, and
+    ``start-ns`` events. Elements whose closing tag is reached while no
+    ancestor is pending are cleared to keep memory bounded.
+
+    If *populate_nsmap* is True, encountered namespace declarations are
+    registered into the backend's ``global_nsmap``.
+    """
     if tag_filter is not None:
       tag_set = self._resolve_tag_filter(tag_filter, nsmap)
     else:
@@ -334,6 +410,7 @@ class LxmlBackend(XmlBackend[et._Element]):
   def _resolve_tag_filter(
     self, tag_filter: str | bytes | Iterable[str | bytes], nsmap: MutableMapping[str, str] | None
   ) -> set[str]:
+    """Convert a tag filter specification to a set of Clark-notation tag names."""
     result: set[str] = set()
     if isinstance(tag_filter, bytes):
       result.add(

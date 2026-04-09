@@ -1,10 +1,25 @@
 """Pure functions for XML namespace handling.
 
 This module provides namespace registration, deregistration, resolution, and
-formatting using Clark notation ({uri}local) as the internal representation.
+formatting using Clark notation (``{uri}local``) as the internal representation.
 
-Registration validates NCNames and URIs. Resolution and formatting are fast
-hot paths that do not re-validate.
+The public API consists of:
+
+- :func:`register_namespace` / :func:`deregister_prefix` / :func:`deregister_uri`
+  for managing prefix↔URI mappings in a dict.
+- :func:`resolve` for turning a prefixed or Clark-notation name into a
+  :class:`ResolveResult` with all four components (prefix, uri, localname, clark).
+- :func:`format_notation` for converting a resolved name or Clark string into
+  ``"qualified"``, ``"local"``, or ``"prefixed"`` output.
+
+All resolution and formatting functions perform successive lookups — the
+per-call *nsmap* is consulted first, then the *global_nsmap* — rather than
+merging dicts. The ``"xml"`` prefix is a built-in that always maps to
+``XML_NS_URI`` regardless of the maps.
+
+Registration validates NCNames and URIs via :func:`.validate_ncname` and
+:func:`.validate_uri`. Resolution and formatting are fast hot paths that do
+not re-validate.
 """
 
 from collections.abc import Mapping
@@ -25,6 +40,16 @@ XML_NS_PREFIX = "xml"
 
 
 class ResolveResult(NamedTuple):
+  """Result of resolving an XML name via :func:`resolve`.
+
+  Attributes:
+      prefix: Namespace prefix, or ``None`` for bare/local names. ``""`` for
+          the default namespace (``xmlns="..."``).
+      uri: Namespace URI, or ``None`` for un-namespaced names.
+      localname: The local part of the name (after any prefix or URI).
+      clark: Clark notation form (``{uri}local`` or bare ``local``).
+  """
+
   prefix: str | None
   uri: str | None
   localname: str
@@ -89,7 +114,11 @@ def deregister_uri(nsmap: dict[str, str], uri: str) -> None:
 def _lookup_ns(
   prefix: str, *, global_nsmap: Mapping[str, str], nsmap: Mapping[str, str] | None
 ) -> str | None:
-  """Look up a prefix in nsmap first, then global_nsmap. Returns None if not found."""
+  """Look up a prefix in *nsmap* first, then *global_nsmap*.
+
+  Returns the URI string if found, or ``None`` if the prefix is not
+  registered in either map.
+  """
   if nsmap is not None and prefix in nsmap:
     return nsmap[prefix]
   if prefix in global_nsmap:
@@ -100,7 +129,11 @@ def _lookup_ns(
 def _lookup_reverse_ns(
   uri: str, *, global_nsmap: Mapping[str, str], nsmap: Mapping[str, str] | None
 ) -> str | None:
-  """Look up a URI in nsmap first, then global_nsmap. Returns the prefix or None."""
+  """Look up a URI in *nsmap* first, then *global_nsmap*.
+
+  Returns the first matching prefix string, or ``None`` if the URI is
+  not found in either map.
+  """
   if nsmap is not None:
     for prefix, mapped_uri in nsmap.items():
       if mapped_uri == uri:
@@ -114,11 +147,12 @@ def _lookup_reverse_ns(
 def _lookup_prefix_for_uri(
   uri: str, *, global_nsmap: Mapping[str, str], nsmap: Mapping[str, str] | None
 ) -> str:
-  """Look up the prefix for a URI with successive lookup and ambiguity checking.
+  """Look up the prefix for a URI using successive lookup and ambiguity checking.
 
-  Searches nsmap first, then global_nsmap. Raises MultiplePrefixesError
-  if multiple prefixes in the same map map to the URI. Raises
-  UnregisteredURIError if the URI is not found in either map.
+  Searches *nsmap* first. If not found there, searches *global_nsmap*.
+  Within each map, raises :class:`MultiplePrefixesError` if more than
+  one prefix maps to the same URI. Raises :class:`UnregisteredURIError`
+  if the URI is not found in either map.
   """
   if nsmap is not None:
     prefixes = [prefix for prefix, mapped_uri in nsmap.items() if mapped_uri == uri]
@@ -136,12 +170,21 @@ def _lookup_prefix_for_uri(
 
 
 def _parse_name(name: str) -> tuple[str | None, str | None, str]:
-  """Parse a name string into (prefix, uri, localname) parts.
+  """Parse a name string into ``(prefix, uri, localname)`` parts.
 
-  Accepts Clark notation ({uri}local), prefixed (prefix:local), or bare local names.
-  Returns (None, None, localname) for bare names.
-  Returns (None, uri, localname) for Clark notation (prefix not yet resolved).
-  Returns (prefix, None, localname) for prefixed names (uri not yet resolved).
+  Accepts Clark notation (``{uri}local``), prefixed (``prefix:local``),
+  default-namespace prefixed (``:local``), or bare local names.
+
+  Returns:
+      ``(None, None, localname)`` for bare names.
+      ``(None, uri, localname)`` for Clark notation (prefix not yet resolved).
+      ``(prefix, None, localname)`` for prefixed names (uri not yet resolved).
+      ``("", None, localname)`` for default-namespace prefixed names.
+
+  Raises:
+      ValueError: On empty strings, malformed Clark notation, or empty
+          localnames.
+      MultiplePrefixesError: On names with more than one colon.
   """
   if not name:
     raise ValueError("Name cannot be empty")
@@ -171,19 +214,31 @@ def _parse_name(name: str) -> tuple[str | None, str | None, str]:
 def resolve(
   name: str, *, global_nsmap: Mapping[str, str], nsmap: Mapping[str, str] | None = None
 ) -> ResolveResult:
-  """Resolve a name into (prefix, uri, localname, clark) parts.
+  """Resolve an XML name into its component parts.
 
-  Accepts: ``{uri}local``, ``prefix:local``, or bare ``local``.
-  Looks up prefixes in *nsmap* first, then *global_nsmap*.
-  Built-in: ``"xml"`` prefix always maps to ``XML_NS_URI``.
+  Accepts Clark notation (``{uri}local``), prefixed names (``prefix:local``),
+  default-namespace names (``:local``), and bare local names (``local``).
+
+  For prefixed names, the prefix is looked up in *nsmap* first, then
+  *global_nsmap*. For Clark notation, the URI is reverse-resolved to a
+  prefix via the same successive lookup. The ``"xml"`` prefix is a
+  built-in that always maps to ``http://www.w3.org/XML/1998/namespace``
+  regardless of the current namespace map.
+
+  Args:
+      name: The name to resolve.
+      global_nsmap: The global (fallback) namespace prefix→URI map.
+      nsmap: An optional per-call namespace map, consulted before
+          *global_nsmap*.
 
   Returns:
-    A :class:`ResolveResult` named tuple.
+      A :class:`ResolveResult` named tuple.
 
   Raises:
-    UnregisteredPrefixError: On unknown prefix.
-    MultiplePrefixesError: On names with multiple colons.
-    ValueError: On malformed names.
+      UnregisteredPrefixError: On unknown prefix (including empty prefix
+          for the default namespace when ``""`` is not in any map).
+      MultiplePrefixesError: On names with more than one colon.
+      ValueError: On malformed names.
   """
   prefix, uri, localname = _parse_name(name)
 
@@ -223,17 +278,36 @@ def format_notation(
   global_nsmap: Mapping[str, str],
   nsmap: Mapping[str, str] | None = None,
 ) -> str:
-  """Convert a resolved name or Clark notation string to requested output format.
+  """Convert a resolved name or Clark notation string to the requested format.
 
-  ``"qualified"`` → ``{uri}local`` or ``local`` (passthrough)
-  ``"local"``     → ``local`` (strip namespace, even if namespaced)
-  ``"prefixed"``  → ``prefix:local`` or ``local`` (raises
-    :class:`UnregisteredURIError` if URI unknown, :class:`MultiplePrefixesError`
-    if multiple prefixes map to the same URI in one map)
+  If *result* is a string, it is first resolved via :func:`resolve`.
 
-  For plain local names (no namespace), all three notations return the same string.
+  Notations:
 
-  Uses successive lookups: *nsmap* first, then *global_nsmap*.
+      ``"qualified"`` → ``{uri}local`` or bare ``local`` (passthrough).
+      ``"local"``     → ``local`` (strip namespace, even if namespaced).
+      ``"prefixed"``  → ``prefix:local``. Uses successive lookup
+          (*nsmap* first, then *global_nsmap*) and raises
+          :class:`UnregisteredURIError` if the URI is not found, or
+          :class:`MultiplePrefixesError` if multiple prefixes in the same
+          map map to the URI. For plain local names (no namespace), returns
+          the localname without a colon.
+
+  For plain local names (no namespace), all three notations return the
+  same string.
+
+  Args:
+      result: A :class:`ResolveResult` or a Clark notation string.
+      notation: The desired output format.
+      global_nsmap: The global (fallback) namespace prefix→URI map.
+      nsmap: An optional per-call namespace map, consulted before
+          *global_nsmap*.
+
+  Raises:
+      UnregisteredURIError: On ``"prefixed"`` notation when the URI is
+          not in any map.
+      MultiplePrefixesError: On ``"prefixed"`` notation when multiple
+          prefixes in the same map map to the URI.
   """
   if isinstance(result, str):
     result = resolve(result, global_nsmap=global_nsmap, nsmap=nsmap)
