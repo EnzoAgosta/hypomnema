@@ -23,7 +23,7 @@ def parse_payload[T](backend: XmlBackend[T], tmp_path: Path, filename: str, payl
 
 def load_minimal_unit(backend: XmlBackend[object], tmp_path: Path) -> TranslationUnit:
   element = parse_xml(
-    backend, tmp_path, "unit-minimal.xml", '<tu><tuv lang="en"><seg>Hello</seg></tuv></tu>'
+    backend, tmp_path, "unit-minimal.xml", '<tu><tuv xml:lang="en"><seg>Hello</seg></tuv></tu>'
   )
   return TranslationUnitLoader(backend).load(element)
 
@@ -42,8 +42,8 @@ def load_rich_unit(backend: XmlBackend[object], tmp_path: Path) -> TranslationUn
       "<note>unit note</note>"
       '<prop type="domain">finance</prop>'
       '<extra-unit kind="opaque">keep me</extra-unit>'
-      '<tuv lang="en"><seg>Source</seg></tuv>'
-      '<tuv lang="fr"><seg>Cible</seg></tuv>'
+      '<tuv xml:lang="en"><seg>Source</seg></tuv>'
+      '<tuv xml:lang="fr"><seg>Cible</seg></tuv>'
       "</tu>"
     ),
   )
@@ -159,7 +159,7 @@ def test_unit_loader_preserves_unknown_child_payload_tag(
 
 def test_unit_loader_rejects_wrong_tag(backend: XmlBackend[object], tmp_path: Path) -> None:
   element = parse_xml(
-    backend, tmp_path, "unit-wrong-tag.xml", '<tuv lang="en"><seg>Hello</seg></tuv>'
+    backend, tmp_path, "unit-wrong-tag.xml", '<tuv xml:lang="en"><seg>Hello</seg></tuv>'
   )
 
   with pytest.raises(ValueError, match="Expected <tu> element"):

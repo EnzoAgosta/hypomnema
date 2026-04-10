@@ -23,7 +23,7 @@ def parse_payload[T](backend: XmlBackend[T], tmp_path: Path, filename: str, payl
 
 def load_minimal_variant(backend: XmlBackend[object], tmp_path: Path) -> TranslationVariant:
   element = parse_xml(
-    backend, tmp_path, "variant-minimal.xml", '<tuv lang="en"><seg>Hello world</seg></tuv>'
+    backend, tmp_path, "variant-minimal.xml", '<tuv xml:lang="en"><seg>Hello world</seg></tuv>'
   )
   return TranslationVariantLoader(backend).load(element)
 
@@ -34,12 +34,12 @@ def load_rich_variant(backend: XmlBackend[object], tmp_path: Path) -> Translatio
     tmp_path,
     "variant-rich.xml",
     (
-      '<tuv lang="de" o-encoding="utf-8" datatype="html" usagecount="7" '
+      '<tuv xml:lang="de" o-encoding="utf-8" datatype="html" usagecount="7" '
       'lastusagedate="2024-03-04T05:06:07" creationtool="tool" '
       'creationtoolversion="2.0" creationdate="2024-03-01T01:02:03" '
       'creationid="creator" changedate="2024-03-05T06:07:08" '
       'changeid="modifier" o-tmf="legacy" custom="value">'
-      '<note lang="fr">note</note>'
+      '<note xml:lang="fr">note</note>'
       '<prop type="domain">billing</prop>'
       '<extra-top flag="1">keep me</extra-top>'
       '<seg>lead<ph assoc="b" x="2" type="fmt">inner<sub datatype="xml">sub</sub>tail</ph>'
@@ -240,7 +240,7 @@ def test_variant_loader_allows_whitespace_outside_seg(
   backend: XmlBackend[object], tmp_path: Path
 ) -> None:
   element = parse_xml(
-    backend, tmp_path, "variant-whitespace.xml", '<tuv lang="en">  <seg>Hello</seg></tuv>'
+    backend, tmp_path, "variant-whitespace.xml", '<tuv xml:lang="en">  <seg>Hello</seg></tuv>'
   )
 
   assert TranslationVariantLoader(backend).load(element).segment == ["Hello"]
@@ -250,7 +250,7 @@ def test_variant_loader_rejects_non_whitespace_text_outside_seg(
   backend: XmlBackend[object], tmp_path: Path
 ) -> None:
   element = parse_xml(
-    backend, tmp_path, "variant-text.xml", '<tuv lang="en">unexpected<seg>Hello</seg></tuv>'
+    backend, tmp_path, "variant-text.xml", '<tuv xml:lang="en">unexpected<seg>Hello</seg></tuv>'
   )
 
   with pytest.raises(ValueError, match="Text content for <tuv> element must be empty"):
@@ -260,13 +260,13 @@ def test_variant_loader_rejects_non_whitespace_text_outside_seg(
 def test_variant_loader_requires_lang(backend: XmlBackend[object], tmp_path: Path) -> None:
   element = parse_xml(backend, tmp_path, "variant-missing-lang.xml", "<tuv><seg>Hello</seg></tuv>")
 
-  with pytest.raises(ValueError, match="Missing attribute 'lang'"):
+  with pytest.raises(ValueError, match="Missing attribute 'xml:lang'"):
     TranslationVariantLoader(backend).load(element)
 
 
 def test_variant_loader_requires_seg(backend: XmlBackend[object], tmp_path: Path) -> None:
   element = parse_xml(
-    backend, tmp_path, "variant-missing-seg.xml", '<tuv lang="en"><note>note</note></tuv>'
+    backend, tmp_path, "variant-missing-seg.xml", '<tuv xml:lang="en"><note>note</note></tuv>'
   )
 
   with pytest.raises(ValueError, match="Missing <seg> element"):
@@ -280,7 +280,7 @@ def test_variant_loader_rejects_multiple_seg_elements(
     backend,
     tmp_path,
     "variant-multiple-seg.xml",
-    '<tuv lang="en"><seg>one</seg><seg>two</seg></tuv>',
+    '<tuv xml:lang="en"><seg>one</seg><seg>two</seg></tuv>',
   )
 
   with pytest.raises(ValueError, match="Multiple <seg> elements"):

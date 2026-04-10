@@ -15,6 +15,7 @@ from logging import Logger, getLogger
 from typing import Literal, Protocol, overload
 
 from hypomnema.backends.xml.base import XmlBackend
+from hypomnema.backends.xml.namespace import XML_LANG_ATTR
 from hypomnema.domain.attributes import Assoc, Pos, Segtype
 from hypomnema.domain.nodes import (
   AnyNode,
@@ -197,12 +198,12 @@ class PropLoader[T](XmlLoader[T]):
     text = self.backend.get_text(element)
     if text is None:
       raise ValueError("Missing text content for <prop> element")
-    attrs = self.backend.get_attribute_map(element, notation="local")
+    attrs = self.backend.get_attribute_map(element, notation="qualified")
     try:
       kind = attrs.pop("type")
     except KeyError as e:
       raise ValueError(f"Missing attribute {e.args[0]!r} for <prop> element") from e
-    language = attrs.pop("lang", None)
+    language = attrs.pop(XML_LANG_ATTR, None)
     encoding = attrs.pop("o-encoding", None)
     unknown_loader = self._get_loader("unknown")
     extra_nodes: list[UnknownNode] = [
@@ -230,8 +231,8 @@ class NoteLoader[T](XmlLoader[T]):
     text = self.backend.get_text(element)
     if text is None:
       raise ValueError("Missing text content for <note> element")
-    attrs = self.backend.get_attribute_map(element, notation="local")
-    language = attrs.pop("lang", None)
+    attrs = self.backend.get_attribute_map(element, notation="qualified")
+    language = attrs.pop(XML_LANG_ATTR, None)
     encoding = attrs.pop("o-encoding", None)
     unknown_loader = self._get_loader("unknown")
     extra_nodes = [unknown_loader.load(n) for n in self.backend.iter_children(element)]
@@ -572,11 +573,11 @@ class TranslationVariantLoader[T](XmlLoader[T]):
     if (text := self.backend.get_text(element)) is not None:
       if text.strip():
         raise ValueError(f"Text content for <tuv> element must be empty, got {text!r}")
-    attrs = self.backend.get_attribute_map(element, notation="local")
+    attrs = self.backend.get_attribute_map(element, notation="qualified")
     try:
-      language = attrs.pop("lang")
-    except KeyError as e:
-      raise ValueError(f"Missing attribute {e.args[0]!r} for <tuv> element") from e
+      language = attrs.pop(XML_LANG_ATTR)
+    except KeyError:
+      raise ValueError("Missing attribute 'xml:lang' for <tuv> element") from None
     original_encoding = attrs.pop("o-encoding", None)
     original_data_type = attrs.pop("datatype", None)
     usage_count = attrs.pop("usagecount", None)

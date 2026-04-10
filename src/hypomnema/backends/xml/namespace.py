@@ -37,6 +37,7 @@ from hypomnema.backends.xml.utils import validate_ncname, validate_uri
 
 XML_NS_URI = "http://www.w3.org/XML/1998/namespace"
 XML_NS_PREFIX = "xml"
+XML_LANG_ATTR = f"{{{XML_NS_URI}}}lang"
 
 
 class ResolveResult(NamedTuple):
