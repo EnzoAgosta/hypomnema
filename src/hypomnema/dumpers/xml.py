@@ -369,13 +369,13 @@ class TranslationMemoryHeaderDumper[BackendType](XmlDumper[BackendType, Translat
       self.backend.set_attribute(header_elem, "o-encoding", node.spec_attributes.original_encoding)
     if node.spec_attributes.created_at is not None:
       self.backend.set_attribute(
-        header_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%S%Z")
+        header_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.created_by is not None:
       self.backend.set_attribute(header_elem, "creationid", node.spec_attributes.created_by)
     if node.spec_attributes.last_modified_at is not None:
       self.backend.set_attribute(
-        header_elem, "changedate", node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%S%Z")
+        header_elem, "changedate", node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.last_modified_by is not None:
       self.backend.set_attribute(header_elem, "changeid", node.spec_attributes.last_modified_by)
@@ -500,7 +500,7 @@ class TranslationVariantDumper[BackendType](XmlDumper[BackendType, TranslationVa
       self.backend.set_attribute(variant_elem, "usagecount", str(node.spec_attributes.usage_count))
     if node.spec_attributes.last_used_at is not None:
       self.backend.set_attribute(
-        variant_elem, "lastusagedate", node.spec_attributes.last_used_at.strftime("%Y%m%dT%H%M%S%Z")
+        variant_elem, "lastusagedate", node.spec_attributes.last_used_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.creation_tool is not None:
       self.backend.set_attribute(variant_elem, "creationtool", node.spec_attributes.creation_tool)
@@ -510,15 +510,13 @@ class TranslationVariantDumper[BackendType](XmlDumper[BackendType, TranslationVa
       )
     if node.spec_attributes.created_at is not None:
       self.backend.set_attribute(
-        variant_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%S%Z")
+        variant_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.created_by is not None:
       self.backend.set_attribute(variant_elem, "creationid", node.spec_attributes.created_by)
     if node.spec_attributes.last_modified_at is not None:
       self.backend.set_attribute(
-        variant_elem,
-        "changedate",
-        node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%S%Z"),
+        variant_elem, "changedate", node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.last_modified_by is not None:
       self.backend.set_attribute(variant_elem, "changeid", node.spec_attributes.last_modified_by)
@@ -551,7 +549,7 @@ class TranslationUnitDumper[BackendType](XmlDumper[BackendType, TranslationUnit]
       self.backend.set_attribute(tu_elem, "usagecount", str(node.spec_attributes.usage_count))
     if node.spec_attributes.last_used_at is not None:
       self.backend.set_attribute(
-        tu_elem, "lastusagedate", node.spec_attributes.last_used_at.strftime("%Y%m%dT%H%M%S%Z")
+        tu_elem, "lastusagedate", node.spec_attributes.last_used_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.creation_tool is not None:
       self.backend.set_attribute(tu_elem, "creationtool", node.spec_attributes.creation_tool)
@@ -561,13 +559,13 @@ class TranslationUnitDumper[BackendType](XmlDumper[BackendType, TranslationUnit]
       )
     if node.spec_attributes.created_at is not None:
       self.backend.set_attribute(
-        tu_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%S%Z")
+        tu_elem, "creationdate", node.spec_attributes.created_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.created_by is not None:
       self.backend.set_attribute(tu_elem, "creationid", node.spec_attributes.created_by)
     if node.spec_attributes.last_modified_at is not None:
       self.backend.set_attribute(
-        tu_elem, "changedate", node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%S%Z")
+        tu_elem, "changedate", node.spec_attributes.last_modified_at.strftime("%Y%m%dT%H%M%SZ")
       )
     if node.spec_attributes.segmentation_type is not None:
       self.backend.set_attribute(tu_elem, "segtype", node.spec_attributes.segmentation_type.value)

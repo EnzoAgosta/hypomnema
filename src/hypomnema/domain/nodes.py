@@ -13,7 +13,7 @@ can round-trip unsupported content.
 from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -167,13 +167,18 @@ class TranslationMemoryHeader:
   ) -> TranslationMemoryHeader:
     """Build a header node from user-facing values.
 
-    Datetime strings are parsed with `datetime.fromisoformat()`. Enum-like
+    Datetime strings are parsed with `datetime.fromisoformat()`. Naive
+    datetimes (without timezone info) are assumed to be UTC. Enum-like
     values are coerced to their TMX enum classes.
     """
     if isinstance(created_at, str):
       created_at = datetime.fromisoformat(created_at)
+      if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
     if isinstance(last_modified_at, str):
       last_modified_at = datetime.fromisoformat(last_modified_at)
+      if last_modified_at.tzinfo is None:
+        last_modified_at = last_modified_at.replace(tzinfo=UTC)
     segmentation_type = Segtype(segmentation_type)
     if original_encoding is not None:
       original_encoding = _verify_encoding(original_encoding)
@@ -414,7 +419,8 @@ class TranslationVariant:
   ) -> TranslationVariant:
     """Build a translation variant from user-facing values.
 
-    Datetime strings are parsed with `datetime.fromisoformat()`. Integer-like
+    Datetime strings are parsed with `datetime.fromisoformat()`. Naive
+    datetimes (without timezone info) are assumed to be UTC. Integer-like
     counters are coerced with `int()`. Language strings pass through the
     current language-code verifier before being stored in the internal
     spec-defined attribute dataclass.
@@ -426,10 +432,16 @@ class TranslationVariant:
       usage_count = int(usage_count)
     if isinstance(last_used_at, str):
       last_used_at = datetime.fromisoformat(last_used_at)
+      if last_used_at.tzinfo is None:
+        last_used_at = last_used_at.replace(tzinfo=UTC)
     if isinstance(created_at, str):
       created_at = datetime.fromisoformat(created_at)
+      if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
     if isinstance(last_modified_at, str):
       last_modified_at = datetime.fromisoformat(last_modified_at)
+      if last_modified_at.tzinfo is None:
+        last_modified_at = last_modified_at.replace(tzinfo=UTC)
 
     return TranslationVariant(
       spec_attributes=TranslationVariantSpecDefinedAttributes(
@@ -490,7 +502,8 @@ class TranslationUnit:
   ) -> TranslationUnit:
     """Build a translation unit from user-facing values.
 
-    Datetime strings are parsed with `datetime.fromisoformat()`. Enum-like and
+    Datetime strings are parsed with `datetime.fromisoformat()`. Naive
+    datetimes (without timezone info) are assumed to be UTC. Enum-like and
     integer-like metadata is coerced before the node is created.
     """
     if original_encoding is not None:
@@ -499,10 +512,16 @@ class TranslationUnit:
       usage_count = int(usage_count)
     if isinstance(last_used_at, str):
       last_used_at = datetime.fromisoformat(last_used_at)
+      if last_used_at.tzinfo is None:
+        last_used_at = last_used_at.replace(tzinfo=UTC)
     if isinstance(created_at, str):
       created_at = datetime.fromisoformat(created_at)
+      if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
     if isinstance(last_modified_at, str):
       last_modified_at = datetime.fromisoformat(last_modified_at)
+      if last_modified_at.tzinfo is None:
+        last_modified_at = last_modified_at.replace(tzinfo=UTC)
     if segmentation_type is not None:
       segmentation_type = Segtype(segmentation_type)
     if source_language is not None:
