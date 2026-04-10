@@ -67,10 +67,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     namespace declarations are visible.
     """
     tag = str(element.tag)
-    element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-    merged_nsmap: MutableMapping[str, str] = (
-      {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
-    )
+    merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
     resolved = resolve(tag, global_nsmap=self._global_nsmap, nsmap=merged_nsmap)
     return format_notation(
       resolved.clark, notation, global_nsmap=self._global_nsmap, nsmap=merged_nsmap
@@ -132,10 +129,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     """
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
-    element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-    merged_nsmap: MutableMapping[str, str] = (
-      {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
-    )
+    merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
     key = resolve(name, global_nsmap=self._global_nsmap, nsmap=merged_nsmap).clark
     return element.get(key, default)
 
@@ -150,10 +144,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     """Set attribute *name* to *value*, merging ``element.nsmap`` for resolution."""
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
-    element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-    merged_nsmap: MutableMapping[str, str] = (
-      {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
-    )
+    merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
     key = resolve(name, global_nsmap=self._global_nsmap, nsmap=merged_nsmap).clark
     element.set(key, value)
 
@@ -163,10 +154,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     """Remove attribute *name* if it exists, merging ``element.nsmap`` for resolution."""
     if isinstance(name, bytes):
       name = name.decode(self.default_encoding)
-    element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-    merged_nsmap: MutableMapping[str, str] = (
-      {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
-    )
+    merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
     key = resolve(name, global_nsmap=self._global_nsmap, nsmap=merged_nsmap).clark
     element.attrib.pop(key, None)
 
@@ -178,10 +166,7 @@ class LxmlBackend(XmlBackend[et._Element]):
     nsmap: MutableMapping[str, str] | None = None,
   ) -> dict[str, str]:
     """Return all attributes as ``{formatted_name: value}``, merging ``element.nsmap``."""
-    element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-    merged_nsmap: MutableMapping[str, str] = (
-      {**nsmap, **element_nsmap} if nsmap is not None else element_nsmap
-    )
+    merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
     return {
       format_notation(key, notation, global_nsmap=self._global_nsmap, nsmap=merged_nsmap): value
       for key, value in element.attrib.items()
@@ -218,11 +203,8 @@ class LxmlBackend(XmlBackend[et._Element]):
     if not len(element):
       return
     if tag_filter is not None:
-      element_nsmap = {k: v for k, v in element.nsmap.items() if k is not None}
-      if nsmap is None:
-        nsmap = {}
-      nsmap.update(element_nsmap)
-      tag_set = self._resolve_tag_filter(tag_filter, nsmap)
+      merged_nsmap = self._merge_nsmap(nsmap, element.nsmap)
+      tag_set = self._resolve_tag_filter(tag_filter, merged_nsmap)
     else:
       tag_set = None
     for child in element:
@@ -431,3 +413,9 @@ class LxmlBackend(XmlBackend[et._Element]):
         else:
           result.add(resolve(item, global_nsmap=self._global_nsmap, nsmap=nsmap).clark)
     return result
+
+  def _merge_nsmap(
+    self, nsmap: MutableMapping[str, str] | None, element_nsmap: Mapping[str | None, str] | None
+  ) -> dict[str, str]:
+    """Merge *nsmap* and *element_nsmap* into a single dict."""
+    return {**(nsmap or {}), **{k: v for k, v in (element_nsmap or {}).items() if k is not None}}
