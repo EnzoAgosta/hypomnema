@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -91,11 +91,13 @@ def test_translation_memory_header_create_sets_original_encoding() -> None:
 
 
 def test_translation_memory_header_create_parses_created_at() -> None:
-  assert _make_header().spec_attributes.created_at == datetime(2024, 1, 2, 3, 4, 5)
+  assert _make_header().spec_attributes.created_at == datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
 
 
 def test_translation_memory_header_create_parses_last_modified_at() -> None:
-  assert _make_header().spec_attributes.last_modified_at == datetime(2024, 2, 3, 4, 5, 6)
+  assert _make_header().spec_attributes.last_modified_at == datetime(
+    2024, 2, 3, 4, 5, 6, tzinfo=UTC
+  )
 
 
 def test_translation_memory_header_create_copies_notes() -> None:
@@ -201,15 +203,17 @@ def test_translation_variant_create_coerces_usage_count() -> None:
 
 
 def test_translation_variant_create_parses_last_used_at() -> None:
-  assert _make_variant().spec_attributes.last_used_at == datetime(2024, 3, 4, 5, 6, 7)
+  assert _make_variant().spec_attributes.last_used_at == datetime(2024, 3, 4, 5, 6, 7, tzinfo=UTC)
 
 
 def test_translation_variant_create_parses_created_at() -> None:
-  assert _make_variant().spec_attributes.created_at == datetime(2024, 3, 1, 1, 2, 3)
+  assert _make_variant().spec_attributes.created_at == datetime(2024, 3, 1, 1, 2, 3, tzinfo=UTC)
 
 
 def test_translation_variant_create_parses_last_modified_at() -> None:
-  assert _make_variant().spec_attributes.last_modified_at == datetime(2024, 3, 5, 6, 7, 8)
+  assert _make_variant().spec_attributes.last_modified_at == datetime(
+    2024, 3, 5, 6, 7, 8, tzinfo=UTC
+  )
 
 
 def test_translation_variant_create_copies_notes() -> None:
@@ -270,15 +274,15 @@ def test_translation_unit_create_coerces_usage_count() -> None:
 
 
 def test_translation_unit_create_parses_last_used_at() -> None:
-  assert _make_unit().spec_attributes.last_used_at == datetime(2024, 4, 5, 6, 7, 8)
+  assert _make_unit().spec_attributes.last_used_at == datetime(2024, 4, 5, 6, 7, 8, tzinfo=UTC)
 
 
 def test_translation_unit_create_parses_created_at() -> None:
-  assert _make_unit().spec_attributes.created_at == datetime(2024, 4, 1, 1, 2, 3)
+  assert _make_unit().spec_attributes.created_at == datetime(2024, 4, 1, 1, 2, 3, tzinfo=UTC)
 
 
 def test_translation_unit_create_parses_last_modified_at() -> None:
-  assert _make_unit().spec_attributes.last_modified_at == datetime(2024, 4, 6, 7, 8, 9)
+  assert _make_unit().spec_attributes.last_modified_at == datetime(2024, 4, 6, 7, 8, 9, tzinfo=UTC)
 
 
 def test_translation_unit_create_sets_segmentation_type() -> None:
