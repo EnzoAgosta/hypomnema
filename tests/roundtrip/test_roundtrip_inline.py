@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hypomnema.backends.xml.base import XmlBackend
@@ -50,12 +50,12 @@ def test_variant_node_roundtrip_preserves_known_inline_semantics(
     original_encoding="utf-8",
     original_data_type="html",
     usage_count=3,
-    last_used_at=datetime(2024, 3, 4, 5, 6, 7),
+    last_used_at=datetime(2024, 3, 4, 5, 6, 7, tzinfo=UTC),
     creation_tool="tool",
     creation_tool_version="1.0",
-    created_at=datetime(2024, 3, 1, 1, 2, 3),
+    created_at=datetime(2024, 3, 1, 1, 2, 3, tzinfo=UTC),
     created_by="creator",
-    last_modified_at=datetime(2024, 3, 5, 6, 7, 8),
+    last_modified_at=datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC),
     last_modified_by="modifier",
     original_tm_format="legacy",
     segment=[
@@ -84,8 +84,8 @@ def test_variant_xml_roundtrip_preserves_known_inline_structure(
     "variant-structure.xml",
     (
       '<tuv xml:lang="en" o-encoding="utf-8" datatype="html" usagecount="3" '
-      'lastusagedate="20240304T050607" creationtool="tool" creationtoolversion="1.0" '
-      'creationdate="20240301T010203" creationid="creator" changedate="20240305T060708" '
+      'lastusagedate="20240304T050607Z" creationtool="tool" creationtoolversion="1.0" '
+      'creationdate="20240301T010203Z" creationid="creator" changedate="20240305T060708Z" '
       'changeid="modifier" o-tmf="legacy">'
       '<seg>lead<ph assoc="b" x="2" type="fmt">inner<sub datatype="xml">sub</sub>tail</ph>'
       'after<hi x="7" type="style">deep</hi>end</seg>'

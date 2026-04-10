@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hypomnema.backends.xml.base import XmlBackend
@@ -68,9 +68,9 @@ def test_translation_unit_node_roundtrip_preserves_semantics(
     original_encoding="utf-8",
     original_data_type="xml",
     usage_count=4,
-    last_used_at=datetime(2024, 4, 5, 6, 7, 8),
-    created_at=datetime(2024, 4, 1, 1, 2, 3),
-    last_modified_at=datetime(2024, 4, 6, 7, 8, 9),
+    last_used_at=datetime(2024, 4, 5, 6, 7, 8, tzinfo=UTC),
+    created_at=datetime(2024, 4, 1, 1, 2, 3, tzinfo=UTC),
+    last_modified_at=datetime(2024, 4, 6, 7, 8, 9, tzinfo=UTC),
     segmentation_type="sentence",
     source_language="fr",
     notes=[Note.create(text="unit note")],
@@ -97,9 +97,9 @@ def test_translation_memory_node_roundtrip_preserves_semantics(
       source_language="fr",
       original_data_type="plaintext",
       original_encoding="utf-8",
-      created_at=datetime(2024, 1, 2, 3, 4, 5),
+      created_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
       created_by="creator",
-      last_modified_at=datetime(2024, 2, 3, 4, 5, 6),
+      last_modified_at=datetime(2024, 2, 3, 4, 5, 6, tzinfo=UTC),
       last_modified_by="modifier",
       notes=[Note.create(text="header note")],
       props=[Prop.create(text="header prop", kind="domain")],
@@ -127,7 +127,7 @@ def test_translation_memory_xml_roundtrip_preserves_structure(
       '<tmx version="1.5">'
       '<header creationtool="hypomnema" creationtoolversion="1.0" segtype="sentence" '
       'o-tmf="tmx" adminlang="en" srclang="fr" datatype="plaintext" o-encoding="utf-8" '
-      'creationdate="20240102T030405" creationid="creator" changedate="20240203T040506" '
+      'creationdate="20240102T030405Z" creationid="creator" changedate="20240203T040506Z" '
       'changeid="modifier"><note>header note</note><prop type="domain">header prop</prop></header>'
       '<body><tu tuid="tu-1"><tuv xml:lang="en"><seg>Hello</seg></tuv></tu></body>'
       "</tmx>"
