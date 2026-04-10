@@ -30,7 +30,7 @@ def load_minimal_memory(backend: XmlBackend[object], tmp_path: Path) -> Translat
       '<tmx version="1.4">'
       '<header creationtool="hypomnema" creationtoolversion="1.0" segtype="sentence" '
       'o-tmf="tmx" adminlang="en" srclang="fr" datatype="plaintext" />'
-      '<body><tu><tuv lang="en"><seg>Hello</seg></tuv></tu></body>'
+      '<body><tu><tuv xml:lang="en"><seg>Hello</seg></tuv></tu></body>'
       "</tmx>"
     ),
   )
@@ -52,7 +52,7 @@ def load_rich_memory(backend: XmlBackend[object], tmp_path: Path) -> Translation
       "<note>header note</note>"
       '<prop type="domain">finance</prop>'
       "</header>"
-      '<body><tu tuid="tu-1"><tuv lang="en"><seg>Hello</seg></tuv></tu></body>'
+      '<body><tu tuid="tu-1"><tuv xml:lang="en"><seg>Hello</seg></tuv></tu></body>'
       "</tmx>"
     ),
   )
