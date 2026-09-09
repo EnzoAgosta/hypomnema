@@ -50,8 +50,8 @@ Sources of truth:
   models.** Parsing uses direct tag dispatch and explicit attribute mapping;
   building uses explicit content dispatch plus native model-field iteration
   and the shared value formatters. A plan-interpreter prototype was built,
-  compared against this simpler shape, and superseded; `xml/plans.py` is an
-  unused placeholder. `TmxNode` is the closed 14-model union typing projection;
+  compared against this simpler shape, and superseded and deleted. `TmxNode` is
+  the closed 14-model union typing projection;
   `TmxModel` remains the shared base. Text/tail handling, plain-text slots,
   recursive content, metadata ordering, hex values, and the `<seg>` wrapper
   are covered.
@@ -390,8 +390,8 @@ generic walkers, then rebuilt as direct dispatch after comparing both shapes
 on a working slice. Plans moved mapping decisions into data without removing
 them, and the interesting TMX shapes -- interleaved metadata, separated
 variant groups, the `<seg>` wrapper, two inline grammars -- needed plan
-vocabulary growth that read worse than explicit code. `xml/plans.py` remains
-only as an unused placeholder.
+vocabulary growth that read worse than explicit code. The plan-interpreter code
+was deleted once direct dispatch won.
 
 Parsing (`parse.py`) dispatches on the element tag and maps every attribute
 explicitly to its model field, ending in `model_validate` so XML's string

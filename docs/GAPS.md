@@ -394,7 +394,7 @@ attribute.
 ### 17. Projection is direct, model-driven, and narrow
 
 **Decision:** the superseded "hardcoded per-model projection plans" approach
-(`xml/plans.py` remains an unused stub) was replaced by direct projection.
+(since deleted) was replaced by direct projection.
 `from_element()` runs the package DTD once over the fragment, then matches the
 element tag against the model classes and validates explicit attributes with
 `model_validate()`. `to_element()` accepts only `TmxNode` models and directly

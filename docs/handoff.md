@@ -7,8 +7,8 @@ also green under `-W error`.
 ## Where we are
 
 - All 14 node models project both ways (`xml/parse.py`, `xml/build.py`),
-  using direct dispatch; `xml/plans.py` is an unused placeholder kept only so
-  the superseded approach stays diffable. Delete it whenever.
+  using direct dispatch. The superseded plan-interpreter code (`xml/plans.py`)
+  is deleted; the PLAN records why the approach lost.
 - GAPS #9 (text boundary) is settled for projection; decision 12 (per-flow
   pairing/i uniqueness) reaffirmed with the documented-interpretation framing.
 - Test suites live in `tests/xml/`: content, dtd, parse, build,
