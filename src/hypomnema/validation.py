@@ -26,6 +26,7 @@ from warnings import warn
 
 from pydantic import ValidationError
 from pydantic_core import InitErrorDetails, PydanticCustomError
+from typing_extensions import LiteralString
 
 from .errors import TmxWarning
 from .models import (
@@ -37,29 +38,43 @@ from .models import (
   SegContentItem,
   Sub,
   SubContentItem,
+  TmxNode,
   TranslationUnit,
   TranslationUnitVariant,
   Ut,
 )
 
 _PAIRING_ERROR_TYPE = "inline_tag_pairing"
+_CYCLE_ERROR_TYPE = "cyclic_content"
+
+
+def _node_error(loc: tuple[str | int, ...], error_type: LiteralString, message: str, node: object) -> InitErrorDetails:
+  return {"type": PydanticCustomError(error_type, "{message}", {"message": message}), "loc": loc, "input": node}
 
 
 def _pairing_error(loc: tuple[str | int, ...], message: str, node: object) -> InitErrorDetails:
-  return {
-    "type": PydanticCustomError(_PAIRING_ERROR_TYPE, "{message}", {"message": message}),
-    "loc": loc,
-    "input": node,
-  }
+  return _node_error(loc, _PAIRING_ERROR_TYPE, message, node)
+
+
+def _cycle_error(loc: tuple[str | int, ...], node: TmxNode) -> InitErrorDetails:
+  return _node_error(
+    loc, _CYCLE_ERROR_TYPE, f"cyclic content: this <{node.element}> contains itself through its descendants", node
+  )
 
 
 def _walk_segment(
-  items: tuple[SegContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails]
+  items: tuple[SegContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails], path: set[int]
 ) -> None:
-  """Walk one flow: fresh ``i`` namespaces, unmatched-bpt check at the end."""
+  """Walk one flow: fresh ``i`` namespaces, unmatched-bpt check at the end.
+
+  ``path`` holds the ids of the content nodes on the current descent and
+  turns re-entry into a cycle error. Only mutation can create a cycle
+  (GAPS decision 7a), and detection is scoped to this walk's root, so
+  subtrees legitimately shared between variants stay legal.
+  """
   bpt_locations: dict[int, tuple[tuple[str | int, ...], Bpt]] = {}
   ept_seen: set[int] = set()
-  _walk_items(items, loc, errors, bpt_locations, ept_seen)
+  _walk_items(items, loc, errors, bpt_locations, ept_seen, path)
   for i, (bpt_loc, bpt) in bpt_locations.items():
     if i not in ept_seen:
       errors.append(_pairing_error(bpt_loc, f"<bpt> i={i} has no subsequent corresponding <ept> within this flow", bpt))
@@ -71,14 +86,22 @@ def _walk_items(
   errors: list[InitErrorDetails],
   bpt_locations: dict[int, tuple[tuple[str | int, ...], Bpt]],
   ept_seen: set[int],
+  path: set[int],
 ) -> None:
   """Walk one flow's items in document order, sharing the flow's state.
 
   ``<hi>`` recursion shares the caller's state (it is transparent);
   paired and placeholder tags open fresh flows for their ``<sub>``
-  contents.
+  contents. ``path`` carries the ids on the current descent; a node
+  already on it is a cycle, reported without descending into it again.
   """
   for index, node in enumerate(items):
+    if isinstance(node, str):
+      continue
+    if id(node) in path:
+      errors.append(_cycle_error((*loc, index), node))
+      continue
+    path.add(id(node))
     child_loc = (*loc, index, "content")
     if isinstance(node, Bpt):
       if node.i in bpt_locations:
@@ -89,7 +112,7 @@ def _walk_items(
         )
       else:
         bpt_locations[node.i] = ((*loc, index), node)
-      _walk_sub_flows(node.content, child_loc, errors)
+      _walk_sub_flows(node.content, child_loc, errors, path)
     elif isinstance(node, Ept):
       if node.i in ept_seen:
         errors.append(
@@ -102,21 +125,27 @@ def _walk_items(
         errors.append(
           _pairing_error((*loc, index), f"<ept> i={node.i} has no corresponding <bpt> earlier in this flow", node)
         )
-      _walk_sub_flows(node.content, child_loc, errors)
+      _walk_sub_flows(node.content, child_loc, errors, path)
     elif isinstance(node, It | Ph | Ut):
-      _walk_sub_flows(node.content, child_loc, errors)
+      _walk_sub_flows(node.content, child_loc, errors, path)
     elif isinstance(node, Hi):
-      _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen)
+      _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen, path)
+    path.discard(id(node))
 
 
 def _walk_sub_flows(
-  items: tuple[SubContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails]
+  items: tuple[SubContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails], path: set[int]
 ) -> None:
   """Walk the content of a paired or placeholder tag: text plus ``<sub>``
   nodes, each ``<sub>`` its own flow."""
   for index, node in enumerate(items):
     if isinstance(node, Sub):
-      _walk_segment(node.content, (*loc, index, "content"), errors)
+      if id(node) in path:
+        errors.append(_cycle_error((*loc, index), node))
+        continue
+      path.add(id(node))
+      _walk_segment(node.content, (*loc, index, "content"), errors, path)
+      path.discard(id(node))
 
 
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
@@ -125,10 +154,12 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   Per GAPS decision 12: every ``bpt`` needs a subsequent corresponding
   ``ept`` and every ``ept`` a preceding ``bpt``, within one flow; ``i``
   is unique among ``bpt`` elements and among ``ept`` elements of a flow.
-  Raises ``ValidationError`` with the offending node's location.
+  Raises ``ValidationError`` with the offending node's location. Also
+  detects cyclic content -- a node containing itself through its
+  descendants, reachable only through mutation (GAPS decision 7a).
   """
   errors: list[InitErrorDetails] = []
-  _walk_segment(tuv.content, ("content",), errors)
+  _walk_segment(tuv.content, ("content",), errors, set())
   if errors:
     raise ValidationError.from_exception_data("TranslationUnitVariant", errors)
 
@@ -149,13 +180,14 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
   """Validate the whole translation unit.
 
   Runs ``validate_translation_unit_variant`` on every variant (raising on
-  the first batch of structural errors), then emits one ``TmxWarning`` if
-  the variants disagree on their inline ``x`` values (GAPS decision 13).
+  the first batch of structural errors, including cyclic content), then
+  emits one ``TmxWarning`` if the variants disagree on their inline ``x``
+  values (GAPS decision 13).
   """
   errors: list[InitErrorDetails] = []
   for index, tuv in enumerate(tu.variants):
     variant_errors: list[InitErrorDetails] = []
-    _walk_segment(tuv.content, ("content",), variant_errors)
+    _walk_segment(tuv.content, ("content",), variant_errors, set())
     for error in variant_errors:
       error["loc"] = ("variants", index, *error["loc"])
     errors.extend(variant_errors)
