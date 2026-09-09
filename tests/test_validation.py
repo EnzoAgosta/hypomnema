@@ -197,11 +197,14 @@ def test_no_x_values_at_all_is_silent() -> None:
 def test_ut_x_is_excluded_from_the_matching_set() -> None:
   # The spec's x "Used in" list omits <ut>, so its x must not create a
   # mismatch; the deprecation advisory itself is tested in test_models.
+  # validate_translation_unit re-emits that advisory (GAPS decision 8),
+  # so it is silenced here while every other warning stays an error.
   with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     tu = unit(tuv("a", Ut(x=1), Bpt(i=1), Ept(i=1)), tuv("b", Bpt(i=1), Ept(i=1)))
   with warnings.catch_warnings():
     warnings.simplefilter("error")
+    warnings.filterwarnings("ignore", message=".*<ut>.*deprecated.*")
     validate_translation_unit(tu)
 
 

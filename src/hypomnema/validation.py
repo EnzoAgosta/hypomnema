@@ -20,8 +20,14 @@ Current checks (GAPS decisions 12-13):
   plus one ``TmxWarning`` when sibling variants disagree on their ``x``
   values -- the spec's cross-variant matching mechanism, advisory per
   decision 13.
+
+Both checks also re-emit the cheap model-level advisories for the data
+they walk (GAPS decision 8): mutating a child does not re-trigger its
+parent's validator, so a stale tree would otherwise stop warning. The
+re-emitted warnings are advisory only and never affect the outcome.
 """
 
+from collections.abc import Iterable
 from warnings import warn
 
 from pydantic import ValidationError
@@ -34,15 +40,19 @@ from .models import (
   Ept,
   Hi,
   It,
+  Note,
   Ph,
+  Property,
   SegContentItem,
   Sub,
   SubContentItem,
   TmxNode,
   TranslationUnit,
   TranslationUnitVariant,
+  Ude,
   Ut,
 )
+from .validators import warn_deprecated_lang, warn_deprecated_ut, warn_map_without_target
 
 _PAIRING_ERROR_TYPE = "inline_tag_pairing"
 _CYCLE_ERROR_TYPE = "cyclic_content"
@@ -126,7 +136,10 @@ def _walk_items(
           _pairing_error((*loc, index), f"<ept> i={node.i} has no corresponding <bpt> earlier in this flow", node)
         )
       _walk_sub_flows(node.content, child_loc, errors, path)
-    elif isinstance(node, It | Ph | Ut):
+    elif isinstance(node, Ut):
+      warn_deprecated_ut()
+      _walk_sub_flows(node.content, child_loc, errors, path)
+    elif isinstance(node, It | Ph):
       _walk_sub_flows(node.content, child_loc, errors, path)
     elif isinstance(node, Hi):
       _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen, path)
@@ -148,6 +161,24 @@ def _walk_sub_flows(
       path.discard(id(node))
 
 
+def _rewarn_metadata_advisories(metadata: Iterable[Note | Property | Ude]) -> None:
+  """Re-emit the metadata children's cheap model-level advisories.
+
+  Advisories fire at construction and assignment, but mutating a child
+  never re-triggers its parent's validator (GAPS decision 7). The
+  explicit checks re-run them so a stale tree still gets its warnings
+  (decision 8); duplicates across layers are acceptable, the standard
+  warning filters deduplicate.
+  """
+  for node in metadata:
+    match node:
+      case Note() | Property():
+        warn_deprecated_lang(node.lang, node.xml_lang)
+      case Ude():
+        for mapping in node.maps:
+          warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
+
+
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   """Check ``bpt``/``ept`` pairing and ``i`` uniqueness in every flow.
 
@@ -157,11 +188,15 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   Raises ``ValidationError`` with the offending node's location. Also
   detects cyclic content -- a node containing itself through its
   descendants, reachable only through mutation (GAPS decision 7a).
+
+  Re-emits the variant metadata's advisories, so a tree mutated after
+  construction still warns (GAPS decision 8).
   """
   errors: list[InitErrorDetails] = []
   _walk_segment(tuv.content, ("content",), errors, set())
   if errors:
     raise ValidationError.from_exception_data("TranslationUnitVariant", errors)
+  _rewarn_metadata_advisories(tuv.metadata)
 
 
 def _collect_x_values(node: SegContentItem | SubContentItem, into: set[int]) -> None:
@@ -182,7 +217,9 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
   Runs ``validate_translation_unit_variant`` on every variant (raising on
   the first batch of structural errors, including cyclic content), then
   emits one ``TmxWarning`` if the variants disagree on their inline ``x``
-  values (GAPS decision 13).
+  values (GAPS decision 13). Re-emits the advisories of the unit's and
+  the variants' metadata, so a tree mutated after construction still
+  warns (GAPS decision 8).
   """
   errors: list[InitErrorDetails] = []
   for index, tuv in enumerate(tu.variants):
@@ -206,3 +243,6 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
       " the x attribute matches inline tags between variants",
       TmxWarning,
     )
+  _rewarn_metadata_advisories(tu.metadata)
+  for tuv in tu.variants:
+    _rewarn_metadata_advisories(tuv.metadata)
