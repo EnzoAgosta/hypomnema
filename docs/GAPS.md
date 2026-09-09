@@ -507,6 +507,68 @@ content. Content is built eagerly per element (fixing recursion on deep valid
 `TmxWarning` advisories are muted only where legitimately emitted, via explicit
 narrow `filterwarnings` marks, never globally.
 
+### 19. The IR is typed and permissive; TMX validity lives at the boundaries
+
+Recorded 2026-09-09, after the decision-11 surface work showed how much
+machinery the hybrid model required: advisory re-emission to cover mutation,
+writer-revalidation dilemmas, and the `Ude.base` mutation hole. The models are
+an in-memory IR; validity is a predicate that every serialization boundary
+enforces.
+
+**Decision:** models stay *typed* -- strict Pydantic types, value aliases,
+tuple fields, and `validate_assignment` remain enforced at construction and
+assignment, since that typing is the library's core value. Everything that is
+a TMX *contract* rule rather than a typing rule moves out of the models into
+the public, pure validation functions: cross-field rules (`Ude.base`/`Map.code`),
+prose pairing rules, and advisories. Models stop calling the `warn_*` helpers;
+the validation functions own all warnings. The one exception: nonempty
+`variants`/`maps` (`Field(min_length=1)`) stay, as cheap, assignment-checked
+typing constraints with immediate feedback; the DTD remains the authoritative
+structural backstop for any bypass. Pure validators are cheap, side-effect-free,
+trivially unit-testable and fuzzable, and users are encouraged to call them
+mid-pipeline for early error locality; between boundaries no check runs
+automatically.
+
+The boundary rule: `from_element()`/`to_element()` and the reader/writer built
+on them validate everything crossing the XML↔IR frontier -- the DTD for
+structure, the pure validators for prose rules, the models for types and
+values. The writer's conformance gate is therefore the pure validators plus
+DTD validation of built fragments; no separate revalidation strategy is
+needed. Because validation now runs exactly once per crossing, the advisory
+re-emission machinery (built for the hybrid) is deleted, and the former
+timing asymmetry between advisories disappears: all advisories fire during
+the validation pass. Validators walk the whole tree; documented performance
+hazard: deeply nested content or heavy reuse of the same node objects makes
+validation superlinear, since occurrences (not objects) are visited --
+memoization is deliberately not used because second occurrences can carry
+distinct violations.
+
+This revises:
+
+- **Decision 5** (partial): structural rejection leaves the models except the
+  two `min_length` fields above; the DTD plus pure validators enforce structure
+  at boundaries.
+- **Decision 7**: the mutation-hazard chapter collapses -- permissive models
+  make no assignment-time validity promise beyond typing, so there is no
+  cascading-revalidation problem to disclaim, and the writer's gate no longer
+  has to second-guess what construction already checked. Bypassing the public
+  construction APIs (`model_construct`, `model_copy(update=...)`) still voids
+  the value-level write contract, as agreed for the writer design.
+- **Decision 8**: advisories no longer run at model validation/assignment;
+  they run in the pure validators, which every boundary crossing invokes.
+  Case-insensitive `lang`/`xml_lang` comparison and the warning inventory are
+  unchanged. `TmxDeprecationWarning` (a `TmxWarning` subclass) stays, so
+  consumers filter deprecation noise by category.
+- **Decision 11**: the two tiers become typing (automatic, in the models) and
+  contract (pure functions, always invoked at boundary crossings, user-invocable
+  anytime). Checks still raise `ValidationError`; the writer still wraps them
+  into `TmxSpecError`. The Ude rule moves from the model validator written for
+  this decision to `validate_ude`.
+
+Decisions 12, 13, and the cycle checks (7a) are unaffected: they were already
+pure functions, and the permissive IR makes their guarantee simpler -- validity
+holds exactly at boundaries and wherever a user has last invoked a validator.
+
 ## Housekeeping / verification later
 
 - The plan now reflects the existing `ruff.toml` settings: two-space indentation
