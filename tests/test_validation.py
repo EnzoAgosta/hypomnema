@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from hypomnema.errors import TmxWarning
+from hypomnema.errors import TmxDeprecationWarning, TmxWarning
 from hypomnema.models import Bpt, Ept, Hi, It, Ph, Sub, TranslationUnit, TranslationUnitVariant, Ut
 from hypomnema.validation import validate_translation_unit, validate_translation_unit_variant
 
@@ -198,13 +198,14 @@ def test_ut_x_is_excluded_from_the_matching_set() -> None:
   # The spec's x "Used in" list omits <ut>, so its x must not create a
   # mismatch; the deprecation advisory itself is tested in test_models.
   # validate_translation_unit re-emits that advisory (GAPS decision 8),
-  # so it is silenced here while every other warning stays an error.
+  # so it is silenced by category -- wording-independent -- while every
+  # other TmxWarning, including an x mismatch, stays an error.
   with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     tu = unit(tuv("a", Ut(x=1), Bpt(i=1), Ept(i=1)), tuv("b", Bpt(i=1), Ept(i=1)))
   with warnings.catch_warnings():
     warnings.simplefilter("error")
-    warnings.filterwarnings("ignore", message=".*<ut>.*deprecated.*")
+    warnings.filterwarnings("ignore", category=TmxDeprecationWarning)
     validate_translation_unit(tu)
 
 

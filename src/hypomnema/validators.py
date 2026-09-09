@@ -20,7 +20,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BeforeValidator, PlainSerializer
 
 from .bcp47 import validate_language_tag_is_well_formed
-from .errors import TmxWarning
+from .errors import TmxDeprecationWarning, TmxWarning
 
 
 def warn_unknown_encoding(value: str) -> str:
@@ -51,14 +51,14 @@ def warn_deprecated_lang(lang: str | None, xml_lang: str | None) -> None:
   if lang is None:
     return
   if xml_lang is None:
-    warnings.warn("the deprecated lang attribute is set without xml_lang; prefer xml:lang", TmxWarning)
+    warnings.warn("the deprecated lang attribute is set without xml_lang; prefer xml:lang", TmxDeprecationWarning)
   elif lang.lower() != xml_lang.lower():
     warnings.warn(f"lang {lang!r} and xml_lang {xml_lang!r} differ", TmxWarning)
 
 
 def warn_deprecated_ut() -> None:
   """The ``<ut>`` element is deprecated (since TMX 1.3) but still legal."""
-  warnings.warn("the <ut> element is deprecated; prefer <bpt>, <ept>, <it>, or <ph>", TmxWarning)
+  warnings.warn("the <ut> element is deprecated; prefer <bpt>, <ept>, <it>, or <ph>", TmxDeprecationWarning)
 
 
 def warn_map_without_target(code: int | None, ent: str | None, subst: str | None) -> None:
