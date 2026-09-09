@@ -113,6 +113,25 @@ def test_variant_own_lang_equal_ignoring_case_is_silent() -> None:
     validate_translation_unit_variant(TranslationUnitVariant(xml_lang="EN-us", lang="en-US"))
 
 
+def test_lang_advisories_are_suppressed_when_a_structural_error_raises() -> None:
+  # Errors take precedence: the pass raises before emitting the variant's
+  # or its metadata's lang advisories.
+  variant = TranslationUnitVariant(xml_lang="en", lang="fr", metadata=(Note(lang="de"),), content=(Bpt(i=1),))
+  with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    with pytest.raises(ValidationError):
+      validate_translation_unit_variant(variant)
+  assert caught == []
+
+
+def test_the_ut_advisory_fires_during_the_walk_even_alongside_errors() -> None:
+  # The accepted asymmetry: the ut advisory is emitted mid-walk, so it
+  # surfaces even when pairing errors subsequently raise.
+  with pytest.warns(TmxDeprecationWarning, match="deprecated"):
+    with pytest.raises(ValidationError):
+      validate_translation_unit_variant(tuv(Ut(), Bpt(i=1)))
+
+
 def test_deprecated_ut_warns_in_the_content_walk() -> None:
   with pytest.warns(TmxDeprecationWarning, match="deprecated"):
     validate_translation_unit_variant(tuv(Ut()))
@@ -200,6 +219,29 @@ def test_paired_tag_fragment_checks_its_sub_flows() -> None:
 def test_placeholder_tag_fragment_checks_its_sub_flows() -> None:
   with pytest.raises(ValidationError):
     validate(Ph(content=("t", Sub(content=("s", Ept(i=9))), "end")))
+
+
+@pytest.mark.parametrize(
+  "fragment",
+  [
+    Bpt(i=1, content=(Sub(content=(Bpt(i=2),)),)),
+    Ept(i=1, content=(Sub(content=(Ept(i=2),)),)),
+    It(pos="begin", content=(Sub(content=(Ept(i=2),)),)),
+    Ph(content=(Sub(content=(Ept(i=2),)),)),
+    Ut(content=(Sub(content=(Ept(i=2),)),)),
+  ],
+  ids=["bpt", "ept", "it", "ph", "ut"],
+)
+@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxDeprecationWarning")
+def test_every_paired_or_placeholder_fragment_checks_its_sub_flows(fragment: Any) -> None:
+  with pytest.raises(ValidationError) as excinfo:
+    validate(fragment)
+  assert excinfo.value.errors()[0]["type"] == "inline_tag_pairing"
+
+
+def test_a_sub_with_an_orphan_ept_is_rejected() -> None:
+  with pytest.raises(ValidationError):
+    validate(Sub(content=(Ept(i=1),)))
 
 
 def test_a_fragment_cannot_carry_the_enclosing_flow() -> None:
@@ -445,6 +487,7 @@ def test_cycle_error_points_at_the_reentered_node() -> None:
   # The re-entry happens when walking outer's content: its first item is
   # inner, whose first content item is outer again. Each descent appends
   # ("content", index, "content"), so the re-entry sits three levels deep.
+  # Locs are user-facing, so the convention is pinned exactly.
   with pytest.raises(ValidationError) as excinfo:
     validate_translation_unit_variant(tuv(outer))
   assert excinfo.value.errors()[0]["loc"] == ("content", 0, "content", 0, "content", 0)
@@ -466,6 +509,41 @@ def test_a_shared_subtree_is_legal_across_variants() -> None:
 def test_a_diamond_is_not_a_cycle() -> None:
   shared = Hi()
   validate_translation_unit_variant(tuv(Hi(content=(shared, shared))))
+
+
+def test_a_self_cycle_through_the_model_construct_bypass_is_caught() -> None:
+  # Direct assignment is blocked by pydantic's recursion loop; the bypass
+  # is the only way to build a self-cycle, and both node kinds must trip
+  # the walk's re-entry check.
+  hi = Hi.model_construct()
+  hi.__dict__["content"] = (hi,)
+  sub = Sub.model_construct()
+  sub.__dict__["content"] = (sub,)
+  for cyclic in (hi, sub):
+    with pytest.raises(ValidationError) as excinfo:
+      validate(cyclic)
+    assert excinfo.value.errors()[0]["type"] == "cyclic_content"
+
+
+def test_a_cycle_through_hi_content_inside_a_paired_tag_is_caught() -> None:
+  # bpt.content is typed text-plus-sub only, so reaching a <hi> there
+  # takes a construct bypass; the walk must still catch the cycle instead
+  # of silently skipping the edge (or recursing forever at the boundary).
+  hi = Hi(content=())
+  bpt = Bpt(i=1)
+  hi.content = (bpt,)
+  bpt.__dict__["content"] = (hi,)
+  with pytest.raises(ValidationError) as excinfo:
+    validate_translation_unit_variant(tuv(bpt))
+  assert excinfo.value.errors()[0]["type"] == "cyclic_content"
+
+
+def test_validate_ude_rechecks_mutated_base() -> None:
+  # The rule runs on live state: a mutation between calls is caught.
+  ude = Ude(name="u", base="ascii", maps=(Map(unicode=0x41, code=0x42),))
+  ude.base = None
+  with pytest.raises(ValidationError):
+    validate_ude(ude)
 
 
 # Fuzz: independently generated valid trees are accepted; structural

@@ -156,6 +156,11 @@ def _walk_items(
       _walk_sub_flows(node.content, child_loc, errors, path)
     elif isinstance(node, Hi):
       _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen, path)
+    elif isinstance(node, Sub):
+      # Not part of the typed SegContentItem grammar; reachable only by
+      # bypassing construction APIs. Walk it like any flow-bearing node so
+      # no bypassed content edge escapes the cycle path.
+      _walk_sub_flows(node.content, child_loc, errors, path)
     path.discard(id(node))
 
 
@@ -163,32 +168,34 @@ def _walk_sub_flows(
   items: tuple[SubContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails], path: set[int]
 ) -> None:
   """Walk the content of a paired or placeholder tag: text plus ``<sub>``
-  nodes, each ``<sub>`` its own flow."""
+  nodes, each ``<sub>`` its own flow.
+
+  The typed grammar puts only strings and ``<sub>`` here, but bypassed
+  construction can place any content node; every non-string node gets the
+  cycle check and a general-content walk, so no reachable cycle escapes
+  the path and the write boundary cannot hit an unchecked recursion.
+  """
   for index, node in enumerate(items):
-    if isinstance(node, Sub):
-      if id(node) in path:
-        errors.append(_cycle_error((*loc, index), node))
-        continue
-      path.add(id(node))
-      _walk_segment(node.content, (*loc, index, "content"), errors, path)
-      path.discard(id(node))
+    if isinstance(node, str):
+      continue
+    if id(node) in path:
+      errors.append(_cycle_error((*loc, index), node))
+      continue
+    path.add(id(node))
+    _walk_segment(getattr(node, "content", ()), (*loc, index, "content"), errors, path)
+    path.discard(id(node))
 
 
-def _warn_metadata_advisories(metadata: Iterable[Note | Property | Ude]) -> None:
+def _warn_metadata_advisories(metadata: Iterable[Note | Property]) -> None:
   """Emit the metadata children's advisories (GAPS decision 19).
 
-  Models no longer warn; the validation pass is the one place advisories
-  fire, so this is primary emission, not a re-walk. Duplicates across
-  separate validation passes are acceptable; the standard warning filters
-  deduplicate.
+  TU and TUV metadata can only hold notes and properties; header
+  metadata additionally holds ``<ude>`` maps and is handled inline by
+  ``validate_header``. Models no longer warn; the validation pass is the
+  one place advisories fire, so this is primary emission, not a re-walk.
   """
   for node in metadata:
-    match node:
-      case Note() | Property():
-        warn_deprecated_lang(node.lang, node.xml_lang)
-      case Ude():
-        for mapping in node.maps:
-          warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
+    warn_deprecated_lang(node.lang, node.xml_lang)
 
 
 def _ude_errors(ude: Ude, loc: tuple[str | int, ...]) -> list[InitErrorDetails]:
