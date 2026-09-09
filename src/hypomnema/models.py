@@ -133,14 +133,22 @@ class Ude(TmxModel):
   """``<ude>``: user-defined encoding.
 
   DTD: ``<!ELEMENT ude (map+)>`` -- at least one map; ``name`` required.
-  Cross-field rule enforced later: ``base`` is required when any ``<map>``
-  carries ``code``.
+  The spec's cross-field rule is enforced here: ``base`` is required when
+  any ``<map>`` carries ``code``. The check is O(maps), spanning one
+  ``<ude>`` and its immediate children (GAPS decision 11).
   """
 
   element: Literal["ude"] = Field(default="ude", frozen=True)
   name: str
   base: TMXEncodingName | None = None
   maps: ModelSequence[Map] = Field(min_length=1)
+
+  @model_validator(mode="after")
+  def check_base_required_for_code(self) -> Self:
+    for index, mapping in enumerate(self.maps):
+      if mapping.code is not None and self.base is None:
+        raise ValueError(f"<map> at index {index} carries code; <ude> requires base when any map carries code")
+    return self
 
 
 class Sub(TmxModel):

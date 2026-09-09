@@ -192,7 +192,7 @@ def test_header_metadata_preserves_interleaved_document_order() -> None:
   markup = (
     '<header creationtool="CT" creationtoolversion="1" segtype="block" o-tmf="G" adminlang="en"'
     ' srclang="en" datatype="txt"><note>n</note><prop type="p">p</prop>'
-    '<ude name="U"><map unicode="#x41" code="#x42"/></ude><note>n2</note></header>'
+    '<ude name="U" base="ISO-8859-1"><map unicode="#x41" code="#x42"/></ude><note>n2</note></header>'
   )
   parsed = from_element(etree.fromstring(markup))
   assert isinstance(parsed, Header)
