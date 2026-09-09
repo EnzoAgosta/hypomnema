@@ -18,8 +18,28 @@ import pytest
 from pydantic import ValidationError
 
 from hypomnema.errors import TmxDeprecationWarning, TmxWarning
-from hypomnema.models import Bpt, Ept, Hi, It, Ph, Sub, TranslationUnit, TranslationUnitVariant, Ut
-from hypomnema.validation import validate_translation_unit, validate_translation_unit_variant
+from hypomnema.models import (
+  Bpt,
+  Ept,
+  Header,
+  Hi,
+  It,
+  Map,
+  Note,
+  Ph,
+  Property,
+  Sub,
+  TranslationUnit,
+  TranslationUnitVariant,
+  Ude,
+  Ut,
+)
+from hypomnema.validation import (
+  validate_header,
+  validate_translation_unit,
+  validate_translation_unit_variant,
+  validate_ude,
+)
 
 
 def tuv(*content: Any, xml_lang: str = "en") -> TranslationUnitVariant:
@@ -28,6 +48,19 @@ def tuv(*content: Any, xml_lang: str = "en") -> TranslationUnitVariant:
 
 def unit(*variants: TranslationUnitVariant) -> TranslationUnit:
   return TranslationUnit(variants=variants)
+
+
+def full_header(metadata: tuple[Note | Property | Ude, ...]) -> Header:
+  return Header(
+    creationtool="CT",
+    creationtoolversion="1",
+    segtype="block",
+    o_tmf="G",
+    adminlang="en",
+    srclang="en",
+    datatype="txt",
+    metadata=metadata,
+  )
 
 
 def expect_pairing_error(fn: Callable[[], None], *message_bits: str) -> ValidationError:
@@ -42,6 +75,52 @@ def expect_pairing_error(fn: Callable[[], None], *message_bits: str) -> Validati
 
 # Acceptance: legal per decision 12, including the shapes a stack-nesting
 # check would get wrong.
+
+
+# Advisories (GAPS decisions 8/15/19): models are silent; the validation
+# pass is the one place they fire.
+
+
+def test_legacy_lang_without_xml_lang_warns_in_the_tu_pass() -> None:
+  tu = TranslationUnit(variants=(tuv("x"),), metadata=(Note(lang="fr"),))
+  with pytest.warns(TmxDeprecationWarning, match="prefer xml:lang"):
+    validate_translation_unit(tu)
+
+
+def test_differing_lang_values_warn_in_the_tu_pass() -> None:
+  tu = TranslationUnit(variants=(tuv("x"),), metadata=(Note(lang="fr", xml_lang="de"),))
+  with pytest.warns(TmxWarning, match="differ"):
+    validate_translation_unit(tu)
+
+
+def test_legacy_lang_warns_in_the_variant_pass() -> None:
+  variant = TranslationUnitVariant(xml_lang="en", metadata=(Property(type="t", lang="fr"),), content=("x",))
+  with pytest.warns(TmxDeprecationWarning, match="prefer xml:lang"):
+    validate_translation_unit_variant(variant)
+
+
+def test_deprecated_ut_warns_in_the_content_walk() -> None:
+  with pytest.warns(TmxDeprecationWarning, match="deprecated"):
+    validate_translation_unit_variant(tuv(Ut()))
+
+
+def test_map_without_target_warns_in_validate_ude() -> None:
+  ude = Ude(name="u", maps=(Map(unicode=0xF8FF),))
+  with pytest.warns(TmxWarning, match="at least one of"):
+    validate_ude(ude)
+
+
+def test_map_with_any_target_is_silent_in_validate_ude() -> None:
+  ude = Ude(name="u", maps=(Map(unicode=0xF8FF, ent="x"),))
+  with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    validate_ude(ude)
+
+
+def test_header_metadata_advisories_fire_in_validate_header() -> None:
+  header = full_header((Note(lang="fr"), Ude(name="u", base="ascii", maps=(Map(unicode=0x41, ent="A"),))))
+  with pytest.warns(TmxDeprecationWarning, match="prefer xml:lang"):
+    validate_header(header)
 
 
 def test_a_simple_pair_is_accepted() -> None:

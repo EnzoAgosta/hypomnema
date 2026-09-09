@@ -19,7 +19,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from hypomnema.errors import TmxWarning
 from hypomnema.models import (
   Bpt,
   Ept,
@@ -362,7 +361,9 @@ def test_header_required_attributes_are_enforced() -> None:
       Header.model_validate(partial)
 
 
-# Deprecated language attributes (GAPS decision 8).
+# Deprecated language attributes (GAPS decision 8): models are silent
+# (GAPS decision 19); the advisories fire in the validation pass and are
+# tested in test_validation.py.
 
 
 def test_tuv_xml_lang_is_required() -> None:
@@ -378,18 +379,6 @@ def test_legacy_lang_cannot_substitute_for_xml_lang() -> None:
 def test_tuv_lang_is_validated_as_a_tag() -> None:
   with pytest.raises(ValidationError):
     TranslationUnitVariant(xml_lang="en", lang="en US")
-
-
-@pytest.mark.parametrize("build", LANG_OPTIONAL_MODELS.values(), ids=LANG_OPTIONAL_MODELS.keys())
-def test_lang_without_xml_lang_warns(build: LangModelFactory) -> None:
-  with pytest.warns(TmxWarning, match="prefer xml:lang"):
-    build("en", None)
-
-
-@pytest.mark.parametrize("build", LANG_MODELS.values(), ids=LANG_MODELS.keys())
-def test_differing_lang_values_warn(build: LangModelFactory) -> None:
-  with pytest.warns(TmxWarning, match="differ"):
-    build("en", "fr")
 
 
 @pytest.mark.parametrize("build", LANG_MODELS.values(), ids=LANG_MODELS.keys())
@@ -408,36 +397,13 @@ def test_xml_lang_only_is_silent_and_leaves_lang_none(build: LangModelFactory) -
 
 
 def test_lang_spelling_is_preserved() -> None:
-  with pytest.warns(TmxWarning):
-    note = Note(lang="EN-us")
+  note = Note(lang="EN-us")
   assert note.lang == "EN-us"
 
 
-def test_lang_advisories_fire_on_assignment() -> None:
-  note = Note()
-  with pytest.warns(TmxWarning, match="prefer xml:lang"):
-    note.lang = "en"
-
-
-# Deprecation and recommendation warnings (GAPS decision 15).
-
-
-def test_ut_construction_warns() -> None:
-  with pytest.warns(TmxWarning, match="deprecated"):
-    Ut()
-
-
-def test_ut_warning_fires_on_assignment_revalidation() -> None:
-  with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    ut = Ut()
-  with pytest.warns(TmxWarning, match="deprecated"):
-    ut.x = 5
-
-
-def test_map_without_target_warns() -> None:
-  with pytest.warns(TmxWarning, match="at least one of"):
-    Map(unicode=as_runtime_input("#xF8FF"))
+# Deprecation and recommendation warnings (GAPS decision 15): models are
+# silent (GAPS decision 19); the advisories fire in the validation pass
+# and are tested in test_validation.py.
 
 
 @pytest.mark.parametrize("attributes", [{"code": "#x9F"}, {"ent": "copy"}, {"subst": "(c)"}])

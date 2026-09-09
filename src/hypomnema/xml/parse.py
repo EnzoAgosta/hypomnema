@@ -1,8 +1,8 @@
 """Direct element-to-model projection for all TMX node models.
 
-Accepts already-parsed lxml elements, not bytes. Parser configuration,
-whole-tree domain validation, and document wrappers remain separate work.
-There are no standalone models for tmx/body/seg; seg is a tuv content wrapper.
+Accepts already-parsed lxml elements, not bytes. Parser configuration and
+document wrappers remain separate work. There are no standalone models for
+tmx/body/seg; seg is a tuv content wrapper.
 """
 
 from lxml import etree
@@ -26,20 +26,27 @@ from ..models import (
   Ude,
   Ut,
 )
+from ..validation import validate
 from .content import child_elements, read_mixed_content, read_text
 from .dtd import validate_fragment
 from .names import XML_LANG
 
 
 def from_element(element: etree._Element) -> TmxNode:
-  """DTD-check a fragment, then project it without modifying its tree.
+  """DTD-check a fragment, project it, then validate it (GAPS decision 19).
 
-  The DTD runs once over the whole fragment; recursion below projects
-  trusted structure, so every model error surfaces with the element and
-  line that caused it.
+  The DTD runs once over the whole fragment; recursion projects trusted
+  structure; the boundary validation pass then applies every contract
+  rule to the projected model. Every model error surfaces with the
+  element and line that caused it.
   """
   validate_fragment(element)
-  return _from_element(element)
+  node = _from_element(element)
+  try:
+    validate(node)
+  except ValidationError as error:
+    raise TmxSpecError(f"<{element.tag}> at line {element.sourceline}: {error}") from error
+  return node
 
 
 def _from_element(element: etree._Element) -> TmxNode:

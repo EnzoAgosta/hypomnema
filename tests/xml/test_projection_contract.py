@@ -167,7 +167,11 @@ def test_header_tree_round_trip_preserves_interleaving_and_empty_text_slots(mini
   assert from_element(wrapper[0]) == original
 
 
+@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
 def test_unit_serialized_round_trip_preserves_nested_flows_and_metadata() -> None:
+  # The two variants legitimately disagree on inline x values (the en
+  # variant has them, the fr one does not), so the cross-variant advisory
+  # fires at both boundaries; it is not this test's subject.
   original = TranslationUnit(
     tuid="unit-1",
     changedate=datetime(2025, 2, 3, 4, 5, 6, 123456, tzinfo=timezone(timedelta(hours=2))),

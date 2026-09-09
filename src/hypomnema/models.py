@@ -11,15 +11,17 @@ replaced by ``_``, otherwise verbatim -- ``o_tmf``, ``xml_lang``, and plain
 ``lang`` is the deprecated attribute; ``xml_lang`` is the standard one.
 The deprecated attribute still exists in TMX 1.4b and is modeled.
 
-The models own the structural constraints the DTD would check (required
-children, nonempty groups, legal group separation) and the cheap automatic
-advisories (GAPS decisions 5, 8, 11, 15). Expensive cross-node correctness
-checks are NOT here; they are explicit functions (decision 11).
+The models are a typed, permissive IR (GAPS decision 19): typing -- strict
+values, tuple fields, ``validate_assignment``, and the nonempty
+``variants``/``maps`` -- is enforced at construction and assignment. Every TMX
+*contract* rule (cross-field, prose pairing, advisories) lives in the pure
+validation functions in ``validation.py``, which projection and the future
+I/O layer invoke at every XML-IR boundary crossing.
 """
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from .validators import (
   TMXAsciiText,
@@ -34,9 +36,6 @@ from .validators import (
   TMXSegType,
   TMXSourceLanguage,
   TMXUnicodeCodePoint,
-  warn_deprecated_lang,
-  warn_deprecated_ut,
-  warn_map_without_target,
 )
 
 
@@ -82,11 +81,6 @@ class Note(TmxModel):
   lang: TMXLanguageTag | None = None
   text: str | None = None
 
-  @model_validator(mode="after")
-  def check_lang_advisories(self) -> Self:
-    warn_deprecated_lang(self.lang, self.xml_lang)
-    return self
-
 
 class Property(TmxModel):
   """``<prop>``: property name/value pair.
@@ -102,11 +96,6 @@ class Property(TmxModel):
   lang: TMXLanguageTag | None = None
   text: str | None = None
 
-  @model_validator(mode="after")
-  def check_lang_advisories(self) -> Self:
-    warn_deprecated_lang(self.lang, self.xml_lang)
-    return self
-
 
 class Map(TmxModel):
   """``<map>``: character mapping inside a ``<ude>``.
@@ -114,7 +103,8 @@ class Map(TmxModel):
   DTD: ``<!ELEMENT map EMPTY>`` -- no content; ``unicode`` required.
   The spec types the values beyond what the DTD can express: ``unicode``
   and ``code`` are ``#x``-prefixed hexadecimal integers, ``ent`` and
-  ``subst`` must be ASCII text.
+  ``subst`` must be ASCII text. The target advisory is a contract rule:
+  ``validate_ude()`` emits it (GAPS decision 19).
   """
 
   element: Literal["map"] = Field(default="map", frozen=True)
@@ -123,34 +113,20 @@ class Map(TmxModel):
   ent: TMXAsciiText | None = None
   subst: TMXAsciiText | None = None
 
-  @model_validator(mode="after")
-  def check_map_advisories(self) -> Self:
-    warn_map_without_target(self.code, self.ent, self.subst)
-    return self
-
 
 class Ude(TmxModel):
   """``<ude>``: user-defined encoding.
 
   DTD: ``<!ELEMENT ude (map+)>`` -- at least one map; ``name`` required.
-  The spec's cross-field rule is enforced here: ``base`` is required when
-  any ``<map>`` carries ``code``. The check is O(maps), spanning one
-  ``<ude>`` and its immediate children (GAPS decision 11).
+  The spec's cross-field rule (``base`` required when any ``<map>`` carries
+  ``code``) is a contract rule, not typing: ``validate_ude()`` enforces it at
+  boundaries (GAPS decision 19).
   """
 
   element: Literal["ude"] = Field(default="ude", frozen=True)
   name: str
   base: TMXEncodingName | None = None
   maps: ModelSequence[Map] = Field(min_length=1)
-
-  @model_validator(mode="after")
-  def check_base_required_for_code(self) -> Self:
-    if self.base is not None:
-      return self
-    for index, mapping in enumerate(self.maps):
-      if mapping.code is not None:
-        raise ValueError(f"<map> at index {index} carries code; <ude> requires base when any map carries code")
-    return self
 
 
 class Sub(TmxModel):
@@ -242,11 +218,6 @@ class Ut(TmxModel):
   x: TMXInteger | None = None
   content: ModelSequence[SubContentItem] = ()
 
-  @model_validator(mode="after")
-  def check_deprecation(self) -> Self:
-    warn_deprecated_ut()
-    return self
-
 
 class Header(TmxModel):
   """``<header>``: TMX file header.
@@ -297,11 +268,6 @@ class TranslationUnitVariant(TmxModel):
   lang: TMXLanguageTag | None = None
   metadata: ModelSequence[MetadataChild] = ()
   content: ModelSequence[SegContentItem] = ()
-
-  @model_validator(mode="after")
-  def check_lang_advisories(self) -> Self:
-    warn_deprecated_lang(self.lang, self.xml_lang)
-    return self
 
 
 class TranslationUnit(TmxModel):

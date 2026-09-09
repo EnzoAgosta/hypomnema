@@ -161,7 +161,7 @@ with warnings.catch_warnings():
         srclang="en",
         metadata=(Note(text="meta note"), Property(type="p", text="meta prop")),
         variants=(
-          TranslationUnitVariant(xml_lang="en", usagecount=0, content=("lead ", Bpt(i=1), " tail")),
+          TranslationUnitVariant(xml_lang="en", usagecount=0, content=("lead ", Bpt(i=1), " tail ", Ept(i=1))),
           TranslationUnitVariant(xml_lang="de", o_encoding="Epsilon"),
         ),
       ),
@@ -170,7 +170,7 @@ with warnings.catch_warnings():
       ' creationdate="20240304T050607Z" creationid="CI" changedate="20240506T070809Z"'
       ' segtype="paragraph" changeid="CH" o-tmf="Gamma" srclang="en">'
       '<note>meta note</note><prop type="p">meta prop</prop>'
-      '<tuv xml:lang="en" usagecount="0"><seg>lead <bpt i="1"/> tail</seg></tuv>'
+      '<tuv xml:lang="en" usagecount="0"><seg>lead <bpt i="1"/> tail <ept i="1"/></seg></tuv>'
       '<tuv xml:lang="de" o-encoding="Epsilon"><seg/></tuv></tu>',
     ),
     (
@@ -204,6 +204,9 @@ with warnings.catch_warnings():
 @pytest.mark.parametrize(
   ["model", "expected_xml"], [(case[1], case[2]) for case in BUILD_CASES], ids=[case[0] for case in BUILD_CASES]
 )
+# The prop/ut/map fixtures legitimately emit their advisories at the build
+# boundary now (GAPS decision 19); the emitted warnings are not the subject.
+@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
 def test_builds_expected_xml(model: TmxNode, expected_xml: str) -> None:
   assert_same_tree(to_element(model), etree.fromstring(expected_xml))
 
@@ -236,10 +239,14 @@ REQUIRED_ATTRIBUTES = {
 }
 
 
+# The map/ude/ut minimal nodes legitimately emit their advisories at the
+# build boundary now (GAPS decision 19); the warnings are not the subject.
+@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
 def test_absent_optional_attributes_are_omitted(minimal_node: TmxNode) -> None:
   assert dict(to_element(minimal_node).attrib) == REQUIRED_ATTRIBUTES[minimal_node.element]
 
 
+@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
 def test_empty_content_does_not_invent_text(minimal_node: TmxNode) -> None:
   element = to_element(minimal_node)
   # Include required descendants such as tuv/seg and ude/map, not just the
@@ -310,7 +317,7 @@ def test_output_is_detached() -> None:
 
 
 def test_building_twice_leaves_the_source_model_untouched() -> None:
-  model = TranslationUnitVariant(xml_lang="en", metadata=(Note(text="n"),), content=("a", Bpt(i=1)))
+  model = TranslationUnitVariant(xml_lang="en", metadata=(Note(text="n"),), content=("a", Bpt(i=1), Ept(i=1)))
   # Snapshot before the first call: a first-build mutation must not be
   # hidden by comparing a second build against the first.
   snapshot = copy.deepcopy(model)

@@ -127,7 +127,7 @@ with warnings.catch_warnings():
       ' creationdate="20240304T050607Z" creationid="CI" changedate="20240506T070809Z"'
       ' segtype="paragraph" changeid="CH" o-tmf="Gamma" srclang="en">'
       '<note>meta note</note><prop type="p">meta prop</prop>'
-      '<tuv xml:lang="en" usagecount="0"><seg>lead <bpt i="1"/> tail</seg></tuv>'
+      '<tuv xml:lang="en" usagecount="0"><seg>lead <bpt i="1"/> tail <ept i="1"/></seg></tuv>'
       '<tuv xml:lang="de" o-encoding="Epsilon"><seg/></tuv></tu>',
       TranslationUnit(
         tuid="T-1",
@@ -146,7 +146,7 @@ with warnings.catch_warnings():
         srclang="en",
         metadata=(Note(text="meta note"), Property(type="p", text="meta prop")),
         variants=(
-          TranslationUnitVariant(xml_lang="en", usagecount=0, content=("lead ", Bpt(i=1), " tail")),
+          TranslationUnitVariant(xml_lang="en", usagecount=0, content=("lead ", Bpt(i=1), " tail ", Ept(i=1))),
           TranslationUnitVariant(xml_lang="de", o_encoding="Epsilon"),
         ),
       ),
@@ -212,9 +212,9 @@ def test_tu_metadata_stays_separate_from_variants() -> None:
 
 
 def test_seg_wrapper_dissolves_into_tuv_content() -> None:
-  parsed = from_element(etree.fromstring('<tuv xml:lang="en"><seg>a<bpt i="1"/>b</seg></tuv>'))
+  parsed = from_element(etree.fromstring('<tuv xml:lang="en"><seg>a<bpt i="1"/>b<ept i="1"/></seg></tuv>'))
   assert isinstance(parsed, TranslationUnitVariant)
-  assert parsed.content == ("a", Bpt(i=1), "b")
+  assert parsed.content == ("a", Bpt(i=1), "b", Ept(i=1))
 
 
 def test_empty_seg_is_empty_content_not_missing() -> None:
@@ -227,9 +227,9 @@ def test_whitespace_is_kept_exactly() -> None:
   note = from_element(etree.fromstring("<note>  spaced  </note>"))
   assert isinstance(note, Note)
   assert note.text == "  spaced  "
-  variant = from_element(etree.fromstring('<tuv xml:lang="en"><seg> a <bpt i="1"/> b </seg></tuv>'))
+  variant = from_element(etree.fromstring('<tuv xml:lang="en"><seg> a <bpt i="1"/> b <ept i="1"/></seg></tuv>'))
   assert isinstance(variant, TranslationUnitVariant)
-  assert variant.content == (" a ", Bpt(i=1), " b ")
+  assert variant.content == (" a ", Bpt(i=1), " b ", Ept(i=1))
 
 
 def test_absent_attributes_and_text_are_none() -> None:

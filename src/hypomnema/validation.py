@@ -1,30 +1,35 @@
-"""Explicit, user-invocable validation for rules spanning several nodes.
+"""Pure, user-invocable validation for TMX contract rules (GAPS decision 19).
 
-GAPS decision 11: cheap local constraints run automatically in the models;
-these cross-node correctness checks never run automatically. A user calls
-them at their own runtime cost, and the writer (once it exists) always
-calls them before converting a model to XML -- successfully completed
-output must be spec-compliant. Rejections are Pydantic ``ValidationError``
-with the offending node's location; the writer will wrap them into
-``TmxSpecError``.
+Models are a typed, permissive IR: typing (strict values, tuples, the
+nonempty ``variants``/``maps``) is enforced automatically in the models, but
+TMX *contract* rules -- cross-field rules, prose pairing, and advisories --
+live here as side-effect-free functions that raise Pydantic
+``ValidationError`` and emit ``TmxWarning`` advisories. Projection and the
+future reader/writer invoke the relevant function at every XML-IR boundary
+crossing; users should call them mid-pipeline for early error locality.
+Between boundaries, no check runs automatically.
 
-Current checks (GAPS decisions 12-13):
+Current checks (GAPS decisions 12-13, 19):
 
+- ``validate_ude``: ``<ude base>`` required when any ``<map>`` carries
+  ``code``, plus the map-target advisory.
+- ``validate_header``: the ``validate_ude`` check for every ``<ude>`` in the
+  header's metadata, plus the legacy-``lang`` advisories for its notes and
+  properties.
 - ``validate_translation_unit_variant``: ``bpt``/``ept`` pairing and
-  ``bpt.i`` uniqueness per flow scope. Flows are the variant's segment
-  content and each ``<sub>``'s content (the embedded segment's own flow);
-  ``<hi>`` is transparent, so its inline elements join the enclosing
-  flow. Matching is per-``i`` with ordering, deliberately not stack
-  nesting: the spec permits overlapping native code pairs.
-- ``validate_translation_unit``: the variant check for every variant,
-  plus one ``TmxWarning`` when sibling variants disagree on their ``x``
-  values -- the spec's cross-variant matching mechanism, advisory per
-  decision 13.
+  ``bpt.i`` uniqueness per flow scope, plus the variant metadata's
+  legacy-``lang`` advisories. Flows are the variant's segment content and
+  each ``<sub>``'s content (the embedded segment's own flow); ``<hi>`` is
+  transparent, so its inline elements join the enclosing flow. Matching is
+  per-``i`` with ordering, deliberately not stack nesting: the spec permits
+  overlapping native code pairs.
+- ``validate_translation_unit``: the variant walk for every variant, the
+  unit metadata's advisories, plus one ``TmxWarning`` when sibling variants
+  disagree on their ``x`` values -- the spec's cross-variant matching
+  mechanism, advisory per decision 13.
 
-Both checks also re-emit the cheap model-level advisories for the data
-they walk (GAPS decision 8): mutating a child does not re-trigger its
-parent's validator, so a stale tree would otherwise stop warning. The
-re-emitted warnings are advisory only and never affect the outcome.
+The deprecated ``<ut>`` advisory is emitted inside the content walk, since
+that is the pass that visits inline content.
 """
 
 from collections.abc import Iterable
@@ -38,8 +43,10 @@ from .errors import TmxWarning
 from .models import (
   Bpt,
   Ept,
+  Header,
   Hi,
   It,
+  Map,
   Note,
   Ph,
   Property,
@@ -56,6 +63,7 @@ from .validators import warn_deprecated_lang, warn_deprecated_ut, warn_map_witho
 
 _PAIRING_ERROR_TYPE = "inline_tag_pairing"
 _CYCLE_ERROR_TYPE = "cyclic_content"
+_UDE_ERROR_TYPE = "ude_base_required"
 
 
 def _node_error(loc: tuple[str | int, ...], error_type: LiteralString, message: str, node: object) -> InitErrorDetails:
@@ -161,14 +169,13 @@ def _walk_sub_flows(
       path.discard(id(node))
 
 
-def _rewarn_metadata_advisories(metadata: Iterable[Note | Property | Ude]) -> None:
-  """Re-emit the metadata children's cheap model-level advisories.
+def _warn_metadata_advisories(metadata: Iterable[Note | Property | Ude]) -> None:
+  """Emit the metadata children's advisories (GAPS decision 19).
 
-  Advisories fire at construction and assignment, but mutating a child
-  never re-triggers its parent's validator (GAPS decision 7). The
-  explicit checks re-run them so a stale tree still gets its warnings
-  (decision 8); duplicates across layers are acceptable, the standard
-  warning filters deduplicate.
+  Models no longer warn; the validation pass is the one place advisories
+  fire, so this is primary emission, not a re-walk. Duplicates across
+  separate validation passes are acceptable; the standard warning filters
+  deduplicate.
   """
   for node in metadata:
     match node:
@@ -179,6 +186,90 @@ def _rewarn_metadata_advisories(metadata: Iterable[Note | Property | Ude]) -> No
           warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
 
 
+def _ude_errors(ude: Ude, loc: tuple[str | int, ...]) -> list[InitErrorDetails]:
+  """``<ude base>`` is required when any ``<map>`` carries ``code``.
+
+  One error per offending map, located under ``loc`` so header-level
+  validation can prefix the metadata position.
+  """
+  if ude.base is not None:
+    return []
+  return [
+    _node_error(
+      (*loc, index),
+      _UDE_ERROR_TYPE,
+      f"<map> at index {index} carries code; <ude> requires base when any map carries code",
+      mapping,
+    )
+    for index, mapping in enumerate(ude.maps)
+    if mapping.code is not None
+  ]
+
+
+def validate_ude(ude: Ude) -> None:
+  """Validate one ``<ude>``.
+
+  Enforces the spec's cross-field rule: ``base`` is required when any
+  ``<map>`` carries ``code`` (one error per offending map). Emits the
+  map-target advisory for each map. Raises ``ValidationError``.
+  """
+  errors = _ude_errors(ude, ())
+  if errors:
+    raise ValidationError.from_exception_data("Ude", errors)
+  for mapping in ude.maps:
+    warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
+
+
+def validate_header(header: Header) -> None:
+  """Validate a complete ``<header>``.
+
+  Runs the ``validate_ude`` check on every ``<ude>`` in the metadata
+  (error locations prefixed with the metadata position), and emits the
+  legacy-``lang`` advisories for the header's notes and properties.
+  Raises ``ValidationError`` if any ``<ude>`` violates its rule.
+  """
+  errors: list[InitErrorDetails] = []
+  for index, node in enumerate(header.metadata):
+    match node:
+      case Note() | Property():
+        warn_deprecated_lang(node.lang, node.xml_lang)
+      case Ude():
+        errors.extend(_ude_errors(node, ("metadata", index)))
+        for mapping in node.maps:
+          warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
+  if errors:
+    raise ValidationError.from_exception_data("Header", errors)
+
+
+def validate(node: TmxNode) -> None:
+  """Validate any TMX node with the checks that apply to it.
+
+  The projection boundary's dispatcher, and the one-call convenience for
+  users. Header/unit/unit-variant/ude nodes run their full checks; leaf
+  nodes emit their advisory (legacy ``lang``, map target, deprecated
+  ``<ut>``); inline nodes carry nothing checkable outside a flow scope --
+  pairing rules apply when a ``<tuv>`` or ``<tu>`` is validated.
+  Raises ``ValidationError``; emits ``TmxWarning`` advisories.
+  """
+  match node:
+    case Header():
+      validate_header(node)
+    case Ude():
+      validate_ude(node)
+    case TranslationUnit():
+      validate_translation_unit(node)
+    case TranslationUnitVariant():
+      validate_translation_unit_variant(node)
+    case Note() | Property():
+      warn_deprecated_lang(node.lang, node.xml_lang)
+    case Map():
+      warn_map_without_target(node.code, node.ent, node.subst)
+    case Ut():
+      warn_deprecated_ut()
+    case Bpt() | Ept() | It() | Ph() | Hi() | Sub():
+      pass
+
+
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   """Check ``bpt``/``ept`` pairing and ``i`` uniqueness in every flow.
 
@@ -187,16 +278,14 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   is unique among ``bpt`` elements and among ``ept`` elements of a flow.
   Raises ``ValidationError`` with the offending node's location. Also
   detects cyclic content -- a node containing itself through its
-  descendants, reachable only through mutation (GAPS decision 7a).
-
-  Re-emits the variant metadata's advisories, so a tree mutated after
-  construction still warns (GAPS decision 8).
+  descendants, reachable only through mutation (GAPS decision 7a). Emits
+  the variant metadata's legacy-``lang`` advisories (GAPS decision 19).
   """
   errors: list[InitErrorDetails] = []
   _walk_segment(tuv.content, ("content",), errors, set())
   if errors:
     raise ValidationError.from_exception_data("TranslationUnitVariant", errors)
-  _rewarn_metadata_advisories(tuv.metadata)
+  _warn_metadata_advisories(tuv.metadata)
 
 
 def _collect_x_values(node: SegContentItem | SubContentItem, into: set[int]) -> None:
@@ -214,12 +303,10 @@ def _collect_x_values(node: SegContentItem | SubContentItem, into: set[int]) -> 
 def validate_translation_unit(tu: TranslationUnit) -> None:
   """Validate the whole translation unit.
 
-  Runs ``validate_translation_unit_variant`` on every variant (raising on
-  the first batch of structural errors, including cyclic content), then
-  emits one ``TmxWarning`` if the variants disagree on their inline ``x``
-  values (GAPS decision 13). Re-emits the advisories of the unit's and
-  the variants' metadata, so a tree mutated after construction still
-  warns (GAPS decision 8).
+  Runs the variant walk on every variant (raising on the first batch of
+  structural errors, including cyclic content), emits the unit's and the
+  variants' metadata advisories, then emits one ``TmxWarning`` if the
+  variants disagree on their inline ``x`` values (GAPS decision 13).
   """
   errors: list[InitErrorDetails] = []
   for index, tuv in enumerate(tu.variants):
@@ -243,6 +330,6 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
       " the x attribute matches inline tags between variants",
       TmxWarning,
     )
-  _rewarn_metadata_advisories(tu.metadata)
+  _warn_metadata_advisories(tu.metadata)
   for tuv in tu.variants:
-    _rewarn_metadata_advisories(tuv.metadata)
+    _warn_metadata_advisories(tuv.metadata)
