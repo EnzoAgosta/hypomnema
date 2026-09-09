@@ -447,6 +447,13 @@ def test_map_without_any_target_warns() -> None:
     from_element(etree.fromstring('<map unicode="#x41"/>'))
 
 
+def test_contract_violations_are_rejected_on_read() -> None:
+  # The boundary validation pass applies the prose rules to the projected
+  # model, not just the DTD and typing.
+  with pytest.raises(TmxSpecError, match="inline_tag_pairing"):
+    from_element(etree.fromstring('<tuv xml:lang="en"><seg><bpt i="1"/></seg></tuv>'))
+
+
 def test_equivalent_lang_and_xml_lang_do_not_warn() -> None:
   # This runs under an escalating filter to prove the advisory is absent,
   # not swallowed by any suppression elsewhere in the suite.

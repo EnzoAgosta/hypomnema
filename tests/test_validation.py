@@ -35,6 +35,7 @@ from hypomnema.models import (
   Ut,
 )
 from hypomnema.validation import (
+  validate,
   validate_header,
   validate_translation_unit,
   validate_translation_unit_variant,
@@ -99,6 +100,19 @@ def test_legacy_lang_warns_in_the_variant_pass() -> None:
     validate_translation_unit_variant(variant)
 
 
+def test_variant_own_lang_differs_and_warns() -> None:
+  # Only the differing case is reachable on a variant: xml_lang is required,
+  # so legacy lang alone is a typing error, not an advisory.
+  with pytest.warns(TmxWarning, match="differ"):
+    validate_translation_unit_variant(TranslationUnitVariant(xml_lang="en", lang="fr"))
+
+
+def test_variant_own_lang_equal_ignoring_case_is_silent() -> None:
+  with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    validate_translation_unit_variant(TranslationUnitVariant(xml_lang="EN-us", lang="en-US"))
+
+
 def test_deprecated_ut_warns_in_the_content_walk() -> None:
   with pytest.warns(TmxDeprecationWarning, match="deprecated"):
     validate_translation_unit_variant(tuv(Ut()))
@@ -121,6 +135,93 @@ def test_header_metadata_advisories_fire_in_validate_header() -> None:
   header = full_header((Note(lang="fr"), Ude(name="u", base="ascii", maps=(Map(unicode=0x41, ent="A"),))))
   with pytest.warns(TmxDeprecationWarning, match="prefer xml:lang"):
     validate_header(header)
+
+
+# The Ude base/code rule (GAPS decisions 6/19): pure validate_ude, one error
+# per offending map, located under the metadata position by the header pass.
+
+
+def test_ude_base_required_when_a_map_carries_code() -> None:
+  with pytest.raises(ValidationError) as excinfo:
+    validate_ude(Ude(name="u", maps=(Map(unicode=0x41, code=0x42),)))
+  error = excinfo.value.errors()[0]
+  assert error["type"] == "ude_base_required"
+  assert error["loc"] == (0,)
+
+
+def test_ude_reports_every_offending_map() -> None:
+  ude = Ude(name="u", maps=(Map(unicode=0x41), Map(unicode=0x42, code=0x43), Map(unicode=0x44, code=0x45)))
+  with pytest.raises(ValidationError) as excinfo:
+    validate_ude(ude)
+  assert [error["loc"] for error in excinfo.value.errors()] == [(1,), (2,)]
+
+
+def test_ude_with_base_is_accepted() -> None:
+  with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    validate_ude(Ude(name="u", base="ascii", maps=(Map(unicode=0x41, code=0x42),)))
+
+
+def test_validate_header_prefixes_ude_error_locations() -> None:
+  header = full_header((Ude(name="u", maps=(Map(unicode=0x41, code=0x42),)),))
+  with pytest.raises(ValidationError) as excinfo:
+    validate_header(header)
+  assert excinfo.value.errors()[0]["loc"] == ("metadata", 0, 0)
+
+
+def test_validate_header_aggregates_across_udes() -> None:
+  header = full_header(
+    (Ude(name="a", maps=(Map(unicode=0x41, code=0x42),)), Ude(name="b", maps=(Map(unicode=0x41, code=0x43),)))
+  )
+  with pytest.raises(ValidationError) as excinfo:
+    validate_header(header)
+  assert [error["loc"] for error in excinfo.value.errors()] == [("metadata", 0, 0), ("metadata", 1, 0)]
+
+
+# The validate(node) dispatcher (GAPS decision 19): fragment-level flows.
+
+
+def test_standalone_sub_flow_is_checked() -> None:
+  with pytest.raises(ValidationError) as excinfo:
+    validate(Sub(content=("x", Bpt(i=1), "y")))
+  assert excinfo.value.errors()[0]["type"] == "inline_tag_pairing"
+
+
+def test_standalone_hi_flow_is_checked() -> None:
+  with pytest.raises(ValidationError):
+    validate(Hi(content=(Ept(i=1),)))
+
+
+def test_paired_tag_fragment_checks_its_sub_flows() -> None:
+  with pytest.raises(ValidationError):
+    validate(Bpt(i=1, content=(Sub(content=(Bpt(i=2),)),)))
+
+
+def test_placeholder_tag_fragment_checks_its_sub_flows() -> None:
+  with pytest.raises(ValidationError):
+    validate(Ph(content=("t", Sub(content=("s", Ept(i=9))), "end")))
+
+
+def test_a_fragment_cannot_carry_the_enclosing_flow() -> None:
+  # A lone bpt/ept/it/ph has no enclosing flow to pair into, so its own
+  # presence is not an error; enclosing-flow checks apply at tuv/tu level.
+  validate(Bpt(i=1))
+  validate(Ept(i=1))
+
+
+def test_dispatcher_emits_the_leaf_advisories() -> None:
+  with pytest.warns(TmxDeprecationWarning, match="prefer xml:lang"):
+    validate(Note(lang="fr"))
+  with pytest.warns(TmxWarning, match="at least one of"):
+    validate(Map(unicode=0x41))
+  with pytest.warns(TmxDeprecationWarning, match="deprecated"):
+    validate(Ut())
+
+
+def test_non_node_is_rejected_loudly() -> None:
+  impostor: Any = object()
+  with pytest.raises(TypeError, match="not a TMX node model"):
+    validate(impostor)
 
 
 def test_a_simple_pair_is_accepted() -> None:
@@ -310,6 +411,61 @@ def test_x_inside_nested_content_counts() -> None:
   with warnings.catch_warnings():
     warnings.simplefilter("error")
     validate_translation_unit(tu)
+
+
+# Cycles (GAPS decision 7a): only mutation can create them. Detection is
+# scoped to each walk's root, so legitimately shared subtrees stay legal.
+
+
+def cyclic_pair() -> tuple[Hi, Hi]:
+  outer, inner = Hi(), Hi()
+  outer.content = (inner,)
+  inner.content = (outer,)
+  return outer, inner
+
+
+def test_two_step_hi_cycle_is_rejected() -> None:
+  outer, _ = cyclic_pair()
+  with pytest.raises(ValidationError) as excinfo:
+    validate_translation_unit_variant(tuv(outer))
+  assert excinfo.value.errors()[0]["type"] == "cyclic_content"
+
+
+def test_cycle_through_sub_is_rejected() -> None:
+  sub = Sub(content=())
+  bpt = Bpt(i=1, content=(sub,))
+  sub.content = (bpt,)
+  with pytest.raises(ValidationError) as excinfo:
+    validate_translation_unit_variant(tuv(bpt))
+  assert excinfo.value.errors()[0]["type"] == "cyclic_content"
+
+
+def test_cycle_error_points_at_the_reentered_node() -> None:
+  outer, _ = cyclic_pair()
+  # The re-entry happens when walking outer's content: its first item is
+  # inner, whose first content item is outer again. Each descent appends
+  # ("content", index, "content"), so the re-entry sits three levels deep.
+  with pytest.raises(ValidationError) as excinfo:
+    validate_translation_unit_variant(tuv(outer))
+  assert excinfo.value.errors()[0]["loc"] == ("content", 0, "content", 0, "content", 0)
+
+
+def test_cycle_does_not_descend_so_errors_stay_bounded() -> None:
+  # The cyclic pair is referenced three times; each re-entry reports once.
+  outer, _ = cyclic_pair()
+  with pytest.raises(ValidationError) as excinfo:
+    validate_translation_unit_variant(tuv(outer, outer, outer))
+  assert len(excinfo.value.errors()) == 3
+
+
+def test_a_shared_subtree_is_legal_across_variants() -> None:
+  shared = Hi()
+  validate_translation_unit(unit(tuv(Hi(content=("x", shared))), tuv(Hi(content=(shared, "y")))))
+
+
+def test_a_diamond_is_not_a_cycle() -> None:
+  shared = Hi()
+  validate_translation_unit_variant(tuv(Hi(content=(shared, shared))))
 
 
 # Fuzz: independently generated valid trees are accepted; structural

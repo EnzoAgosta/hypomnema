@@ -331,6 +331,23 @@ def test_building_twice_leaves_the_source_model_untouched() -> None:
   assert isinstance(model.metadata, tuple)
 
 
+# --- Boundary validation (GAPS decision 19): contract rules gate the build. ---
+
+
+def test_contract_violation_raises_spec_error_before_building() -> None:
+  # Prose violations fail the boundary validation pass, not the DTD run.
+  with pytest.raises(TmxSpecError, match="inline_tag_pairing"):
+    to_element(TranslationUnitVariant(xml_lang="en", content=(Bpt(i=1),)))
+
+
+def test_cyclic_model_fails_as_spec_error_not_recursion_error() -> None:
+  outer, inner = Hi(), Hi()
+  outer.content = (inner,)
+  inner.content = (outer,)
+  with pytest.raises(TmxSpecError):
+    to_element(TranslationUnitVariant(xml_lang="en", content=(outer,)))
+
+
 # --- XML-illegal values and non-models. ---
 
 
