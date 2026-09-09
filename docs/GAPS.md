@@ -543,6 +543,13 @@ validation superlinear, since occurrences (not objects) are visited --
 memoization is deliberately not used because second occurrences can carry
 distinct violations.
 
+Non-emptiness is runtime-only. The PEP 646 idiom
+`tuple[T, *tuple[T, ...]]` expresses "length >= 1" statically (ty honors it),
+but Pydantic 2.13.5 cannot schema-generate it (chokes on the `Unpack`), and
+without a Pydantic plugin ty does not check constructor kwargs anyway -- so
+`Field(min_length=1)` gives the same error, earlier in practice, with a better
+message. Revisit if Pydantic supports variadic unpacks.
+
 This revises:
 
 - **Decision 5** (partial): structural rejection leaves the models except the
