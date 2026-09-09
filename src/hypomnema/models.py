@@ -145,8 +145,10 @@ class Ude(TmxModel):
 
   @model_validator(mode="after")
   def check_base_required_for_code(self) -> Self:
+    if self.base is not None:
+      return self
     for index, mapping in enumerate(self.maps):
-      if mapping.code is not None and self.base is None:
+      if mapping.code is not None:
         raise ValueError(f"<map> at index {index} carries code; <ude> requires base when any map carries code")
     return self
 
