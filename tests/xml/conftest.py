@@ -1,11 +1,9 @@
 """Shared construction scaffolding; XML/model expectations stay in the tests."""
 
-import warnings
 from collections.abc import Callable
 
 import pytest
 
-from hypomnema.errors import TmxWarning
 from hypomnema.models import (
   Bpt,
   Ept,
@@ -79,9 +77,7 @@ def minimal_node(request: pytest.FixtureRequest, minimal_header: Header) -> TmxN
     TranslationUnit: lambda: TranslationUnit(variants=(TranslationUnitVariant(xml_lang="en"),)),
     TranslationUnitVariant: lambda: TranslationUnitVariant(xml_lang="en"),
   }
-  with warnings.catch_warnings():
-    warnings.simplefilter("ignore", TmxWarning)
-    return factories[model_type]()
+  return factories[model_type]()
 
 
 @pytest.fixture

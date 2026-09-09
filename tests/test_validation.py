@@ -161,7 +161,7 @@ def test_the_same_i_on_bpt_and_ept_is_the_pairing_itself() -> None:
 def test_all_placeholder_tags_open_sub_flows() -> None:
   sub_pair = (Sub(content=(Bpt(i=1), Ept(i=1))),)
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore")  # the ut deprecation advisory is tested in test_models
+    warnings.simplefilter("ignore")  # the ut deprecation advisory is not this test's subject
     # The bpt/ept cases carry their own outer-flow partners.
     validate_translation_unit_variant(tuv("a", Bpt(i=1, content=sub_pair), Ept(i=1), "b"))
     validate_translation_unit_variant(tuv("a", Bpt(i=1), Ept(i=1, content=sub_pair), "b"))
@@ -275,10 +275,11 @@ def test_no_x_values_at_all_is_silent() -> None:
 
 def test_ut_x_is_excluded_from_the_matching_set() -> None:
   # The spec's x "Used in" list omits <ut>, so its x must not create a
-  # mismatch; the deprecation advisory itself is tested in test_models.
-  # validate_translation_unit re-emits that advisory (GAPS decision 8),
-  # so it is silenced by category -- wording-independent -- while every
-  # other TmxWarning, including an x mismatch, stays an error.
+  # mismatch; the deprecation advisory itself is tested in
+  # test_deprecated_ut_warns_in_the_content_walk above, and
+  # validate_translation_unit emits it as part of the pass (GAPS decision
+  # 19), so it is silenced by category -- wording-independent -- while
+  # every other TmxWarning, including an x mismatch, stays an error.
   with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     tu = unit(tuv("a", Ut(x=1), Bpt(i=1), Ept(i=1)), tuv("b", Bpt(i=1), Ept(i=1)))

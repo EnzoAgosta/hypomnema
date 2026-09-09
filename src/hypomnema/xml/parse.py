@@ -37,8 +37,10 @@ def from_element(element: etree._Element) -> TmxNode:
 
   The DTD runs once over the whole fragment; recursion projects trusted
   structure; the boundary validation pass then applies every contract
-  rule to the projected model. Every model error surfaces with the
-  element and line that caused it.
+  rule to the projected model. Typing errors surface with the nested
+  element and line that caused them; contract errors from the validation
+  pass surface with the fragment's root element and line, with
+  model-relative error locations.
   """
   validate_fragment(element)
   node = _from_element(element)

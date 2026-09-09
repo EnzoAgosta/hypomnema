@@ -99,13 +99,13 @@ with warnings.catch_warnings():
     ("it", It(pos="begin", x=3, type="x-it", content=("t",)), '<it pos="begin" x="3" type="x-it">t</it>'),
     (
       "ph",
-      Ph(x=1, assoc="p", type="var", content=("var ", Sub(content=("in ", Bpt(i=1), " tail")), " end")),
-      '<ph x="1" assoc="p" type="var">var <sub>in <bpt i="1"/> tail</sub> end</ph>',
+      Ph(x=1, assoc="p", type="var", content=("var ", Sub(content=("in ", Bpt(i=1), " tail", Ept(i=1))), " end")),
+      '<ph x="1" assoc="p" type="var">var <sub>in <bpt i="1"/> tail<ept i="1"/></sub> end</ph>',
     ),
     (
       "sub",
-      Sub(type="s", datatype="d", content=("a", Ept(i=1), "b")),
-      '<sub datatype="d" type="s">a<ept i="1"/>b</sub>',
+      Sub(type="s", datatype="d", content=("a", Bpt(i=1), "b", Ept(i=1))),
+      '<sub datatype="d" type="s">a<bpt i="1"/>b<ept i="1"/></sub>',
     ),
     (
       "hi",
@@ -302,8 +302,12 @@ def test_empty_seg_is_explicit() -> None:
 
 def test_whitespace_is_kept_exactly() -> None:
   # <hi> carries the general inline grammar, so a bpt may interleave here;
-  # <ph> may only carry text and <sub>.
-  assert_same_tree(to_element(Hi(content=(" a ", Bpt(i=1), " b "))), etree.fromstring('<hi> a <bpt i="1"/> b </hi>'))
+  # <ph> may only carry text and <sub>. The pair must close for the
+  # standalone fragment's own flow to be valid (GAPS decision 12).
+  assert_same_tree(
+    to_element(Hi(content=(" a ", Bpt(i=1), " b ", Ept(i=1)))),
+    etree.fromstring('<hi> a <bpt i="1"/> b <ept i="1"/></hi>'),
+  )
 
 
 def test_microsecond_datetime_is_emitted(minimal_header: Header) -> None:

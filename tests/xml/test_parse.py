@@ -87,8 +87,8 @@ with warnings.catch_warnings():
     ("ut", '<ut x="5">unknown</ut>', Ut(x=5, content=("unknown",))),
     (
       "sub",
-      '<sub type="s" datatype="d">a<bpt i="1"/>b</sub>',
-      Sub(type="s", datatype="d", content=("a", Bpt(i=1), "b")),
+      '<sub type="s" datatype="d">a<bpt i="1"/>b<ept i="1"/></sub>',
+      Sub(type="s", datatype="d", content=("a", Bpt(i=1), "b", Ept(i=1))),
     ),
     (
       "header",

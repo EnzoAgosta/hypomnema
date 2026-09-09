@@ -537,7 +537,12 @@ DTD validation of built fragments; no separate revalidation strategy is
 needed. Because validation now runs exactly once per crossing, the advisory
 re-emission machinery (built for the hybrid) is deleted, and the former
 timing asymmetry between advisories disappears: all advisories fire during
-the validation pass. Validators walk the whole tree; documented performance
+the validation pass -- with one carve-out. The unknown-encoding-name
+advisory (`warn_unknown_encoding`) stays attached to the `TMXEncodingName`
+value alias and fires when a value enters a model (construction,
+assignment, projection): it is a value-layer advisory, part of the typing
+tier like the value aliases themselves. Validators walk the whole tree;
+documented performance
 hazard: deeply nested content or heavy reuse of the same node objects makes
 validation superlinear, since occurrences (not objects) are visited --
 memoization is deliberately not used because second occurrences can carry

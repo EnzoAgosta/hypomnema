@@ -17,19 +17,24 @@ Current checks (GAPS decisions 12-13, 19):
   header's metadata, plus the legacy-``lang`` advisories for its notes and
   properties.
 - ``validate_translation_unit_variant``: ``bpt``/``ept`` pairing and
-  ``bpt.i`` uniqueness per flow scope, plus the variant metadata's
-  legacy-``lang`` advisories. Flows are the variant's segment content and
-  each ``<sub>``'s content (the embedded segment's own flow); ``<hi>`` is
-  transparent, so its inline elements join the enclosing flow. Matching is
-  per-``i`` with ordering, deliberately not stack nesting: the spec permits
-  overlapping native code pairs.
+  ``bpt.i`` uniqueness per flow scope, the variant's own legacy-``lang``
+  advisory, and the variant metadata's legacy-``lang`` advisories. Flows
+  are the variant's segment content and each ``<sub>``'s content (the
+  embedded segment's own flow); ``<hi>`` is transparent, so its inline
+  elements join the enclosing flow. Matching is per-``i`` with ordering,
+  deliberately not stack nesting: the spec permits overlapping native
+  code pairs.
 - ``validate_translation_unit``: the variant walk for every variant, the
-  unit metadata's advisories, plus one ``TmxWarning`` when sibling variants
-  disagree on their ``x`` values -- the spec's cross-variant matching
-  mechanism, advisory per decision 13.
+  variants' and the unit metadata's advisories, plus one ``TmxWarning``
+  when sibling variants disagree on their ``x`` values -- the spec's
+  cross-variant matching mechanism, advisory per decision 13.
 
 The deprecated ``<ut>`` advisory is emitted inside the content walk, since
-that is the pass that visits inline content.
+that is the pass that visits inline content. One carve-out: the unknown-
+encoding-name advisory stays attached to the ``TMXEncodingName`` value
+alias and fires when a value enters a model (construction, assignment,
+projection), not during the validation pass -- it is a value-layer
+advisory, per the decision-19 carve-out recorded in GAPS.
 """
 
 from collections.abc import Iterable
@@ -266,8 +271,30 @@ def validate(node: TmxNode) -> None:
       warn_map_without_target(node.code, node.ent, node.subst)
     case Ut():
       warn_deprecated_ut()
-    case Bpt() | Ept() | It() | Ph() | Hi() | Sub():
-      pass
+      _raise_if_errors(_walk_sub_flows_checked(node.content))
+    case Bpt() | Ept() | It() | Ph():
+      _raise_if_errors(_walk_sub_flows_checked(node.content))
+    case Hi() | Sub():
+      _raise_if_errors(_walk_flow_checked(node.content))
+    case _:
+      raise TypeError(f"{type(node).__name__} is not a TMX node model")
+
+
+def _raise_if_errors(errors: list[InitErrorDetails]) -> None:
+  if errors:
+    raise ValidationError.from_exception_data("TmxNode", errors)
+
+
+def _walk_flow_checked(items: tuple[SegContentItem, ...]) -> list[InitErrorDetails]:
+  errors: list[InitErrorDetails] = []
+  _walk_segment(items, ("content",), errors, set())
+  return errors
+
+
+def _walk_sub_flows_checked(items: tuple[SubContentItem, ...]) -> list[InitErrorDetails]:
+  errors: list[InitErrorDetails] = []
+  _walk_sub_flows(items, ("content",), errors, set())
+  return errors
 
 
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
@@ -279,12 +306,15 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   Raises ``ValidationError`` with the offending node's location. Also
   detects cyclic content -- a node containing itself through its
   descendants, reachable only through mutation (GAPS decision 7a). Emits
-  the variant metadata's legacy-``lang`` advisories (GAPS decision 19).
+  the variant's own legacy-``lang`` advisory (only the differing case is
+  reachable, since ``xml_lang`` is required) and the variant metadata's
+  legacy-``lang`` advisories (GAPS decisions 8/19).
   """
   errors: list[InitErrorDetails] = []
   _walk_segment(tuv.content, ("content",), errors, set())
   if errors:
     raise ValidationError.from_exception_data("TranslationUnitVariant", errors)
+  warn_deprecated_lang(tuv.lang, tuv.xml_lang)
   _warn_metadata_advisories(tuv.metadata)
 
 
@@ -330,6 +360,7 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
       " the x attribute matches inline tags between variants",
       TmxWarning,
     )
-  _warn_metadata_advisories(tu.metadata)
   for tuv in tu.variants:
+    warn_deprecated_lang(tuv.lang, tuv.xml_lang)
     _warn_metadata_advisories(tuv.metadata)
+  _warn_metadata_advisories(tu.metadata)
