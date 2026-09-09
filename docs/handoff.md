@@ -18,9 +18,11 @@ also green under `-W error`.
 
 ## Next up (plan step 6: reader/writer)
 
-1. Settle GAPS #10 (internal subsets/entities) with hostile fixtures before
-   trusting parser flags. Entity rejection in `content.py` is a projection
-   rule, not a parser-safety proof.
+1. GAPS #10 is decided (internal subsets accepted, residual behavior
+   documented, no prolog scanner); the reader implementation must pin the
+   hostile-fixture verification list recorded in GAPS #10. Entity rejection in
+   `content.py` is a projection rule, not a parser-safety proof -- the
+   `resolve_entities=False` flag is what keeps external entities unfetched.
 2. Design the remaining decision-11 surface: `Ude.base`/`Map.code`, whole-tree
    revalidation for the writer, two-step content cycles (GAPS 7a; pinned
    models tests do NOT cover cycles). Then the reader (`header_peek`,

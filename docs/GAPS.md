@@ -6,7 +6,8 @@ lines directly. Decisions 1–5 and 8 are implemented and tested, as are the
 decision-11/12/13 explicit checks and the decision-15 warnings; decision 6 was
 resolved by the prose audit into decisions 11–18. Decision 7's writer-side half
 awaits the writer. Question 9 is resolved for the projection layer (decision
-below); its writer half awaits the writer. Question 10 remains unresolved.
+below); its writer half awaits the writer. Question 10 is decided (below); its
+verification awaits the reader.
 The XML projection (decisions 17–18) is implemented, reviewed, and tested: the
 suite is 1088 tests, 225 of them XML (build 64, content 38, dtd 19, parse 58,
 contract 46), all clean under Ruff, `ty`, `pytest`, and `pytest -W error`.
@@ -309,7 +310,96 @@ original. Whether an explicit `xmlns:xml` declaration is intrinsically illegal
 is deferred upstream -- do not assume it is. The entity-rejection helper tests
 exercise our error surface; they are not a parser-safety proof.
 
-**Decision:**
+**Decision (recorded 2026-09-09, after hostile-fixture probing of libxml2
+behavior):** input DOCTYPEs are accepted and ignored; internal subsets are
+accepted too. The bundled DTD remains the only validation authority -- the
+document's own subset never participates in validation, and external subsets
+are never fetched (`load_dtd=False` holds, verified). The reader validates
+values, not provenance; the residual behavior is a documented caveat, not a
+rejected input class.
+
+What the probing established, against the proposed flag set
+(`resolve_entities=False`, `load_dtd=False`, `attribute_defaults=False`,
+`dtd_validation=False`, `no_network=True`, `huge_tree=False`):
+
+- libxml2 always processes the internal subset, whatever the flags say. An
+  internal-subset `ATTLIST` default fills in an *absent* attribute (specified
+  values always win), even with `attribute_defaults=False`.
+- Entity references in *attribute values* are always expanded -- an XML spec
+  mandate that `resolve_entities=False` cannot prevent. Internal-subset
+  entities expand silently in attributes.
+- Entity references in *content* stay `_Entity` nodes under
+  `resolve_entities=False`; the projection already rejects them
+  (`TmxSpecError`).
+- Attribute references to *external* entities are parse errors under
+  `resolve_entities=False`; they are never resolved, fetched, or read.
+- `no_network=True` does **not** block `file://`. The protection against local
+  file disclosure is `resolve_entities=False`, not the network flag.
+- External-subset declarations are not applied (`load_dtd=False` verified);
+  our fragment validation uses our own DTD object regardless, so a document's
+  subset can never change what we accept structurally.
+- Nested internal-entity expansion (billion laughs) hits libxml2's
+  amplification cap with `huge_tree=False`.
+- `docinfo.internalDTD` is truthy for *any* DOCTYPE, including
+  external-id-only ones, and ATTLIST declarations are not introspectable
+  through it. `iterparse` has no doctype event; a mid-feed `XMLPullParser`
+  tree does expose docinfo. These facts made cheap detection *possible*, but
+  detection was rejected as policy (below).
+
+Why acceptance is safe enough to document rather than reject: the injection
+surface is already fenced by the library's own strictness. Injection only
+fills absent attributes; unknown attributes and elements are `TmxSpecError` in
+projection, and every value flows through the model validators, so a hostile
+`ATTLIST version CDATA "9.9"` is rejected, not honored. For every accepted
+document D there is an equivalent D (same values spelled out, DOCTYPE removed)
+that is also accepted and produces an identical model. The accepted *model
+set* is unchanged; only the set of byte sequences producing it grows. The
+residual cost is therefore epistemic: the docs must not claim byte-level
+attribute-presence observability. Consumers needing byte-strict presence
+semantics can pre-screen with `docinfo.internalDTD` themselves.
+
+Roads deliberately not taken: a hand-written prolog scanner to reject internal
+subsets (owning XML machinery to enforce a property whose violation is
+model-invisible), and rejecting all DOCTYPEs (a `docinfo.internalDTD` check
+could do it, but it breaks canonical `<!DOCTYPE tmx SYSTEM "tmx14.dtd">`
+compatibility for no protective gain).
+
+This revises decision 16's wording: the version presence check runs on
+post-parse data -- "version present in the accepted model, where the
+document's internal subset may supply it."
+
+Verification list (to implement with the reader's parser configuration;
+none of this is pinned by tests yet):
+
+1. **No external-resource access:** `file://` and `http://` external entities,
+   referenced from content and from attribute values, under the reader's exact
+   parser configuration: content references surface as `_Entity` rejection,
+   attribute references are parse errors, nothing is fetched. This is the
+   load-bearing guarantee (the network flag alone does not provide it).
+2. **Content entity rejection end to end:** unresolved entities in content
+   produce `TmxSpecError` via the existing `content.py` rule, re-verified
+   through the streaming reader path, not only fragment projection.
+3. **Predefined entities and character references** (`&amp;`, `&lt;`, `&#xN;`)
+   parse normally through the same path.
+4. **Internal-subset ATTLIST fills an absent required attribute:** accepted;
+   the resulting model equals the model of the same document with the value
+   spelled out (the D-equivalence claim, pinned by test).
+5. **Internal-subset ATTLIST injects an invalid value** (`version="9.9"`, a
+   malformed language tag): rejected by model validation with
+   `TmxSpecError`, proving the fence is model validation, not the flags.
+6. **Internal-subset ATTLIST injects an unknown attribute:** rejected
+   (`TmxSpecError`), bounding the injection surface to model-valid,
+   TMX-known attribute names.
+7. **Internal-subset entity expanded in an attribute value:** accepted
+   (documented caveat), model equals the spelled-out equivalent.
+8. **External-subset declarations are inert:** a DOCTYPE naming an external
+   DTD (existing or nonexistent) with hostile `ATTLIST`/entity declarations
+   changes nothing; the document parses as if the subset were absent.
+9. **Amplification cap:** nested internal-entity expansion exceeds the cap
+   and fails without unbounded memory (`huge_tree=False` in effect).
+10. **Encoding independence:** the hostile fixtures above behave identically
+    with a BOM and in UTF-16; no security property may depend on the
+    transport encoding.
 
 ## Prose-rule audit (decisions 11-18)
 

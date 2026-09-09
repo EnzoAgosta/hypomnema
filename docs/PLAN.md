@@ -446,14 +446,18 @@ external DTD/resource loading must not occur. The intended reader rejects
 unresolved entity nodes in content and does not weaken libxml2 limits with
 `huge_tree=True`.
 
-**Internal subsets remain unresolved (GAPS #10).** `load_dtd=False` does not
-mean libxml2 ignores all internal declarations. Do not repeat the old claim
-that internal subsets are never loaded or treat these flags as a security
-proof. At parser implementation time, settle the policy for accepting or
-rejecting internal declarations and verify actual behavior with hostile
-fixtures: no external-resource access, no untrusted defaults changing modeled
-data, and explicit entity handling. This question is deferred, not decided
-by the wording of the proposed flags.
+**Internal subsets are accepted and documented (GAPS #10, decided).** libxml2
+always processes a document's internal subset whatever the flags say: its
+`ATTLIST` defaults can fill absent attributes, and internal entities always
+expand inside attribute values (an XML-spec mandate). The reader validates
+values, not provenance. This is safe to document rather than reject because
+the accepted model set is unchanged: injected values still pass the model
+validators and the DTD (unknown attributes and invalid values are errors), and
+every accepted document is model-identical to one with the values spelled out.
+The security guarantee is no external-resource access, verified with hostile
+fixtures -- note `no_network=True` does not block `file://`; only
+`resolve_entities=False` does. The full decision and the verification list are
+in GAPS #10.
 
 ## Reader
 
@@ -658,7 +662,7 @@ accidental current behavior.
    whole-tree checks remain decision-11 work, not projection gaps.)
 6. **Build reader and writer.** Reapply the earlier XML spike conclusions
    (lifecycle, buffering, DTD cost), resolve
-   GAPS #10's internal-subset/entity policy, and verify hardened parsing,
+   GAPS #10's hostile-fixture verification list, and verify hardened parsing,
    validate-before-commit, lifecycle, domain conformance, and bounded memory.
    Then add the corresponding I/O suite and end-to-end streaming benchmark.
 7. **Finish distribution and public surface.** Verify wheel resources, add
