@@ -5,11 +5,15 @@ The examples and grandfathered literals below come from the RFC, independently
 of the implementation's tables. No network access or registry data is needed.
 """
 
+import inspect
+import pickle
 import string
 
 import pytest
 
-from hypomnema.bcp47 import is_well_formed_language_tag, validate_language_tag_is_well_formed
+import hypomnema.bcp47
+from hypomnema.bcp47 import is_well_formed_language_tag, validate_well_formed_language_tag
+from hypomnema.errors import LanguageTagError
 
 # Appendix A: all examples before "Some Invalid Tags".
 RFC_EXAMPLES = (
@@ -84,7 +88,7 @@ REGULAR_TAGS = (
 @pytest.mark.parametrize("tag", RFC_EXAMPLES)
 def test_rfc_examples_are_accepted(tag: str) -> None:
   assert is_well_formed_language_tag(tag)
-  assert validate_language_tag_is_well_formed(tag) == tag
+  assert validate_well_formed_language_tag(tag) == tag
 
 
 @pytest.mark.parametrize("tag", IRREGULAR_TAGS + REGULAR_TAGS)
@@ -93,7 +97,7 @@ def test_grandfathered_tags_are_case_insensitive(tag: str) -> None:
   # (covering both case directions) is accepted, spelling preserved.
   spelling = tag.swapcase()
   assert is_well_formed_language_tag(spelling)
-  assert validate_language_tag_is_well_formed(spelling) == spelling
+  assert validate_well_formed_language_tag(spelling) == spelling
 
 
 @pytest.mark.parametrize("tag", IRREGULAR_TAGS)
@@ -180,7 +184,7 @@ def test_regular_tag_spellings_can_also_follow_the_langtag_grammar(tag: str) -> 
 )
 def test_grammar_productions_accept_their_boundaries(tag: str) -> None:
   assert is_well_formed_language_tag(tag)
-  assert validate_language_tag_is_well_formed(tag) == tag
+  assert validate_well_formed_language_tag(tag) == tag
 
 
 @pytest.mark.parametrize("singleton", string.ascii_letters + string.digits)
@@ -213,7 +217,7 @@ def test_only_private_use_allows_a_one_character_body(singleton: str) -> None:
 )
 def test_well_formedness_does_not_enforce_validity(tag: str) -> None:
   assert is_well_formed_language_tag(tag)
-  assert validate_language_tag_is_well_formed(tag) == tag
+  assert validate_well_formed_language_tag(tag) == tag
 
 
 MALFORMED_TAGS = (
@@ -314,7 +318,7 @@ def test_predicate_rejects_malformed_tags(tag: str) -> None:
 @pytest.mark.parametrize("tag", MALFORMED_TAGS)
 def test_validator_raises_for_malformed_tags(tag: str) -> None:
   with pytest.raises(ValueError):
-    validate_language_tag_is_well_formed(tag)
+    validate_well_formed_language_tag(tag)
 
 
 @pytest.mark.parametrize(
@@ -352,14 +356,14 @@ def test_validator_raises_for_malformed_tags(tag: str) -> None:
 def test_non_ascii_is_rejected_in_every_production(tag: str) -> None:
   assert not is_well_formed_language_tag(tag)
   with pytest.raises(ValueError):
-    validate_language_tag_is_well_formed(tag)
+    validate_well_formed_language_tag(tag)
 
 
 @pytest.mark.parametrize(
   "tag", ["mn-Cyrl-MN", "MN-cYRL-mn", "mN-cYrL-Mn", "eN-a-AbCd-X-pRiVaTe", "X-aBc-123", "EN-GB-OED"]
 )
 def test_validation_preserves_spelling(tag: str) -> None:
-  assert validate_language_tag_is_well_formed(tag) == tag
+  assert validate_well_formed_language_tag(tag) == tag
 
 
 @pytest.mark.parametrize("value", [None, True, False, 42, 1.5, b"en", ["en"], ("en",), {"tag": "en"}])
@@ -370,4 +374,124 @@ def test_predicate_returns_false_for_non_strings(value: object) -> None:
 @pytest.mark.parametrize("value", [None, True, False, 42, 1.5, b"en", ["en"], ("en",), {"tag": "en"}])
 def test_validator_raises_type_error_for_non_strings(value: object) -> None:
   with pytest.raises(TypeError):
-    validate_language_tag_is_well_formed(value)
+    validate_well_formed_language_tag(value)
+
+
+def test_error_is_a_value_error_for_pydantic_callers() -> None:
+  assert issubclass(LanguageTagError, ValueError)
+
+
+def test_error_exposes_the_tag_and_reason() -> None:
+  with pytest.raises(LanguageTagError) as info:
+    validate_well_formed_language_tag("en-a")
+  assert info.value.tag == "en-a"
+  assert "without subtags" in info.value.reason
+  assert "en-a" in str(info.value)
+
+
+def test_error_survives_a_pickle_round_trip() -> None:
+  original = LanguageTagError("en-a", "extension 'a' without subtags")
+  restored = pickle.loads(pickle.dumps(original))
+  assert (restored.tag, restored.reason) == (original.tag, original.reason)
+  assert str(restored) == str(original)
+
+
+# (raise site, tag, expected fragment of the reason)
+DIAGNOSTIC_CASES = (
+  # _parse_language: 2*3ALPHA / 4ALPHA / 5*8ALPHA.
+  ("language", "a", "malformed language subtag 'a'"),
+  ("language", "", "malformed language subtag ''"),
+  ("language", "-en", "malformed language subtag ''"),
+  ("language", "abcdefghi", "malformed language subtag 'abcdefghi'"),
+  ("language", "12", "malformed language subtag '12'"),
+  ("language", "en_US", "malformed language subtag 'en_US'"),
+  ("language", "*", "malformed language subtag '*'"),
+  # _parse_langtag: a subtag that no remaining production can consume.
+  ("dead-end", "en-", "unexpected subtag ''"),
+  ("dead-end", "en--US", "unexpected subtag ''"),
+  ("dead-end", "en-Latn-Cyrl", "unexpected subtag 'Cyrl'"),
+  ("dead-end", "en-US-Latn", "unexpected subtag 'Latn'"),
+  ("dead-end", "en-US-GB", "unexpected subtag 'GB'"),
+  ("dead-end", "en-US-abc", "unexpected subtag 'abc'"),
+  ("dead-end", "de-419-DE", "unexpected subtag 'DE'"),
+  ("dead-end", "abcd-efg", "unexpected subtag 'efg'"),
+  ("dead-end", "ab-cde-fgh-ijk-lmn", "unexpected subtag 'lmn'"),
+  # A non-alphanumeric where a singleton could start is a dead end, not a
+  # malformed extension: _is_extension_singleton rejects it, so the
+  # extension loop never opens.
+  ("dead-end", "en-a-bb-!", "unexpected subtag '!'"),
+  # _parse_extensions: singleton 1*("-" (2*8alphanum)) -- body required.
+  ("extension-empty", "en-a", "extension 'a' without subtags"),
+  ("extension-empty", "en-a-b", "extension 'a' without subtags"),
+  ("extension-empty", "en-1", "extension '1' without subtags"),
+  ("extension-empty", "en-a-bb-c", "extension 'c' without subtags"),
+  # Reported against the *extension*, not private use: "x" ends the body of
+  # 'a' before it can start a private-use sequence.
+  ("extension-empty", "en-a-x-private", "extension 'a' without subtags"),
+  # Spelling is preserved in the message, per the module's contract.
+  ("extension-empty", "en-a-bb-B", "extension 'B' without subtags"),
+  # _parse_extensions: body subtags are 2*8alphanum.
+  ("extension-body", "en-a-abcdefghi", "malformed extension subtag 'abcdefghi'"),
+  ("extension-body", "en-a--bb", "malformed extension subtag ''"),
+  ("extension-body", "en-a-b!", "malformed extension subtag 'b!'"),
+  # _parse_privateuse: "x" 1*("-" (1*8alphanum)) -- body required.
+  ("privateuse-empty", "x", "private-use singleton without subtags"),
+  ("privateuse-empty", "X", "private-use singleton without subtags"),
+  ("privateuse-empty", "en-x", "private-use singleton without subtags"),
+  ("privateuse-empty", "en-a-bb-x", "private-use singleton without subtags"),
+  # _parse_privateuse: body subtags are 1*8alphanum.
+  ("privateuse-body", "x-", "malformed private-use subtag ''"),
+  ("privateuse-body", "x-abcdefghi", "malformed private-use subtag 'abcdefghi'"),
+  ("privateuse-body", "x-a-abcdefghi", "malformed private-use subtag 'abcdefghi'"),
+  ("privateuse-body", "en-x-abcdefghi", "malformed private-use subtag 'abcdefghi'"),
+  ("privateuse-body", "en-x--a", "malformed private-use subtag ''"),
+  # validate_well_formed_language_tag: the pre-fold ASCII guard.
+  ("non-ascii", "én", "non-ASCII characters"),
+  ("non-ascii", "en-a-éé", "non-ASCII characters"),
+  ("non-ascii", "en\u2010US", "non-ASCII characters"),
+  ("non-ascii", "\ud800", "non-ASCII characters"),
+  # U+212A folds to ASCII 'k'; the guard must run before .lower().
+  ("non-ascii", "i-\u212alingon", "non-ASCII characters"),
+)
+
+DIAGNOSTIC_SITES = frozenset(
+  ("language", "dead-end", "extension-empty", "extension-body", "privateuse-empty", "privateuse-body", "non-ascii")
+)
+
+
+@pytest.mark.parametrize(("site", "tag", "fragment"), DIAGNOSTIC_CASES)
+def test_reason_identifies_the_failed_production(site: str, tag: str, fragment: str) -> None:
+  with pytest.raises(LanguageTagError) as info:
+    validate_well_formed_language_tag(tag)
+  assert info.value.reason == fragment
+  assert info.value.tag == tag
+  # The public message carries both halves.
+  assert fragment in str(info.value)
+  assert repr(tag) in str(info.value)
+
+
+def test_every_diagnostic_site_is_exercised() -> None:
+  assert {site for site, _, _ in DIAGNOSTIC_CASES} == DIAGNOSTIC_SITES
+
+
+def test_no_raise_site_lacks_a_diagnostic_case() -> None:
+  # Tripwire: adding a _Malformed raise means adding a case above.
+  assert inspect.getsource(hypomnema.bcp47).count("raise _Malformed(") == len(DIAGNOSTIC_SITES)
+
+
+@pytest.mark.parametrize("tag", MALFORMED_TAGS)
+def test_every_rejection_gives_a_specific_reason(tag: str) -> None:
+  # No malformed input may fall through to a vague or empty message.
+  with pytest.raises(LanguageTagError) as info:
+    validate_well_formed_language_tag(tag)
+  assert info.value.reason.startswith(
+    (
+      "malformed language subtag ",
+      "unexpected subtag ",
+      "extension ",
+      "malformed extension subtag ",
+      "private-use singleton without subtags",
+      "malformed private-use subtag ",
+      "non-ASCII characters",
+    )
+  )

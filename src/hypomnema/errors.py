@@ -25,3 +25,19 @@ class TmxDeprecationWarning(TmxWarning):
   mismatch. Filtering by category also keeps callers and tests independent
   of advisory message wording.
   """
+
+
+class LanguageTagError(ValueError):
+  """A language tag was rejected.
+
+  Subclasses ``ValueError`` so pydantic-shaped callers and existing
+  ``except ValueError`` handlers keep working.
+  """
+
+  def __init__(self, tag: str, reason: str) -> None:
+    super().__init__(tag, reason)
+    self.tag = tag
+    self.reason = reason
+
+  def __str__(self) -> str:
+    return f"not a well-formed BCP 47 language tag {self.tag!r}: {self.reason}"

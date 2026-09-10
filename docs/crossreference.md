@@ -20,7 +20,7 @@
 | M12 | **A** | `TMXIdentifier` (`validate_identifier`) on `TranslationUnit.tuid`. Residual (deliberate): uses Python's Unicode `str.isspace()` — stricter than the spec's undefined "white spaces"; acceptable and arguably desirable. |
 | M13 | **A** | `TMXInteger` on `TranslationUnit.usagecount`, `TranslationUnitVariant.usagecount`. |
 | M14 | **A** | `TMXDatetime` (`parse_datetime`) on `creationdate`/`changedate`/`lastusagedate` (Header, TU, Tuv). Residual (recorded, not a gap): input repertoire is `datetime.fromisoformat()`-bounded, not all of ISO 8601 — explicit PLAN/GAPS #3 value-policy boundary. |
-| M15 | **A** | `TMXLanguageTag` / `TMXSourceLanguage` via `bcp47.validate_language_tag_is_well_formed`. Residual (recorded): spec cites RFC 3066, we implement RFC 5646 ABNF (PLAN names RFC 5646 as source); 3066-legal tags are a subset, so this is a deliberate documented superset. |
+| M15 | **A** | `TMXLanguageTag` / `TMXSourceLanguage` via `bcp47.validate_well_formed_language_tag`. Residual (recorded): spec cites RFC 3066, we implement RFC 5646 ABNF (PLAN names RFC 5646 as source); 3066-legal tags are a subset, so this is a deliberate documented superset. |
 | M16 | **C** | For *validation* there is nothing to enforce (any casing legal); for *comparison* the policy is recorded in GAPS #8 (case-insensitive `lang`/`xml_lang` compare). The remaining comparison use (M18's srclang↔`xml:lang`) is deferred with M18. |
 | M17 | **D** | Inheritance family. → §3. |
 | M18 | **D** | Inheritance + equality strength. → §3. (`*all*` acceptance itself is A: `TMXSourceLanguage`.) |

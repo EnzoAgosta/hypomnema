@@ -328,9 +328,7 @@ EXPECTED_FORMATS = (
 )
 
 
-@pytest.mark.parametrize(
-  ("value", "expected"), EXPECTED_FORMATS, ids=[expected for _, expected in EXPECTED_FORMATS]
-)
+@pytest.mark.parametrize(("value", "expected"), EXPECTED_FORMATS, ids=[expected for _, expected in EXPECTED_FORMATS])
 def test_format_datetime_renders_and_reparses(value: datetime, expected: str) -> None:
   # The explicit table is the oracle, not a self-round-trip; every emitted
   # form must also read back equal, including the rounding-hazard offsets

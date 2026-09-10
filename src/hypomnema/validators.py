@@ -9,7 +9,7 @@ split Python from JSON: ``model_dump()`` keeps native values, JSON mode and
 XML output share one string formatter per type (``when_used="json"``).
 
 Language-tag validation lives in ``bcp47.py`` (grammar-only, RFC 5646) and is
-used here through its ``validate_language_tag_is_well_formed``.
+used here through its ``validate_well_formed_language_tag``.
 """
 
 import codecs
@@ -19,7 +19,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BeforeValidator, PlainSerializer
 
-from .bcp47 import validate_language_tag_is_well_formed
+from .bcp47 import validate_well_formed_language_tag
 from .errors import TmxDeprecationWarning, TmxWarning
 
 
@@ -219,10 +219,10 @@ def validate_source_language(value: str) -> str:
   """
   if value.lower() == "*all*":
     return "*all*"
-  return validate_language_tag_is_well_formed(value)
+  return validate_well_formed_language_tag(value)
 
 
-type TMXLanguageTag = Annotated[str, AfterValidator(validate_language_tag_is_well_formed)]
+type TMXLanguageTag = Annotated[str, AfterValidator(validate_well_formed_language_tag)]
 type TMXSourceLanguage = Annotated[str, AfterValidator(validate_source_language)]
 
 
