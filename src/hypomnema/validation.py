@@ -1,363 +1,387 @@
-"""Pure, user-invocable validation for TMX contract rules (GAPS decision 19).
+"""Strict, user-invocable validation: every field, every time (lax input,
+strict output).
 
-Models are a typed, permissive IR: typing (strict values, tuples, the
-nonempty ``variants``/``maps``) is enforced automatically in the models, but
-TMX *contract* rules -- cross-field rules, prose pairing, and advisories --
-live here as side-effect-free functions that raise Pydantic
-``ValidationError`` and emit ``TmxWarning`` advisories. Projection and the
-future reader/writer invoke the relevant function at every XML-IR boundary
-crossing; users should call them mid-pipeline for early error locality.
-Between boundaries, no check runs automatically.
+The models accept nearly anything at the entry boundary and coerce it.
+These validators are the other half of the contract: they check the
+*runtime* type and value of every single field of a node and of everything
+reachable from it (metadata tuples, nested nodes), so a node that passes
+validation is safe to output. Nothing here mutates or coerces: a node
+either passes as a whole, or fails as a whole.
 
-Current checks (GAPS decisions 12-13, 19):
+The calling pattern is always the same: call a ``validate_*`` function
+inside ``try``/``except*`` and catch the error kinds you want to react to
+(``TmxFieldTypeError`` for wrong runtime types, ``TmxFieldValueError`` for
+rejected values, ``TmxContractError`` for cross-field spec rules). Every
+failure of one pass travels on a single ``TmxErrorGroup``, and the
+advisories gathered during that same pass ride on the group's
+``advisories`` attribute (legacy ``lang`` usage, unknown encoding names,
+``<map>`` without a target) -- they are data, never ``warnings.warn``
+emissions; the caller decides whether to escalate, filter, or emit them.
+A pass that gathers only advisories raises nothing, so a document that is
+valid but uses a deprecated construct everywhere stays quiet until a real
+error is being reported anyway. Errors and advisories both carry a
+``NodePath`` locating the field relative to the node being validated,
+e.g. ``metadata[2].maps[0].code``.
 
-- ``validate_ude``: ``<ude base>`` required when any ``<map>`` carries
-  ``code``, plus the map-target advisory.
-- ``validate_header``: the ``validate_ude`` check for every ``<ude>`` in the
-  header's metadata, plus the legacy-``lang`` advisories for its notes and
-  properties.
-- ``validate_translation_unit_variant``: ``bpt``/``ept`` pairing and
-  ``bpt.i`` uniqueness per flow scope, the variant's own legacy-``lang``
-  advisory, and the variant metadata's legacy-``lang`` advisories. Flows
-  are the variant's segment content and each ``<sub>``'s content (the
-  embedded segment's own flow); ``<hi>`` is transparent, so its inline
-  elements join the enclosing flow. Matching is per-``i`` with ordering,
-  deliberately not stack nesting: the spec permits overlapping native
-  code pairs.
-- ``validate_translation_unit``: the variant walk for every variant, the
-  variants' and the unit metadata's advisories, plus one ``TmxWarning``
-  when sibling variants disagree on their ``x`` values -- the spec's
-  cross-variant matching mechanism, advisory per decision 13.
-
-The deprecated ``<ut>`` advisory is emitted inside the content walk, since
-that is the pass that visits inline content. One carve-out: the unknown-
-encoding-name advisory stays attached to the ``TMXEncodingName`` value
-alias and fires when a value enters a model (construction, assignment,
-projection), not during the validation pass -- it is a value-layer
-advisory, per the decision-19 carve-out recorded in GAPS.
+Field checks stop at the first failure per field -- a wrong type is not
+followed by value checks of that same value -- and untyped/foreign
+children are reported once as ``TmxFieldTypeError`` rather than cascading
+into their innards.
 """
 
-from collections.abc import Iterable
-from warnings import warn
+import codecs
+from collections.abc import Callable
+from datetime import datetime
 
-from pydantic import ValidationError
-from pydantic_core import InitErrorDetails, PydanticCustomError
-from typing import LiteralString
-
-from .errors import TmxWarning
-from .models import (
-  Bpt,
-  Ept,
-  Header,
-  Hi,
-  It,
-  Map,
-  Note,
-  Ph,
-  Property,
-  SegContentItem,
-  Sub,
-  SubContentItem,
-  TmxNode,
-  TranslationUnit,
-  TranslationUnitVariant,
-  Ude,
-  Ut,
+from .bcp47 import validate_well_formed_language_tag
+from .errors import (
+  LanguageTagError,
+  NodePath,
+  TmxAdvisory,
+  TmxContractError,
+  TmxDeprecationWarning,
+  TmxErrorGroup,
+  TmxFieldError,
+  TmxFieldTypeError,
+  TmxFieldValueError,
+  TmxWarning,
 )
-from .validators import warn_deprecated_lang, warn_deprecated_ut, warn_map_without_target
+from .models import Header, Map, Note, Property, Ude
 
-_PAIRING_ERROR_TYPE = "inline_tag_pairing"
-_CYCLE_ERROR_TYPE = "cyclic_content"
-_UDE_ERROR_TYPE = "ude_base_required"
+__all__ = ["validate_header", "validate_note", "validate_property", "validate_ude"]
 
 
-def _node_error(loc: tuple[str | int, ...], error_type: LiteralString, message: str, node: object) -> InitErrorDetails:
-  return {"type": PydanticCustomError(error_type, "{message}", {"message": message}), "loc": loc, "input": node}
+class _Session:
+  """Accumulates the errors and advisories of one validation pass.
+
+  Checkers append; ``finish`` raises all errors at once as a
+  ``TmxErrorGroup`` with the advisories attached -- or, with no errors,
+  returns quietly, however many advisories were gathered.
+  """
+
+  __slots__ = ("errors", "warnings")
+
+  def __init__(self) -> None:
+    self.errors: list[TmxFieldError] = []
+    self.warnings: list[TmxAdvisory] = []
+
+  def error(self, error: TmxFieldError) -> None:
+    self.errors.append(error)
+
+  def warn(self, advisory: TmxAdvisory) -> None:
+    self.warnings.append(advisory)
+
+  def finish(self, node_name: str) -> None:
+    """Raise the group if errors were gathered, advisories attached;
+    otherwise return quietly."""
+    if self.errors:
+      raise TmxErrorGroup(f"failed to validate {node_name}", self.errors, self.warnings)
 
 
-def _pairing_error(loc: tuple[str | int, ...], message: str, node: object) -> InitErrorDetails:
-  return _node_error(loc, _PAIRING_ERROR_TYPE, message, node)
+type _FieldCheck = Callable[[_Session, NodePath, object], None]
+"""What an optional-field check looks like: session, path, unknown value."""
+
+_SEGMENT_TYPES = ("block", "paragraph", "sentence", "phrase")
 
 
-def _cycle_error(loc: tuple[str | int, ...], node: TmxNode) -> InitErrorDetails:
-  return _node_error(
-    loc, _CYCLE_ERROR_TYPE, f"cyclic content: this <{node.element}> contains itself through its descendants", node
+# Predicates shared by checkers and cross-field rules. Field rules consult
+# the *runtime* type directly rather than "is not None", so a wrongly typed
+# value does not silently satisfy a contract rule.
+
+
+def _is_string(value: object) -> bool:
+  return isinstance(value, str)
+
+
+def _is_integer(value: object) -> bool:
+  # bool is an int subclass; it is not a number here.
+  return isinstance(value, int) and not isinstance(value, bool)
+
+
+# Checkers. All take (session, path, value), never raise, never mutate:
+# they append at most a few errors and advisories to the session. A checker
+# reporting a wrong type returns without value-checking that value.
+
+
+def _check_element(session: _Session, path: NodePath, value: object, literal: str) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  if value != literal:
+    session.error(TmxFieldValueError(path, value, f"expected the literal {literal!r}"))
+
+
+def _check_optional(session: _Session, path: NodePath, value: object, check: _FieldCheck) -> None:
+  if value is not None:
+    check(session, path, value)
+
+
+def _check_str(session: _Session, path: NodePath, value: object) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+
+
+def _check_ascii_text(session: _Session, path: NodePath, value: object) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  if not value.isascii():
+    session.error(TmxFieldValueError(path, value, "expected ASCII text"))
+
+
+def _check_unsigned_integer(session: _Session, path: NodePath, value: object) -> None:
+  if isinstance(value, bool) or not isinstance(value, int):
+    session.error(TmxFieldTypeError(path, value, int))
+    return
+  if value < 0:
+    session.error(TmxFieldValueError(path, value, "expected an unsigned integer"))
+
+
+def _check_unicode_scalar(session: _Session, path: NodePath, value: object) -> None:
+  if isinstance(value, bool) or not isinstance(value, int):
+    session.error(TmxFieldTypeError(path, value, int))
+    return
+  if not 0 <= value <= 0x10FFFF:
+    session.error(TmxFieldValueError(path, value, "expected a Unicode scalar value in 0..0x10FFFF"))
+  elif 0xD800 <= value <= 0xDFFF:
+    session.error(TmxFieldValueError(path, value, "surrogate code points are not valid Unicode scalar values"))
+
+
+def _check_datetime(session: _Session, path: NodePath, value: object) -> None:
+  # Naive values are allowed and documented as UTC; an explicit offset is
+  # kept as-is. All further ISO 8601 well-formedness was settled at the
+  # entry boundary by parse_datetime.
+  if not isinstance(value, datetime):
+    session.error(TmxFieldTypeError(path, value, datetime))
+
+
+def _check_language_tag(session: _Session, path: NodePath, value: object) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  try:
+    validate_well_formed_language_tag(value)
+  except LanguageTagError as error:
+    session.error(TmxFieldValueError(path, value, str(error)))
+
+
+def _check_deprecated_lang(session: _Session, path: NodePath, value: object) -> None:
+  """A legacy ``lang`` value: validated like any language tag, plus the
+  deprecation advisory, since merely using the attribute is advisory-worthy
+  even when its value is fine."""
+  _check_language_tag(session, path, value)
+  session.warn(
+    TmxAdvisory(
+      TmxDeprecationWarning,
+      "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang",
+      path,
+    )
   )
 
 
-def _walk_segment(
-  items: tuple[SegContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails], path: set[int]
-) -> None:
-  """Walk one flow: fresh ``i`` namespaces, unmatched-bpt check at the end.
-
-  ``path`` holds the ids of the content nodes on the current descent and
-  turns re-entry into a cycle error. Only mutation can create a cycle
-  (GAPS decision 7a), and detection is scoped to this walk's root, so
-  subtrees legitimately shared between variants stay legal.
-  """
-  bpt_locations: dict[int, tuple[tuple[str | int, ...], Bpt]] = {}
-  ept_seen: set[int] = set()
-  _walk_items(items, loc, errors, bpt_locations, ept_seen, path)
-  for i, (bpt_loc, bpt) in bpt_locations.items():
-    if i not in ept_seen:
-      errors.append(_pairing_error(bpt_loc, f"<bpt> i={i} has no subsequent corresponding <ept> within this flow", bpt))
+def _check_srclang(session: _Session, path: NodePath, value: object) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  if value.lower() == "*all*":
+    # The entry boundary normalizes to the canonical spelling; strict
+    # output expects it normalized.
+    if value != "*all*":
+      session.error(TmxFieldValueError(path, value, "expected the normalized spelling '*all*'"))
+    return
+  _check_language_tag(session, path, value)
 
 
-def _walk_items(
-  items: tuple[SegContentItem, ...],
-  loc: tuple[str | int, ...],
-  errors: list[InitErrorDetails],
-  bpt_locations: dict[int, tuple[tuple[str | int, ...], Bpt]],
-  ept_seen: set[int],
-  path: set[int],
-) -> None:
-  """Walk one flow's items in document order, sharing the flow's state.
-
-  ``<hi>`` recursion shares the caller's state (it is transparent);
-  paired and placeholder tags open fresh flows for their ``<sub>``
-  contents. ``path`` carries the ids on the current descent; a node
-  already on it is a cycle, reported without descending into it again.
-  """
-  for index, node in enumerate(items):
-    if isinstance(node, str):
-      continue
-    if id(node) in path:
-      errors.append(_cycle_error((*loc, index), node))
-      continue
-    path.add(id(node))
-    child_loc = (*loc, index, "content")
-    if isinstance(node, Hi):
-      # Transparent: its inline elements join the enclosing flow.
-      _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen, path)
-    else:
-      if isinstance(node, Bpt):
-        if node.i in bpt_locations:
-          errors.append(
-            _pairing_error(
-              (*loc, index), f"duplicate <bpt> i={node.i} within one flow; i must be unique among <bpt> elements", node
-            )
-          )
-        else:
-          bpt_locations[node.i] = ((*loc, index), node)
-      elif isinstance(node, Ept):
-        if node.i in ept_seen:
-          errors.append(
-            _pairing_error(
-              (*loc, index), f"duplicate <ept> i={node.i} within one flow; i must be unique among <ept> elements", node
-            )
-          )
-        ept_seen.add(node.i)
-        if node.i not in bpt_locations:
-          errors.append(
-            _pairing_error((*loc, index), f"<ept> i={node.i} has no corresponding <bpt> earlier in this flow", node)
-          )
-      elif isinstance(node, Ut):
-        warn_deprecated_ut()
-      # It, Ph, and Sub (the latter reachable only by bypassing
-      # construction) carry no pairing state. Every non-Hi node's content
-      # opens fresh sub-flows, so no bypassed content edge escapes the
-      # cycle path.
-      _walk_sub_flows(node.content, child_loc, errors, path)
-    path.discard(id(node))
+def _check_segtype(session: _Session, path: NodePath, value: object) -> None:
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  if value not in _SEGMENT_TYPES:
+    session.error(TmxFieldValueError(path, value, f"expected one of {', '.join(map(repr, _SEGMENT_TYPES))}"))
 
 
-def _walk_sub_flows(
-  items: tuple[SubContentItem, ...], loc: tuple[str | int, ...], errors: list[InitErrorDetails], path: set[int]
-) -> None:
-  """Walk the content of a paired or placeholder tag: text plus ``<sub>``
-  nodes, each ``<sub>`` its own flow.
-
-  The typed grammar puts only strings and ``<sub>`` here, but bypassed
-  construction can place any content node; every non-string node gets the
-  cycle check and a general-content walk, so no reachable cycle escapes
-  the path and the write boundary cannot hit an unchecked recursion.
-  """
-  for index, node in enumerate(items):
-    if isinstance(node, str):
-      continue
-    if id(node) in path:
-      errors.append(_cycle_error((*loc, index), node))
-      continue
-    path.add(id(node))
-    _walk_segment(getattr(node, "content", ()), (*loc, index, "content"), errors, path)
-    path.discard(id(node))
-
-
-def _warn_metadata_advisories(metadata: Iterable[Note | Property]) -> None:
-  """Emit the metadata children's advisories (GAPS decision 19).
-
-  TU and TUV metadata can only hold notes and properties; header
-  metadata additionally holds ``<ude>`` maps and is handled inline by
-  ``validate_header``. Models no longer warn; the validation pass is the
-  one place advisories fire, so this is primary emission, not a re-walk.
-  """
-  for node in metadata:
-    warn_deprecated_lang(node.lang, node.xml_lang)
-
-
-def _ude_errors(ude: Ude, loc: tuple[str | int, ...]) -> list[InitErrorDetails]:
-  """``<ude base>`` is required when any ``<map>`` carries ``code``.
-
-  One error per offending map, located under ``loc`` so header-level
-  validation can prefix the metadata position.
-  """
-  if ude.base is not None:
-    return []
-  return [
-    _node_error(
-      (*loc, index),
-      _UDE_ERROR_TYPE,
-      f"<map> at index {index} carries code; <ude> requires base when any map carries code",
-      mapping,
+def _check_encoding_name(session: _Session, path: NodePath, value: object) -> None:
+  """An encoding name: typed as ``str``; unknown to Python's codecs is an
+  advisory, not an error -- the spec recommends IANA charset identifiers
+  but only as a soft "if possible"."""
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  try:
+    codecs.lookup(value)
+  except LookupError:
+    session.warn(
+      TmxAdvisory(
+        TmxWarning,
+        f"encoding {value!r} is not recognized by Python's codecs; the spec recommends IANA charset identifiers",
+        path,
+      )
     )
-    for index, mapping in enumerate(ude.maps)
-    if mapping.code is not None
-  ]
 
 
-def validate_ude(ude: Ude) -> None:
-  """Validate one ``<ude>``.
+def _check_tuple(
+  session: _Session,
+  path: NodePath,
+  value: object,
+  item_check: Callable[[object, _Session, NodePath], None],
+  *,
+  minimum: int = 0,
+) -> None:
+  """A tuple field: the container itself, its length, then each item.
+  Item well-formedness is the item validator's business -- each one
+  starts with its own instance check and reports a foreign item as
+  ``TmxFieldTypeError`` without descending into it."""
+  if not isinstance(value, tuple):
+    session.error(TmxFieldTypeError(path, value, tuple))
+    return
+  if len(value) < minimum:
+    session.error(TmxContractError(path, value, f"expected at least {minimum} item(s), got {len(value)}"))
+  for index, item in enumerate(value):
+    item_check(item, session, path / index)
 
-  Enforces the spec's cross-field rule: ``base`` is required when any
-  ``<map>`` carries ``code`` (one error per offending map). Emits the
-  map-target advisory for each map. Raises ``ValidationError``.
-  """
-  _raise_if_errors(_ude_errors(ude, ()), "Ude")
-  for mapping in ude.maps:
-    warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
+
+# Node validators. Each private validator reads every field of its node --
+# so "every field is checked" is verifiable by reading the body -- and
+# recurses into children with an extended path.
+
+
+def _validate_header(header: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(header, Header):
+    session.error(TmxFieldTypeError(path, header, Header))
+    return
+  _check_element(session, path, header.element, "header")
+  _check_str(session, path / "creationtool", header.creationtool)
+  _check_str(session, path / "creationtoolversion", header.creationtoolversion)
+  _check_segtype(session, path / "segtype", header.segtype)
+  _check_str(session, path / "o_tmf", header.o_tmf)
+  _check_language_tag(session, path / "adminlang", header.adminlang)
+  _check_srclang(session, path / "srclang", header.srclang)
+  _check_str(session, path / "datatype", header.datatype)
+  _check_optional(session, path / "o_encoding", header.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "creationdate", header.creationdate, _check_datetime)
+  _check_optional(session, path / "creationid", header.creationid, _check_str)
+  _check_optional(session, path / "changedate", header.changedate, _check_datetime)
+  _check_optional(session, path / "changeid", header.changeid, _check_str)
+  _check_tuple(session, path / "metadata", header.metadata, _validate_metadata_node)
+
+
+def _validate_metadata_node(node: object, session: _Session, path: NodePath) -> None:
+  """Dispatches one header-metadata child to its validator; a foreign
+  child is reported once as ``TmxFieldTypeError``."""
+  match node:
+    case Note():
+      _validate_note(node, session, path)
+    case Property():
+      _validate_property(node, session, path)
+    case Ude():
+      _validate_ude(node, session, path)
+    case _:
+      session.error(TmxFieldTypeError(path, node, (Note, Property, Ude)))
+
+
+def _validate_note(note: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(note, Note):
+    session.error(TmxFieldTypeError(path, note, Note))
+    return
+  _check_element(session, path, note.element, "note")
+  _check_optional(session, path / "o_encoding", note.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "xml_lang", note.xml_lang, _check_language_tag)
+  _check_optional(session, path / "lang", note.lang, _check_deprecated_lang)
+  _check_optional(session, path / "text", note.text, _check_str)
+
+
+def _validate_property(property_node: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(property_node, Property):
+    session.error(TmxFieldTypeError(path, property_node, Property))
+    return
+  _check_element(session, path, property_node.element, "prop")
+  _check_str(session, path / "type", property_node.type)
+  _check_optional(session, path / "xml_lang", property_node.xml_lang, _check_language_tag)
+  _check_optional(session, path / "o_encoding", property_node.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "lang", property_node.lang, _check_deprecated_lang)
+  _check_optional(session, path / "text", property_node.text, _check_str)
+
+
+def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(map_node, Map):
+    session.error(TmxFieldTypeError(path, map_node, Map))
+    return
+  _check_element(session, path, map_node.element, "map")
+  _check_unicode_scalar(session, path / "unicode", map_node.unicode)
+  _check_optional(session, path / "code", map_node.code, _check_unsigned_integer)
+  _check_optional(session, path / "ent", map_node.ent, _check_ascii_text)
+  _check_optional(session, path / "subst", map_node.subst, _check_ascii_text)
+
+
+def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(ude, Ude):
+    session.error(TmxFieldTypeError(path, ude, Ude))
+    return
+  _check_element(session, path, ude.element, "ude")
+  _check_str(session, path / "name", ude.name)
+  _check_optional(session, path / "base", ude.base, _check_encoding_name)
+  _check_tuple(session, path / "maps", ude.maps, _validate_map, minimum=1)
+  # Cross-field rules consult only well-typed values, and skip a maps
+  # field that is not even a tuple: garbage in speaks through its type
+  # errors, the contract rules stay quiet.
+  maps = ude.maps if isinstance(ude.maps, tuple) else ()
+  if not _is_string(ude.base):
+    for index, node in enumerate(maps):
+      if isinstance(node, Map) and _is_integer(node.code):
+        session.error(
+          TmxContractError(
+            path / "base",
+            ude.base,
+            f"required because maps[{index}].code is set",
+          )
+        )
+        break
+  for index, node in enumerate(maps):
+    if not isinstance(node, Map):
+      continue
+    if not (_is_integer(node.code) or _is_string(node.ent) or _is_string(node.subst)):
+      session.warn(
+        TmxAdvisory(
+          TmxWarning,
+          "a <map> should specify at least one of code, ent, or subst",
+          path / "maps" / index,
+        )
+      )
 
 
 def validate_header(header: Header) -> None:
-  """Validate a complete ``<header>``.
+  """Validate a :class:`Header` and everything reachable from it.
 
-  Runs the ``validate_ude`` check on every ``<ude>`` in the metadata
-  (error locations prefixed with the metadata position), and emits the
-  legacy-``lang`` advisories for the header's notes and properties.
-  Raises ``ValidationError`` if any ``<ude>`` violates its rule.
+  Raises ``TmxErrorGroup`` holding one ``TmxFieldError`` per failure and,
+  on its ``advisories`` attribute, every advisory gathered along the way
+  (legacy ``lang`` usage, unknown encoding names, ``<map>`` without a
+  target). Returns without raising when no field fails, even if
+  advisories were gathered; see the module docstring for the calling
+  pattern.
   """
-  errors: list[InitErrorDetails] = []
-  for index, node in enumerate(header.metadata):
-    match node:
-      case Note() | Property():
-        warn_deprecated_lang(node.lang, node.xml_lang)
-      case Ude():
-        errors.extend(_ude_errors(node, ("metadata", index)))
-        for mapping in node.maps:
-          warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
-  _raise_if_errors(errors, "Header")
+  session = _Session()
+  _validate_header(header, session, NodePath())
+  session.finish("Header")
 
 
-def validate(node: TmxNode) -> None:
-  """Validate any TMX node with the checks that apply to it.
-
-  The projection boundary's dispatcher, and the one-call convenience for
-  users. Header/unit/unit-variant/ude nodes run their full checks; leaf
-  nodes emit their advisory (legacy ``lang``, map target, deprecated
-  ``<ut>``); inline nodes run the cycle/content walk on their own
-  subtree -- pairing and ``i`` uniqueness apply only within a flow
-  scope, i.e. when a ``<tuv>`` or ``<tu>`` is validated.
-  Raises ``ValidationError``; emits ``TmxWarning`` advisories.
-  """
-  match node:
-    case Header():
-      validate_header(node)
-    case Ude():
-      validate_ude(node)
-    case TranslationUnit():
-      validate_translation_unit(node)
-    case TranslationUnitVariant():
-      validate_translation_unit_variant(node)
-    case Note() | Property():
-      warn_deprecated_lang(node.lang, node.xml_lang)
-    case Map():
-      warn_map_without_target(node.code, node.ent, node.subst)
-    case Ut():
-      warn_deprecated_ut()
-      _raise_if_errors(_walk_sub_flows_checked(node.content), "TmxNode")
-    case Bpt() | Ept() | It() | Ph():
-      _raise_if_errors(_walk_sub_flows_checked(node.content), "TmxNode")
-    case Hi() | Sub():
-      _raise_if_errors(_walk_flow_checked(node.content), "TmxNode")
-    case _:
-      raise TypeError(f"{type(node).__name__} is not a TMX node model")
+def validate_note(note: Note) -> None:
+  """Validate a :class:`Note`; see :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_note(note, session, NodePath())
+  session.finish("Note")
 
 
-def _raise_if_errors(errors: list[InitErrorDetails], title: str) -> None:
-  if errors:
-    raise ValidationError.from_exception_data(title, errors)
+def validate_property(property_node: Property) -> None:
+  """Validate a :class:`Property`; see :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_property(property_node, session, NodePath())
+  session.finish("Property")
 
 
-def _walk_flow_checked(items: tuple[SegContentItem, ...]) -> list[InitErrorDetails]:
-  errors: list[InitErrorDetails] = []
-  _walk_segment(items, ("content",), errors, set())
-  return errors
-
-
-def _walk_sub_flows_checked(items: tuple[SubContentItem, ...]) -> list[InitErrorDetails]:
-  errors: list[InitErrorDetails] = []
-  _walk_sub_flows(items, ("content",), errors, set())
-  return errors
-
-
-def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
-  """Check ``bpt``/``ept`` pairing and ``i`` uniqueness in every flow.
-
-  Per GAPS decision 12: every ``bpt`` needs a subsequent corresponding
-  ``ept`` and every ``ept`` a preceding ``bpt``, within one flow; ``i``
-  is unique among ``bpt`` elements and among ``ept`` elements of a flow.
-  Raises ``ValidationError`` with the offending node's location. Also
-  detects cyclic content -- a node containing itself through its
-  descendants, reachable only through mutation (GAPS decision 7a). Emits
-  the variant's own legacy-``lang`` advisory (only the differing case is
-  reachable, since ``xml_lang`` is required) and the variant metadata's
-  legacy-``lang`` advisories (GAPS decisions 8/19).
-  """
-  errors: list[InitErrorDetails] = []
-  _walk_segment(tuv.content, ("content",), errors, set())
-  _raise_if_errors(errors, "TranslationUnitVariant")
-  warn_deprecated_lang(tuv.lang, tuv.xml_lang)
-  _warn_metadata_advisories(tuv.metadata)
-
-
-def _collect_x_values(items: tuple[SegContentItem | SubContentItem, ...]) -> set[int]:
-  """Collect the ``x`` values of the inline elements the spec matches
-  across variants (``bpt``, ``it``, ``ph``, ``hi``), including nested
-  content."""
-  values: set[int] = set()
-  for node in items:
-    if isinstance(node, str):
-      continue
-    if isinstance(node, Bpt | It | Ph | Hi) and node.x is not None:
-      values.add(node.x)
-    values.update(_collect_x_values(node.content))
-  return values
-
-
-def validate_translation_unit(tu: TranslationUnit) -> None:
-  """Validate the whole translation unit.
-
-  Runs the variant walk on every variant (raising on the first batch of
-  structural errors, including cyclic content), emits the unit's and the
-  variants' metadata advisories, then emits one ``TmxWarning`` if the
-  variants disagree on their inline ``x`` values (GAPS decision 13).
-  """
-  errors: list[InitErrorDetails] = []
-  for index, tuv in enumerate(tu.variants):
-    variant_errors: list[InitErrorDetails] = []
-    _walk_segment(tuv.content, ("content",), variant_errors, set())
-    for error in variant_errors:
-      error["loc"] = ("variants", index, *error["loc"])
-    errors.extend(variant_errors)
-  _raise_if_errors(errors, "TranslationUnit")
-  x_sets = [frozenset(_collect_x_values(tuv.content)) for tuv in tu.variants]
-  if len(set(x_sets)) > 1:
-    all_values = sorted(set().union(*x_sets))
-    warn(
-      f"the variants of this <tu> use different inline x values {all_values};"
-      " the x attribute matches inline tags between variants",
-      TmxWarning,
-    )
-  for tuv in tu.variants:
-    warn_deprecated_lang(tuv.lang, tuv.xml_lang)
-    _warn_metadata_advisories(tuv.metadata)
-  _warn_metadata_advisories(tu.metadata)
+def validate_ude(ude: Ude) -> None:
+  """Validate a :class:`Ude`, including its maps and both contract rules
+  (``base`` required when a map carries ``code``; the map-target
+  advisory). See :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_ude(ude, session, NodePath())
+  session.finish("Ude")

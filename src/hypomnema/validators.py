@@ -15,12 +15,10 @@ used here through its ``validate_well_formed_language_tag``.
 import codecs
 import warnings
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Literal
-
-from pydantic import AfterValidator, BeforeValidator, PlainSerializer
+from string import digits, hexdigits
 
 from .bcp47 import validate_well_formed_language_tag
-from .errors import TmxDeprecationWarning, TmxWarning
+from .errors import TmxWarning
 
 
 def warn_unknown_encoding(value: str) -> str:
@@ -40,49 +38,11 @@ def warn_unknown_encoding(value: str) -> str:
   return value
 
 
-def warn_deprecated_lang(lang: str | None, xml_lang: str | None) -> None:
-  """Advisory checks for the deprecated ``lang`` attribute (GAPS #8).
-
-  Legacy ``lang`` without ``xml_lang`` is deprecated-but-correct: warn.
-  Both present but differing -- compared case-insensitively, since tags
-  are case-insensitive -- is suspicious: warn. One attribute is never
-  synthesized or normalized from the other.
-  """
-  if lang is None:
-    return
-  if xml_lang is None:
-    warnings.warn("the deprecated lang attribute is set without xml_lang; prefer xml:lang", TmxDeprecationWarning)
-  elif lang.lower() != xml_lang.lower():
-    warnings.warn(f"lang {lang!r} and xml_lang {xml_lang!r} differ", TmxWarning)
-
-
-def warn_deprecated_ut() -> None:
-  """The ``<ut>`` element is deprecated (since TMX 1.3) but still legal."""
-  warnings.warn("the <ut> element is deprecated; prefer <bpt>, <ept>, <it>, or <ph>", TmxDeprecationWarning)
-
-
 def warn_map_without_target(code: int | None, ent: str | None, subst: str | None) -> None:
   """The spec recommends at least one of ``code``, ``ent``, ``subst`` on a
   ``<map>`` -- a soft "should", so this warns instead of rejecting."""
   if code is None and ent is None and subst is None:
     warnings.warn("a <map> should specify at least one of code, ent, or subst", TmxWarning)
-
-
-type TMXEncodingName = Annotated[str, AfterValidator(warn_unknown_encoding)]
-
-
-type TMXSegType = Literal["block", "paragraph", "sentence", "phrase"]
-"""The ``%segtypes;`` entity the DTD enumerates: the segment's granularity."""
-
-type TMXPos = Literal["begin", "end"]
-"""``<it pos>``: whether the isolated tag opens or closes markup."""
-
-type TMXAssoc = Literal["p", "f", "b"]
-"""``<ph assoc>``: whether the placeholder belongs to preceding, following,
-or both-sides text (spec prose, not the DTD)."""
-
-
-_DECIMAL_DIGITS = "0123456789"
 
 
 def parse_integer(value: object) -> int:
@@ -102,20 +62,10 @@ def parse_integer(value: object) -> int:
       raise ValueError(f"expected an unsigned integer, got {value!r}")
     return value
   if isinstance(value, str):
-    if not value or any(digit not in _DECIMAL_DIGITS for digit in value):
+    if not value or any(digit not in digits for digit in value):
       raise ValueError(f"expected decimal digits, e.g. '42', got {value!r}")
     return int(value)
   raise ValueError(f"expected an unsigned integer or a decimal-digit string, got {type(value).__name__!r}")
-
-
-def format_integer(value: int) -> str:
-  """Format an integer as canonical decimal digits (JSON and XML)."""
-  return str(value)
-
-
-type TMXInteger = Annotated[
-  int, BeforeValidator(parse_integer), PlainSerializer(format_integer, return_type=str, when_used="json")
-]
 
 
 def parse_datetime(value: object) -> datetime:
@@ -194,20 +144,12 @@ def format_datetime(value: datetime) -> str:
   )
 
 
-type TMXDatetime = Annotated[
-  datetime, BeforeValidator(parse_datetime), PlainSerializer(format_datetime, return_type=str, when_used="json")
-]
-
-
-def validate_identifier(value: str) -> str:
+def validate_tuid(value: str) -> str:
   """Check an identifier contains no whitespace, as the spec requires
   for ``tuid``."""
   if any(character.isspace() for character in value):
     raise ValueError(f"expected a string without whitespace, got {value!r}")
   return value
-
-
-type TMXIdentifier = Annotated[str, AfterValidator(validate_identifier)]
 
 
 def validate_source_language(value: str) -> str:
@@ -220,13 +162,6 @@ def validate_source_language(value: str) -> str:
   if value.lower() == "*all*":
     return "*all*"
   return validate_well_formed_language_tag(value)
-
-
-type TMXLanguageTag = Annotated[str, AfterValidator(validate_well_formed_language_tag)]
-type TMXSourceLanguage = Annotated[str, AfterValidator(validate_source_language)]
-
-
-_HEX_DIGITS = "0123456789abcdefABCDEF"
 
 
 def parse_hex_integer(value: object) -> int:
@@ -249,7 +184,7 @@ def parse_hex_integer(value: object) -> int:
     if not value.startswith("#x"):
       raise ValueError(f"expected a '#x' prefix, e.g. '#xF8FF', got {value!r}")
     digits = value[2:]
-    if not digits or any(digit not in _HEX_DIGITS for digit in digits):
+    if not digits or any(digit not in hexdigits for digit in digits):
       raise ValueError(f"expected hexadecimal digits after '#x', e.g. '#xF8FF', got {value!r}")
     return int(digits, 16)
   raise ValueError(f"expected an unsigned integer or a '#x'-prefixed string, got {type(value).__name__!r}")
@@ -275,10 +210,3 @@ def validate_ascii(value: str) -> str:
   if not value.isascii():
     raise ValueError(f"expected ASCII text, got {value!r}")
   return value
-
-
-type TMXHexInteger = Annotated[
-  int, BeforeValidator(parse_hex_integer), PlainSerializer(format_hex_integer, return_type=str, when_used="json")
-]
-type TMXUnicodeCodePoint = Annotated[TMXHexInteger, AfterValidator(validate_unicode_scalar)]
-type TMXAsciiText = Annotated[str, AfterValidator(validate_ascii)]
