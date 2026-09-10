@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from hypomnema.errors import LanguageTagError, TmxWarning
+from hypomnema.errors import LanguageTagError
 from hypomnema.models import (
   Bpt,
   Ept,

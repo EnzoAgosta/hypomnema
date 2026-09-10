@@ -1,20 +1,17 @@
-"""Parse direction: handwritten XML fragments projected to expected models.
+"""Unit tests for the per-node projection family in ``xml.parse``.
 
-Every expected model is written by hand; nothing here round-trips through
-the builder. TmxWarning advisories are muted only where legitimately emitted
-(the happy-path table and the bare-<map> value case, via narrowly applied
-filterwarnings marks); error messages are matched by tag/line/substring,
-never frozen, since the full lxml/Pydantic wording is not the contract.
+The golden corpus in ``conftest.py`` is the oracle: every field of every
+model is asserted explicitly against a hand-written, attribute-complete
+fragment. Message strings are asserted only where rendering is the
+feature (the source-line prefixes of parse errors).
 """
 
-import warnings
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import pytest
 from lxml import etree
-from pydantic import ValidationError
 
-from hypomnema.errors import TmxSpecError, TmxWarning
+from hypomnema.errors import TmxSpecError
 from hypomnema.models import (
   Bpt,
   Ept,
@@ -26,444 +23,458 @@ from hypomnema.models import (
   Ph,
   Property,
   Sub,
-  TmxNode,
   TranslationUnit,
   TranslationUnitVariant,
-  Ut,
   Ude,
+  Ut,
 )
-from hypomnema.xml.parse import from_element
+from hypomnema.xml.names import NON_ATTRIBUTE_FIELDS
+from hypomnema.xml.parse import (
+  bpt_from_element,
+  ept_from_element,
+  from_element,
+  header_from_element,
+  hi_from_element,
+  it_from_element,
+  map_from_element,
+  note_from_element,
+  ph_from_element,
+  prop_from_element,
+  sub_from_element,
+  tu_from_element,
+  tuv_from_element,
+  ude_from_element,
+  ut_from_element,
+)
 
-OFFSET_PLUS_0230 = timezone(timedelta(hours=2, minutes=30))
+TAGS = ("bpt", "ept", "header", "hi", "it", "map", "note", "ph", "prop", "sub", "tu", "tuv", "ude", "ut")
+
+FROM_FUNCTIONS = {
+  "note": note_from_element,
+  "prop": prop_from_element,
+  "map": map_from_element,
+  "ude": ude_from_element,
+  "header": header_from_element,
+  "tu": tu_from_element,
+  "tuv": tuv_from_element,
+  "bpt": bpt_from_element,
+  "ept": ept_from_element,
+  "it": it_from_element,
+  "ph": ph_from_element,
+  "hi": hi_from_element,
+  "ut": ut_from_element,
+  "sub": sub_from_element,
+}
+
+MODELS = {
+  "note": Note,
+  "prop": Property,
+  "map": Map,
+  "ude": Ude,
+  "header": Header,
+  "tu": TranslationUnit,
+  "tuv": TranslationUnitVariant,
+  "bpt": Bpt,
+  "ept": Ept,
+  "it": It,
+  "ph": Ph,
+  "hi": Hi,
+  "ut": Ut,
+  "sub": Sub,
+}
+
+# Every attribute field of every model, against the golden corpus:
+# coerced values, defaults where the fragment omits the attribute. This
+# table is the oracle that no field is silently dropped by the mapping.
+EXPECTED_FIELDS = {
+  "note": {"o_encoding": "utf-8", "xml_lang": "en", "lang": "en-GB"},
+  "prop": {"type": "client", "xml_lang": "en", "o_encoding": "utf-8", "lang": "fr"},
+  "map": {"unicode": 0xF8FF, "code": 0xF8FF, "ent": "&", "subst": "space"},
+  "ude": {"name": "win", "base": "windows-1252"},
+  "bpt": {"i": 1, "x": 2, "type": "bold"},
+  "ept": {"i": 1},
+  "it": {"pos": "begin", "x": 3, "type": "link"},
+  "ph": {"x": 4, "assoc": "f", "type": "var"},
+  "hi": {"x": 5, "type": "emph"},
+  "ut": {"x": 6},
+  "sub": {"datatype": "rtf", "type": "f"},
+  "tuv": {
+    "xml_lang": "en",
+    "o_encoding": "utf-8",
+    "datatype": "plaintext",
+    "usagecount": 3,
+    "lastusagedate": datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
+    "creationtool": "tool",
+    "creationtoolversion": "1.0",
+    "creationdate": datetime(2024, 1, 1, tzinfo=UTC),
+    "creationid": "creator",
+    "changedate": datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
+    "o_tmf": "tmf",
+    "changeid": "changer",
+    "lang": None,
+  },
+  "tu": {
+    "tuid": "tu-1",
+    "o_encoding": "utf-8",
+    "datatype": "plaintext",
+    "usagecount": 2,
+    "lastusagedate": datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
+    "creationtool": "tool",
+    "creationtoolversion": "1.0",
+    "creationdate": datetime(2024, 1, 1, tzinfo=UTC),
+    "creationid": "c1",
+    "changedate": datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
+    "segtype": "paragraph",
+    "changeid": "ch",
+    "o_tmf": "tmf",
+    "srclang": "en",
+  },
+  "header": {
+    "creationtool": "tool",
+    "creationtoolversion": "1.0",
+    "segtype": "paragraph",
+    "o_tmf": "tmf",
+    "adminlang": "en",
+    "srclang": "en",
+    "datatype": "plaintext",
+    "o_encoding": "utf-8",
+    "creationdate": datetime(2024, 1, 1, tzinfo=UTC),
+    "creationid": "c1",
+    "changedate": datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
+    "changeid": "ch1",
+  },
+}
 
 
-# All fourteen node types, each with every attribute set to a distinct value
-# so a field swap cannot hide behind a duplicate, and with the mechanical
-# name mapping (xml:lang, o-encoding, o-tmf) exercised where it applies.
-with warnings.catch_warnings():
-  warnings.filterwarnings(
-    "ignore", category=TmxWarning
-  )  # the unknown-encoding advisory for the Alpha/Beta/Epsilon spellings
+# Attribute mapping: every declared field of every node, coerced.
 
-  HAPPY_PATH = [
+
+@pytest.mark.parametrize("tag", TAGS)
+def test_from_element_maps_every_declared_field(tag, corpus):
+  """The corpus sets or deliberately omits each attribute field; every
+  value must land in the model, coerced to its native type."""
+  model = FROM_FUNCTIONS[tag](etree.fromstring(corpus[tag]))
+  for field, expected in EXPECTED_FIELDS[tag].items():
+    assert getattr(model, field) == expected
+
+
+def test_expected_fields_table_covers_every_attribute_field():
+  """The oracle cannot silently drop a field: every attribute field of
+  every model must appear in the table, so adding a model field without
+  updating the corpus and the table fails here."""
+  for tag in TAGS:
+    model_type = MODELS[tag]
+    attribute_fields = {name for name in model_type.model_fields if name not in NON_ATTRIBUTE_FIELDS}
+    assert attribute_fields == set(EXPECTED_FIELDS[tag]), tag
+
+
+EXPECTED_CONTENT = {
+  "note": [("text", "a note")],
+  "prop": [("text", "acme")],
+  "map": [],
+  "ude": [("maps", [Map(unicode=0xF8FF, code=0xF8FF, ent="&", subst="space")])],
+  "bpt": [("content", ["<b>"])],
+  "ept": [("content", ["</b>"])],
+  "it": [("content", ["<a>"])],
+  "ph": [("content", ["placeholder"])],
+  "hi": [("content", ["emphasized ", Bpt(i=1, content=["x"]), Ept(i=1, content=["y"])])],
+  "ut": [("content", ["{percent}"])],
+  "sub": [("content", ["embedded"])],
+  "tuv": [
+    ("metadata", [Note(text="variant note")]),
+    ("content", ["The ", Bpt(i=1, x=1, content=["{b"]), "black", Ept(i=1, content=["}"]), " cat"]),
+  ],
+  "tu": [
+    ("metadata", [Property(type="client", text="acme")]),
     (
-      "note",
-      '<note o-encoding="Alpha" xml:lang="fr-CA" lang="fr">Bonjour</note>',
-      Note(o_encoding="Alpha", xml_lang="fr-CA", lang="fr", text="Bonjour"),
-    ),
-    (
-      "prop",
-      '<prop type="x-prop" xml:lang="de" o-encoding="Beta" lang="fr">Wert</prop>',
-      Property(type="x-prop", xml_lang="de", o_encoding="Beta", lang="fr", text="Wert"),
-    ),
-    (
-      "map",
-      '<map unicode="#xF8FF" code="#x00E9" ent="&amp;" subst="e-grave"/>',
-      Map(unicode=0xF8FF, code=0xE9, ent="&", subst="e-grave"),
-    ),
-    (
-      "ude",
-      '<ude name="UdeName" base="ISO-8859-1"><map unicode="#xF8FF" code="#x00E9"/>'
-      '<map unicode="#x00E8" subst="e-grave"/></ude>',
-      Ude(name="UdeName", base="ISO-8859-1", maps=(Map(unicode=0xF8FF, code=0xE9), Map(unicode=0xE8, subst="e-grave"))),
-    ),
-    (
-      "bpt",
-      '<bpt i="7" x="12" type="bold">Hi<sub datatype="x-sub">sub text</sub></bpt>',
-      Bpt(i=7, x=12, type="bold", content=("Hi", Sub(datatype="x-sub", content=("sub text",)))),
-    ),
-    ("ept", '<ept i="7">done</ept>', Ept(i=7, content=("done",))),
-    ("it", '<it pos="end" x="3" type="x-it">t</it>', It(pos="end", x=3, type="x-it", content=("t",))),
-    (
-      "ph",
-      '<ph x="1" assoc="p" type="var">var text<sub>inner</sub></ph>',
-      Ph(x=1, assoc="p", type="var", content=("var text", Sub(content=("inner",)))),
-    ),
-    (
-      "hi",
-      '<hi x="9" type="emph">outer <hi x="10">nested</hi></hi>',
-      Hi(x=9, type="emph", content=("outer ", Hi(x=10, content=("nested",)))),
-    ),
-    ("ut", '<ut x="5">unknown</ut>', Ut(x=5, content=("unknown",))),
-    (
-      "sub",
-      '<sub type="s" datatype="d">a<bpt i="1"/>b<ept i="1"/></sub>',
-      Sub(type="s", datatype="d", content=("a", Bpt(i=1), "b", Ept(i=1))),
-    ),
-    (
-      "header",
-      '<header creationtool="Alpha" creationtoolversion="1.2" segtype="block" o-tmf="Gamma"'
-      ' adminlang="fr" srclang="de" datatype="Delta" o-encoding="Epsilon"'
-      ' creationdate="20240102T030405Z" creationid="Zeta" changedate="20240102T030405+0230"'
-      ' changeid="Eta">'
-      '<note>one</note><prop type="p-two">two</prop>'
-      '<ude name="UdeName" base="ISO-8859-1"><map unicode="#xF8FF" code="#x00E9"/></ude>'
-      "<note>four</note></header>",
-      Header(
-        creationtool="Alpha",
-        creationtoolversion="1.2",
-        segtype="block",
-        o_tmf="Gamma",
-        adminlang="fr",
-        srclang="de",
-        datatype="Delta",
-        o_encoding="Epsilon",
-        creationdate=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-        creationid="Zeta",
-        changedate=datetime(2024, 1, 2, 3, 4, 5, tzinfo=OFFSET_PLUS_0230),
-        changeid="Eta",
-        metadata=(
-          Note(text="one"),
-          Property(type="p-two", text="two"),
-          Ude(name="UdeName", base="ISO-8859-1", maps=(Map(unicode=0xF8FF, code=0xE9),)),
-          Note(text="four"),
+      "variants",
+      [
+        TranslationUnitVariant(
+          xml_lang="en",
+          content=["The ", Bpt(i=1, x=1, content=["{b"]), "black", Ept(i=1, content=["}"]), " cat"],
         ),
-      ),
+        TranslationUnitVariant(xml_lang="fr", content=["Le chat"]),
+      ],
     ),
+  ],
+  "header": [
     (
-      "tu",
-      '<tu tuid="T-1" o-encoding="Alpha" datatype="Delta" usagecount="3"'
-      ' lastusagedate="20240203T040506Z" creationtool="CT" creationtoolversion="9"'
-      ' creationdate="20240304T050607Z" creationid="CI" changedate="20240506T070809Z"'
-      ' segtype="paragraph" changeid="CH" o-tmf="Gamma" srclang="en">'
-      '<note>meta note</note><prop type="p">meta prop</prop>'
-      '<tuv xml:lang="en" usagecount="0"><seg>lead <bpt i="1"/> tail <ept i="1"/></seg></tuv>'
-      '<tuv xml:lang="de" o-encoding="Epsilon"><seg/></tuv></tu>',
-      TranslationUnit(
-        tuid="T-1",
-        o_encoding="Alpha",
-        datatype="Delta",
-        usagecount=3,
-        lastusagedate=datetime(2024, 2, 3, 4, 5, 6, tzinfo=UTC),
-        creationtool="CT",
-        creationtoolversion="9",
-        creationdate=datetime(2024, 3, 4, 5, 6, 7, tzinfo=UTC),
-        creationid="CI",
-        changedate=datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC),
-        segtype="paragraph",
-        changeid="CH",
-        o_tmf="Gamma",
-        srclang="en",
-        metadata=(Note(text="meta note"), Property(type="p", text="meta prop")),
-        variants=(
-          TranslationUnitVariant(xml_lang="en", usagecount=0, content=("lead ", Bpt(i=1), " tail ", Ept(i=1))),
-          TranslationUnitVariant(xml_lang="de", o_encoding="Epsilon"),
-        ),
-      ),
-    ),
+      "metadata",
+      [
+        Note(text="header note"),
+        Property(type="client", text="acme"),
+        Ude(name="win", base="windows-1252", maps=[Map(unicode=0xF8FF, ent="&", subst="space")]),
+      ],
+    )
+  ],
+}
+
+
+@pytest.mark.parametrize("tag", TAGS)
+def test_from_element_projects_the_content_slots(tag, corpus):
+  """The corpus's content slots are part of the oracle: text, mixed
+  content, metadata, and maps all come through with their shapes."""
+  model = FROM_FUNCTIONS[tag](etree.fromstring(corpus[tag]))
+  for slot, expected in EXPECTED_CONTENT[tag]:
+    assert getattr(model, slot) == expected
+
+
+# Text and content shapes.
+
+
+def test_note_text_distinguishes_none_and_empty():
+  """XML cannot express an empty-string body: lxml normalizes
+  ``<note></note>`` to the same None text as ``<note/>``, so the
+  distinction exists only on the model side (build can still emit it)."""
+  assert note_from_element(etree.fromstring("<note/>")).text is None
+  assert note_from_element(etree.fromstring("<note></note>")).text is None
+
+
+def test_note_text_whitespace_is_preserved():
+  assert note_from_element(etree.fromstring("<note>  padded  </note>")).text == "  padded  "
+
+
+def test_tu_metadata_and_variants_keep_document_order():
+  """The DTD requires all metadata before the first variant; the split
+  preserves the order within each group."""
+  tu = tu_from_element(
+    etree.fromstring(
+      '<tu tuid="1" srclang="en">'
+      '<note>first</note><prop type="client">second</prop><note>third</note>'
+      '<tuv xml:lang="en"><seg>one</seg></tuv>'
+      '<tuv xml:lang="fr"><seg>two</seg></tuv>'
+      "</tu>"
+    )
+  )
+  assert [type(node) for node in tu.metadata] == [Note, Property, Note]
+  assert [node.text for node in tu.metadata] == ["first", "second", "third"]
+  assert [variant.xml_lang for variant in tu.variants] == ["en", "fr"]
+
+
+def test_tuv_metadata_comes_before_the_seg():
+  tuv = tuv_from_element(etree.fromstring('<tuv xml:lang="en"><note>variant note</note><seg>content</seg></tuv>'))
+  assert [note.text for note in tuv.metadata] == ["variant note"]
+  assert tuv.content == ["content"]
+
+
+def test_tuv_with_two_segs_is_reported():
+  """The DTD rejects this first, but the projection must not crash on a
+  planted double-<seg> fragment with an unpacking error."""
+  with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 2"):
+    tuv_from_element(etree.fromstring('<tuv xml:lang="en"><seg>a</seg><seg>b</seg></tuv>'))
+
+
+@pytest.mark.parametrize(
+  ("tag", "outer", "child_markup", "child_type"),
+  [
+    ("bpt", '<bpt i="1">before {child} after</bpt>', '<sub type="f">mid</sub>', Sub),
+    ("ept", '<ept i="1">before {child} after</ept>', '<sub type="f">mid</sub>', Sub),
+    ("it", '<it pos="begin">before {child} after</it>', '<sub type="f">mid</sub>', Sub),
+    ("ph", '<ph x="4">before {child} after</ph>', '<sub type="f">mid</sub>', Sub),
+    ("ut", '<ut x="6">before {child} after</ut>', '<sub type="f">mid</sub>', Sub),
+    ("hi", "<hi>before {child} after</hi>", '<bpt i="1">mid</bpt>', Bpt),
+    ("sub", "<sub>before {child} after</sub>", "<hi>mid</hi>", Hi),
+  ],
+)
+def test_inline_content_interleaves_text_and_elements(tag, outer, child_markup, child_type):
+  model = FROM_FUNCTIONS[tag](etree.fromstring(outer.format(child=child_markup)))
+  assert isinstance(model, (Bpt, Ept, It, Ph, Hi, Ut, Sub))
+  assert model.content[0] == "before "
+  assert type(model.content[1]) is child_type
+  assert model.content[2] == " after"
+
+
+def test_ude_projects_its_maps():
+  ude = ude_from_element(etree.fromstring(CORPUS_UDE))
+  assert [mapping.unicode for mapping in ude.maps] == [0xF8FF]
+  assert [mapping.ent for mapping in ude.maps] == ["&"]
+
+
+# The gates: tag identity, DTD, names, no-model tags. Each per-node
+# function gates its own fragment, so every one is tested standalone.
+
+
+DTD_JUNK_FRAGMENTS = {
+  "note": '<note junk="1" o-encoding="utf-8">x</note>',
+  "prop": '<prop junk="1" type="client">x</prop>',
+  "map": '<map junk="1" unicode="#x41"/>',
+  "ude": '<ude junk="1" name="n"><map unicode="#x41"/></ude>',
+  "bpt": '<bpt junk="1" i="1">x</bpt>',
+  "ept": '<ept junk="1" i="1">x</ept>',
+  "it": '<it junk="1" pos="begin">x</it>',
+  "ph": '<ph junk="1" x="1">x</ph>',
+  "hi": '<hi junk="1">x</hi>',
+  "ut": '<ut junk="1" x="1">x</ut>',
+  "sub": '<sub junk="1">x</sub>',
+  "tuv": '<tuv junk="1" xml:lang="en"><seg>x</seg></tuv>',
+  "tu": '<tu junk="1" srclang="en"><tuv xml:lang="en"><seg>x</seg></tuv></tu>',
+  "header": '<header junk="1" creationtool="t" creationtoolversion="1" segtype="paragraph" o-tmf="x" adminlang="en" srclang="en" datatype="plain"/>',
+}
+
+
+@pytest.mark.parametrize("tag", TAGS)
+def test_dtd_gate_rejects_unknown_attributes(tag):
+  """Each fragment is DTD-valid except for the junk attribute, so the
+  attribute gate itself is what fails, not the child pattern."""
+  with pytest.raises(TmxSpecError):
+    FROM_FUNCTIONS[tag](etree.fromstring(DTD_JUNK_FRAGMENTS[tag]))
+
+
+@pytest.mark.parametrize(
+  ("function", "broken"),
+  [
+    # Header: creationtool is #REQUIRED.
     (
-      "tuv",
-      '<tuv xml:lang="fr" lang="fr-CH" o-encoding="Alpha" datatype="Delta" usagecount="2"'
-      ' lastusagedate="20240203T040506Z" creationtool="CT" creationtoolversion="9"'
-      ' creationdate="20240102T030405Z" creationid="CI" changedate="20240506T070809Z"'
-      ' o-tmf="Gamma" changeid="CH">'
-      '<note>n</note><prop type="p">p</prop>'
-      '<seg>Hi <hi x="1">there</hi>!</seg></tuv>',
-      TranslationUnitVariant(
-        xml_lang="fr",
-        o_encoding="Alpha",
-        datatype="Delta",
-        usagecount=2,
-        lastusagedate=datetime(2024, 2, 3, 4, 5, 6, tzinfo=UTC),
-        creationtool="CT",
-        creationtoolversion="9",
-        creationdate=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-        creationid="CI",
-        changedate=datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC),
-        o_tmf="Gamma",
-        changeid="CH",
-        lang="fr-CH",
-        metadata=(Note(text="n"), Property(type="p", text="p")),
-        content=("Hi ", Hi(x=1, content=("there",)), "!"),
-      ),
+      header_from_element,
+      '<header creationtoolversion="1.0" segtype="paragraph" o-tmf="tmf" adminlang="en" srclang="en" datatype="plaintext"/>',
     ),
-  ]
-
-
-@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
-@pytest.mark.parametrize(
-  ["markup", "expected"], [(case[1], case[2]) for case in HAPPY_PATH], ids=[case[0] for case in HAPPY_PATH]
-)
-def test_parses_to_expected_model(markup: str, expected: TmxNode) -> None:
-  assert from_element(etree.fromstring(markup)) == expected
-
-
-def test_header_metadata_preserves_interleaved_document_order() -> None:
-  markup = (
-    '<header creationtool="CT" creationtoolversion="1" segtype="block" o-tmf="G" adminlang="en"'
-    ' srclang="en" datatype="txt"><note>n</note><prop type="p">p</prop>'
-    '<ude name="U" base="ISO-8859-1"><map unicode="#x41" code="#x42"/></ude><note>n2</note></header>'
-  )
-  parsed = from_element(etree.fromstring(markup))
-  assert isinstance(parsed, Header)
-  assert [child.element for child in parsed.metadata] == ["note", "prop", "ude", "note"]
-  assert [child.text for child in parsed.metadata if isinstance(child, Note)] == ["n", "n2"]
-
-
-def test_tu_metadata_stays_separate_from_variants() -> None:
-  markup = (
-    '<tu><note>n</note><prop type="p">p</prop>'
-    '<tuv xml:lang="en"><seg>s</seg></tuv><tuv xml:lang="de"><seg>s</seg></tuv></tu>'
-  )
-  parsed = from_element(etree.fromstring(markup))
-  assert isinstance(parsed, TranslationUnit)
-  assert [child.element for child in parsed.metadata] == ["note", "prop"]
-  assert [variant.xml_lang for variant in parsed.variants] == ["en", "de"]
-
-
-def test_seg_wrapper_dissolves_into_tuv_content() -> None:
-  parsed = from_element(etree.fromstring('<tuv xml:lang="en"><seg>a<bpt i="1"/>b<ept i="1"/></seg></tuv>'))
-  assert isinstance(parsed, TranslationUnitVariant)
-  assert parsed.content == ("a", Bpt(i=1), "b", Ept(i=1))
-
-
-def test_empty_seg_is_empty_content_not_missing() -> None:
-  parsed = from_element(etree.fromstring('<tuv xml:lang="en"><seg/></tuv>'))
-  assert isinstance(parsed, TranslationUnitVariant)
-  assert parsed.content == ()
-
-
-def test_whitespace_is_kept_exactly() -> None:
-  note = from_element(etree.fromstring("<note>  spaced  </note>"))
-  assert isinstance(note, Note)
-  assert note.text == "  spaced  "
-  variant = from_element(etree.fromstring('<tuv xml:lang="en"><seg> a <bpt i="1"/> b <ept i="1"/></seg></tuv>'))
-  assert isinstance(variant, TranslationUnitVariant)
-  assert variant.content == (" a ", Bpt(i=1), " b ", Ept(i=1))
-
-
-def test_absent_attributes_and_text_are_none() -> None:
-  parsed = from_element(etree.fromstring('<ept i="2"/>'))
-  assert parsed == Ept(i=2)
-  note = from_element(etree.fromstring("<note/>"))
-  assert isinstance(note, Note)
-  assert note.text is None
-
-
-def test_read_text_keeps_none_and_explicitly_empty_distinct() -> None:
-  """In-memory elements distinguish an absent text slot from an empty one."""
-  absent = etree.Element("note")
-  assert from_element(absent) == Note()
-  explicit = etree.Element("note")
-  explicit.text = ""
-  assert from_element(explicit) == Note(text="")
-  absent_prop = etree.Element("prop")
-  absent_prop.set("type", "p")
-  assert from_element(absent_prop) == Property(type="p")
-  explicit_prop = etree.Element("prop")
-  explicit_prop.set("type", "p")
-  explicit_prop.text = ""
-  assert from_element(explicit_prop) == Property(type="p", text="")
-
-
-with warnings.catch_warnings():
-  warnings.filterwarnings("ignore", category=TmxWarning)  # a bare <map> has no target advisory
-  VALUE_CASES = [
-    ('<ph x="0">t</ph>', Ph(x=0, content=("t",))),
-    ('<ept i="007"/>', Ept(i=7)),
-    ('<map unicode="#x00E9"/>', Map(unicode=0xE9)),
-    ('<prop type="">t</prop>', Property(type="", text="t")),
-  ]
-
-
-@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
-@pytest.mark.parametrize(
-  ["markup", "expected"], VALUE_CASES, ids=["zero-int", "leading-zeros", "hex-leading-zeros", "empty-string-attr"]
-)
-def test_zero_and_empty_values_are_retained(markup: str, expected: TmxNode) -> None:
-  assert from_element(etree.fromstring(markup)) == expected
-
-
-def test_datetime_offsets_survive_as_native_values() -> None:
-  parsed = from_element(etree.fromstring('<tuv xml:lang="en" lastusagedate="20240203T040506.123456+0230"><seg/></tuv>'))
-  assert isinstance(parsed, TranslationUnitVariant)
-  assert parsed.lastusagedate is not None
-  assert parsed.lastusagedate == datetime(2024, 2, 3, 4, 5, 6, 123456, tzinfo=OFFSET_PLUS_0230)
-  # Equality of aware datetimes alone would also accept normalization to UTC.
-  assert parsed.lastusagedate.utcoffset() == timedelta(hours=2, minutes=30)
-
-
-@pytest.mark.filterwarnings("ignore::hypomnema.errors.TmxWarning")
-def test_parse_leaves_the_source_tree_untouched() -> None:
-  element = etree.fromstring('<note o-encoding="Alpha">hi</note>')
-  from_element(element)
-  assert element.attrib == {"o-encoding": "Alpha"}
-  assert element.text == "hi"
-  assert len(element) == 0
-
-
-# --- Errors: unknown vocabulary, invalid structure and values, context. ---
-
-
-@pytest.mark.parametrize(
-  ["markup", "match"],
-  [("<frobnicate/>", "frobnicate"), ('<note xmlns="http://example.com/ns">x</note>', "http://example.com")],
-  ids=["unknown-element", "namespaced-element"],
-)
-def test_unknown_vocabulary_is_rejected(markup: str, match: str) -> None:
-  with pytest.raises(TmxSpecError, match=match):
-    from_element(etree.fromstring(markup))
-
-
-def test_unknown_attribute_is_rejected_with_dtd_cause() -> None:
-  with pytest.raises(TmxSpecError, match="bogus") as excinfo:
-    from_element(etree.fromstring('<note bogus="1">x</note>'))
-  assert isinstance(excinfo.value.__cause__, etree.DocumentInvalid)
-
-
-def test_missing_required_child_is_rejected_with_dtd_cause() -> None:
-  with pytest.raises(TmxSpecError) as excinfo:
-    from_element(etree.fromstring('<tuv xml:lang="en"/>'))
-  assert isinstance(excinfo.value.__cause__, etree.DocumentInvalid)
-
-
-@pytest.mark.parametrize(
-  "markup",
-  [
-    '<tu><tuv xml:lang="en"><seg/></tuv><note>too late</note></tu>',
-    '<tuv xml:lang="en"><seg/><note>too late</note></tuv>',
-    '<tuv xml:lang="en"><seg/><seg/></tuv>',
-    "<tu><note>no variants</note></tu>",
-    '<ude name="empty"/>',
-    '<tu>stray<tuv xml:lang="en"><seg/></tuv></tu>',
-    '<tuv xml:lang="en"><seg/>stray</tuv>',
-  ],
-  ids=[
-    "tu-order",
-    "tuv-order",
-    "duplicate-seg",
-    "missing-variants",
-    "missing-maps",
-    "container-text",
-    "container-tail",
+    # tuv: xml:lang is #REQUIRED.
+    (tuv_from_element, '<tuv o-encoding="utf-8"><seg>x</seg></tuv>'),
+    # map: unicode is #REQUIRED.
+    (map_from_element, '<map code="#xF8FF"/>'),
+    # bpt/ept: i is #REQUIRED.
+    (bpt_from_element, '<bpt x="2">x</bpt>'),
+    (ept_from_element, "<ept>x</ept>"),
+    # it: pos is #REQUIRED.
+    (it_from_element, '<it x="3">x</it>'),
   ],
 )
-def test_invalid_structure_is_rejected_before_projection_can_discard_it(markup: str) -> None:
-  with pytest.raises(TmxSpecError) as excinfo:
-    from_element(etree.fromstring(markup))
-  assert isinstance(excinfo.value.__cause__, etree.DocumentInvalid)
-
-
-def test_dtd_enumeration_value_is_rejected() -> None:
-  markup = (
-    '<header creationtool="CT" creationtoolversion="1" segtype="word" o-tmf="G"'
-    ' adminlang="en" srclang="en" datatype="txt"/>'
-  )
-  with pytest.raises(TmxSpecError, match="segtype"):
-    from_element(etree.fromstring(markup))
-
-
-@pytest.mark.parametrize(
-  ["markup", "match"],
-  [
-    ('<bpt i="1x"/>', "line 1"),
-    ('<map unicode="#xZZ"/>', "line 1"),
-    ('<tuv xml:lang="en" lastusagedate="not-a-date"><seg/></tuv>', "line 1"),
-    ('<tuv xml:lang="not a tag"><seg/></tuv>', "line 1"),
-  ],
-  ids=["bad-int", "bad-hex", "bad-datetime", "bad-language-tag"],
-)
-def test_invalid_value_is_rejected_with_pydantic_cause(markup: str, match: str) -> None:
-  with pytest.raises(TmxSpecError, match=match) as excinfo:
-    from_element(etree.fromstring(markup))
-  assert isinstance(excinfo.value.__cause__, ValidationError)
-
-
-def test_error_context_names_element_and_line() -> None:
-  # The DTD rejects the tuv without xml:lang, so the wrapper reports the
-  # <tu> while the lxml cause still points at the offending line 3; the
-  # nested value-error case below covers projection's own checks.
-  markup = '<tu>\n  <tuv xml:lang="en"><seg/></tuv>\n  <tuv><seg/></tuv>\n</tu>'
-  with pytest.raises(TmxSpecError, match="<tu>.*line 3"):
-    from_element(etree.fromstring(markup))
-
-
-def test_nested_value_error_keeps_source_line_and_pydantic_cause() -> None:
-  # The DTD cannot see that i="1x" is not a number, so the projection's own
-  # value check fires deep inside the tree and still reports the offending
-  # element and its source line, with the Pydantic cause attached.
-  markup = '<tu>\n  <tuv xml:lang="en"><seg><bpt i="1x"/></seg></tuv>\n</tu>'
-  with pytest.raises(TmxSpecError, match="<bpt>.*line 2") as excinfo:
-    from_element(etree.fromstring(markup))
-  assert isinstance(excinfo.value.__cause__, ValidationError)
-
-
-@pytest.mark.parametrize("markup", ["<seg/>", "<body/>"], ids=["seg", "body"])
-def test_document_wrappers_have_no_standalone_model(markup: str) -> None:
-  # The wrappers pass DTD validation, so the rejection is the projection's
-  # own: they have no standalone domain model.
-  with pytest.raises(TmxSpecError, match="standalone"):
-    from_element(etree.fromstring(markup))
-
-
-def test_tmx_has_no_standalone_model(valid_tmx_document: str) -> None:
-  # The full document passes DTD validation, so the rejection is the
-  # projection's own: it has no standalone domain model.
-  with pytest.raises(TmxSpecError, match="standalone"):
-    from_element(etree.fromstring(valid_tmx_document))
-
-
-def test_legacy_lang_never_substitutes_for_required_xml_lang() -> None:
+def test_dtd_gate_rejects_missing_required_attributes(function, broken):
   with pytest.raises(TmxSpecError):
-    from_element(etree.fromstring('<tuv lang="en"><seg/></tuv>'))
+    function(etree.fromstring(broken))
+
+
+def test_tu_without_srclang_passes_the_dtd_but_not_the_entry_boundary():
+  """The DTD declares srclang #IMPLIED on <tu>, but the model requires
+  it: the entry boundary is stricter than the DTD, and a DTD-valid
+  fragment still fails coercion, with the line attached."""
+  with pytest.raises(TmxSpecError) as excinfo:
+    tu_from_element(etree.fromstring('<tu tuid="1"><tuv xml:lang="en"><seg>x</seg></tuv></tu>'))
+  assert "at line 1" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
-  "markup",
-  ['<bpt i="1"><hi>x</hi></bpt>', "<sub><sub/></sub>", '<ept i="1"><ept i="2"/></ept>'],
-  ids=["hi-in-bpt", "sub-in-sub", "ept-in-ept"],
-)
-def test_illegal_inline_nesting_is_rejected(markup: str) -> None:
-  with pytest.raises(TmxSpecError):
-    from_element(etree.fromstring(markup))
-
-
-# --- Advisories: soft warnings, kept values. ---
-
-
-def test_ut_deprecation_warning() -> None:
-  with pytest.warns(TmxWarning, match="deprecated"):
-    from_element(etree.fromstring("<ut/>"))
-
-
-def test_lang_without_xml_lang_warns() -> None:
-  with pytest.warns(TmxWarning, match="prefer xml:lang"):
-    from_element(etree.fromstring('<note lang="fr"/>'))
-
-
-def test_differing_lang_and_xml_lang_warn() -> None:
-  with pytest.warns(TmxWarning, match="differ"):
-    from_element(etree.fromstring('<note lang="fr" xml:lang="de"/>'))
-
-
-def test_map_without_any_target_warns() -> None:
-  with pytest.warns(TmxWarning, match="code, ent, or subst"):
-    from_element(etree.fromstring('<map unicode="#x41"/>'))
-
-
-@pytest.mark.parametrize(
-  "markup",
+  ("function", "tag", "other_tag"),
   [
-    '<tuv xml:lang="en"><seg><bpt i="1"/></seg></tuv>',
-    '<tuv xml:lang="en"><seg><bpt i="1"/><ept i="2"/></seg></tuv>',
-    '<tuv xml:lang="en"><seg><bpt i="1"/><ept i="1"/><ept i="1"/></seg></tuv>',
-    '<tuv xml:lang="en"><seg><ept i="1"/><bpt i="1"/></seg></tuv>',
+    (note_from_element, "note", "prop"),
+    (prop_from_element, "prop", "note"),
+    (tu_from_element, "tu", "tuv"),
+    (tuv_from_element, "tuv", "tu"),
+    (ude_from_element, "ude", "header"),
+    (header_from_element, "header", "tu"),
+    (map_from_element, "map", "note"),
+    (bpt_from_element, "bpt", "ept"),
+    (ept_from_element, "ept", "bpt"),
+    (it_from_element, "it", "ph"),
+    (ph_from_element, "ph", "it"),
+    (hi_from_element, "hi", "ut"),
+    (ut_from_element, "ut", "hi"),
+    (sub_from_element, "sub", "bpt"),
   ],
 )
-def test_pairing_contract_is_enforced_on_read(markup: str) -> None:
-  # The boundary validation pass applies the prose rules to the projected
-  # model, not just the DTD and typing: unmatched bpt, mismatched pair,
-  # duplicate ept i, and ept before bpt all fail on read. Matching the
-  # pairing marker proves the failure came from that pass.
-  with pytest.raises(TmxSpecError, match="inline_tag_pairing"):
-    from_element(etree.fromstring(markup))
+def test_foreign_tags_are_rejected_by_tag_identity(function, tag, other_tag, corpus):
+  """A <prop> is a valid TMX fragment but not a <note>: each per-node
+  function projects exactly its own element."""
+  with pytest.raises(TmxSpecError) as excinfo:
+    function(etree.fromstring(corpus[other_tag]))
+  assert f"expected <{tag}>, got <{other_tag}>" in str(excinfo.value)
 
 
-def test_equivalent_lang_and_xml_lang_do_not_warn() -> None:
-  # This runs under an escalating filter to prove the advisory is absent,
-  # not swallowed by any suppression elsewhere in the suite.
-  with warnings.catch_warnings():
-    warnings.filterwarnings("error", category=TmxWarning)
-    parsed = from_element(etree.fromstring('<note lang="FR" xml:lang="fr">x</note>'))
-  assert isinstance(parsed, Note)
-  assert parsed.text == "x"
+def test_tuv_without_a_seg_is_reported_standalone():
+  """The projection must not crash with an unpacking error on a
+  fragment the DTD would reject: the <tuv> owns its shape."""
+  with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 0"):
+    tuv_from_element(etree.fromstring('<tuv xml:lang="en"><note>x</note></tuv>'))
+
+
+def test_namespaced_elements_are_rejected():
+  with pytest.raises(TmxSpecError, match="namespace-free"):
+    from_element(etree.fromstring('<tmx:tu xmlns:tmx="urn:x" tuid="1" srclang="en"/>'))
+  with pytest.raises(TmxSpecError, match="namespace-free"):
+    note_from_element(etree.fromstring('<note xmlns="urn:x">x</note>'))
+
+
+def test_comment_and_pi_tags_are_rejected():
+  with pytest.raises(TmxSpecError, match="namespace-free"):
+    note_from_element(etree.Comment("junk"))
+  with pytest.raises(TmxSpecError, match="namespace-free"):
+    note_from_element(etree.ProcessingInstruction("junk"))
+
+
+@pytest.mark.parametrize("tag", ["seg", "tmx", "body"])
+def test_modelless_tags_are_rejected(tag):
+  """These are TMX elements without a standalone domain model."""
+  with pytest.raises(TmxSpecError, match="no standalone domain model"):
+    from_element(etree.fromstring(f"<{tag}/>"))
+
+
+@pytest.mark.parametrize("tag", ["thing", "TUV"])
+def test_unknown_tags_are_rejected(tag):
+  with pytest.raises(TmxSpecError, match="is not a TMX 1.4b element"):
+    from_element(etree.fromstring(f"<{tag}/>"))
+
+
+def test_coercion_gate_reports_the_source_line():
+  with pytest.raises(TmxSpecError) as excinfo:
+    header_from_element(
+      etree.fromstring(
+        '<header creationtool="tool" creationtoolversion="1.0" segtype="paragraph"'
+        ' o-tmf="tmf" adminlang="en" srclang="en" datatype="plaintext"'
+        ' creationdate="nonsense"/>'
+      )
+    )
+  assert "at line 1" in str(excinfo.value)
+
+
+def test_coercion_gate_surfaces_the_field():
+  with pytest.raises(TmxSpecError) as excinfo:
+    map_from_element(etree.fromstring('<map unicode="junk"/>'))
+  assert "unicode" in str(excinfo.value)
+
+
+# The generic dispatcher: every arm routes to the right model.
+
+
+@pytest.mark.parametrize("tag", TAGS)
+def test_from_element_dispatches_every_tag(tag, corpus):
+  model = from_element(etree.fromstring(corpus[tag]))
+  assert type(model) is MODELS[tag]
+
+
+CORPUS_UDE = '<ude name="win" base="windows-1252"><map unicode="#xF8FF" ent="&amp;" subst="space"/></ude>'
+
+
+# Ordering and reach of the eager projection arguments: field arguments
+# are computed before _project's gates, so some failures surface from a
+# child's gate first. The order is pinned here as deliberate.
+
+
+def test_text_gate_runs_before_the_dtd_gate():
+  with pytest.raises(TmxSpecError, match="expected text only"):
+    note_from_element(etree.fromstring("<note><b>x</b></note>"))
+
+
+def test_child_dispatch_runs_before_the_parent_dtd_gate():
+  with pytest.raises(TmxSpecError, match="is not a TMX 1.4b element"):
+    header_from_element(
+      etree.fromstring(
+        '<header creationtool="t" creationtoolversion="1" segtype="paragraph"'
+        ' o-tmf="x" adminlang="en" srclang="en" datatype="plain"><junk/></header>'
+      )
+    )
+
+
+def test_non_root_fragment_is_gated_standalone():
+  """A fragment nested in a larger document is DTD-gated on its own
+  deepcopy, not against its parents."""
+  document = etree.fromstring('<tu tuid="1" srclang="en"><note>hi</note><tuv xml:lang="en"><seg>x</seg></tuv></tu>')
+  note_element = document.find("note")
+  assert note_element is not None
+  assert note_from_element(note_element).text == "hi"
+
+
+def test_unresolved_entity_in_content_is_reported():
+  parser = etree.XMLParser(resolve_entities=False)
+  element = etree.fromstring('<!DOCTYPE note [<!ENTITY e "text">]><note>&e;</note>', parser)
+  with pytest.raises(TmxSpecError, match="unresolved entity"):
+    note_from_element(element)
