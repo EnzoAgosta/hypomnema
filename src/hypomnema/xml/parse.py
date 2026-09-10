@@ -80,10 +80,15 @@ def _project[ModelType: TmxModel](
   element: etree._Element, model_type: type[ModelType], fields: dict[str, object]
 ) -> ModelType:
   """The one projection body, shared by every ``*_from_element``:
-  namespace guard, DTD gate, attribute mapping plus the node's own
-  fields, coercion. Keeping it here makes each per-node function safe to
-  call standalone on any fragment."""
+  namespace and tag guard, DTD gate, attribute mapping plus the node's
+  own fields, coercion. Keeping it here makes each per-node function
+  safe to call standalone on any fragment."""
   qname = _element_qname(element)
+  expected_tag = model_type.model_fields["element"].default
+  if qname.localname != expected_tag:
+    raise TmxSpecError(
+      f"expected <{expected_tag}>, got <{qname.localname}> at line {element.sourceline}"
+    )
   validate_fragment(element)
   try:
     return model_type.model_validate(_attributes(element, model_type) | fields)
@@ -133,14 +138,23 @@ def tu_from_element(element: etree._Element) -> TranslationUnit:
 def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
   """A ``<tuv>``: its attributes, its metadata children, and its
   content -- the DTD's single ``<seg>`` is the content wrapper."""
+  qname = _element_qname(element)
+  if qname.localname != "tuv":
+    raise TmxSpecError(
+      f"expected <tuv>, got <{qname.localname}> at line {element.sourceline}"
+    )
   children = list(child_elements(element))
-  (segment,) = (child for child in children if child.tag == "seg")
+  segments = [child for child in children if child.tag == "seg"]
+  if len(segments) != 1:
+    raise TmxSpecError(
+      f"<tuv> at line {element.sourceline}: expected exactly one <seg>, got {len(segments)}"
+    )
   return _project(
     element,
     TranslationUnitVariant,
     {
       "metadata": [from_element(child) for child in children if child.tag in ("note", "prop")],
-      "content": _parse_content(segment),
+      "content": _parse_content(segments[0]),
     },
   )
 
