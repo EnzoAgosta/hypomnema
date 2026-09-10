@@ -28,12 +28,22 @@ followed by value checks of that same value -- and untyped/foreign
 children are reported once as ``TmxFieldTypeError`` rather than cascading
 into their innards. Errors and advisories are reported in field
 traversal order: top-level fields first, then children depth-first.
+One carve-out: flow-contract leftovers (an unmatched ``<bpt>`` reported
+when its flow ends) arrive after the flow's item errors, so they are
+not strictly path-sorted.
 
-The variant and inline validators (``<tuv>``, ``<bpt>``, ``<ept>``,
-``<it>``, ``<ph>``, ``<hi>``, ``<ut>``, ``<sub>``) currently check type
-validity and structure only: the cross-field contract rules (bpt/ept
-pairing, ``x`` matching) and the deprecation advisories for the legacy
-``lang`` on ``<tuv>`` and for ``<ut>`` ride on the translation-unit pass.
+The variant and inline validators implement the spec's content-markup
+contract. Internal matching runs per flow (the ``<seg>`` scope: a
+variant's segment or a ``<sub>``'s embedded segment, with ``<hi>``
+transparent, its inline elements joining the enclosing flow): each
+``<bpt>`` must have a subsequent ``<ept>`` with the same ``i``, each
+``<ept>`` a preceding ``<bpt>``, and ``<bpt>`` ``i`` values must be
+unique within a flow. Overlapping ranges are legal per the spec, so the
+check is order-based, deliberately not stack nesting. External matching
+is advisory: ``<tu>`` validation warns when sibling variants disagree
+on their ``x`` values. The deprecation advisories for the legacy
+``lang`` on ``<tuv>``, ``<note>``, and ``<prop>`` and for ``<ut>`` are
+gathered here as well.
 """
 
 import codecs
@@ -41,6 +51,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from .bcp47 import validate_well_formed_language_tag
+from .coercion import validate_tuid
 from .errors import (
   LanguageTagError,
   NodePath,
@@ -53,7 +64,22 @@ from .errors import (
   TmxFieldValueError,
   TmxWarning,
 )
-from .models import Bpt, Ept, Header, Hi, It, Map, Note, Ph, Property, Sub, TranslationUnitVariant, Ude, Ut
+from .models import (
+  Bpt,
+  Ept,
+  Header,
+  Hi,
+  It,
+  Map,
+  Note,
+  Ph,
+  Property,
+  Sub,
+  TranslationUnit,
+  TranslationUnitVariant,
+  Ude,
+  Ut,
+)
 
 __all__ = [
   "validate_bpt",
@@ -65,6 +91,7 @@ __all__ = [
   "validate_ph",
   "validate_property",
   "validate_sub",
+  "validate_translation_unit",
   "validate_translation_unit_variant",
   "validate_ude",
   "validate_ut",
@@ -110,6 +137,12 @@ class _Session:
 
 type _FieldCheck = Callable[[_Session, NodePath, object], None]
 """What an optional-field check looks like: session, path, unknown value."""
+
+type _Flow = list[tuple[object, NodePath]]
+"""The inline elements of one flow, in order: the spec's <seg> scope.
+A flow is owned by a ``<tuv>``'s segment or a ``<sub>``'s embedded
+segment; ``<hi>`` is transparent, so its inline elements join the
+enclosing flow."""
 
 _SEGMENT_TYPES = ("block", "paragraph", "sentence", "phrase")
 _POSITIONS = ("begin", "end")
@@ -249,6 +282,48 @@ def _check_position(session: _Session, path: NodePath, value: object) -> None:
 
 def _check_association(session: _Session, path: NodePath, value: object) -> None:
   _check_one_of(session, path, value, _ASSOCIATIONS)
+
+
+def _check_tuid(session: _Session, path: NodePath, value: object) -> None:
+  """An identifier without whitespace, as the spec requires for
+  ``tuid`` -- the entry boundary's own rule, re-checked strictly."""
+  if not isinstance(value, str):
+    session.error(TmxFieldTypeError(path, value, str))
+    return
+  try:
+    validate_tuid(value)
+  except ValueError as error:
+    session.error(TmxFieldValueError(path, value, str(error)))
+
+
+def _check_bpt_ept_pairing(flow: _Flow, session: _Session) -> None:
+  """Internal matching within one flow, in order: each ``<bpt>`` must
+  have a subsequent ``<ept>`` with the same ``i``, each ``<ept>`` a
+  preceding ``<bpt>``, and ``<bpt>`` ``i`` values must be unique within
+  the flow (uniqueness over all ``<bpt>`` of the flow, whether closed or
+  not). Pairing is one-to-one: an ``<ept>`` consumes its open ``<bpt>``,
+  so a second ``<ept>`` with the same ``i`` has no preceding match.
+  Overlapping ranges are legal, so this is deliberately not stack
+  nesting. Only well-typed ``bpt``/``ept`` participate; garbage in
+  speaks through its type errors."""
+  seen_i: set[int] = set()
+  open_bpts: dict[int, tuple[NodePath, object]] = {}
+  for node, path in flow:
+    if isinstance(node, Bpt) and _is_integer(getattr(node, "i", None)):
+      if node.i in seen_i:
+        session.error(
+          TmxContractError(path, node, f"duplicate <bpt> i {node.i}: the i attribute must be unique within a flow")
+        )
+      else:
+        seen_i.add(node.i)
+        open_bpts[node.i] = (path, node)
+    elif isinstance(node, Ept) and _is_integer(getattr(node, "i", None)):
+      if node.i in open_bpts:
+        del open_bpts[node.i]
+      else:
+        session.error(TmxContractError(path, node, f"no preceding <bpt> with i {node.i} in this flow"))
+  for i, (path, node) in open_bpts.items():
+    session.error(TmxContractError(path, node, f"no subsequent <ept> with i {i} in this flow"))
 
 
 def _check_encoding_name(session: _Session, path: NodePath, value: object) -> None:
@@ -460,8 +535,10 @@ def _check_content_acyclic(session: _Session, path: NodePath, node: object) -> b
   return False
 
 
-def _validate_inline_content_node(node: object, session: _Session, path: NodePath) -> None:
-  """One item of a ``list[InlineNodeOrStr]``: text or any inline element."""
+def _validate_inline_content_node(node: object, session: _Session, path: NodePath, flow: _Flow) -> None:
+  """One item of a ``list[InlineNodeOrStr]``: text or any inline element.
+  Inline elements join the given flow, in order; ``<hi>`` is transparent
+  and passes the same flow down."""
   if not _check_content_depth(session, path, node):
     return
   if isinstance(node, str):
@@ -469,6 +546,8 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
   if not _check_content_acyclic(session, path, node):
     return
   session.descend(node)
+  if isinstance(node, Bpt | Ept | It | Ph | Hi | Ut):
+    flow.append((node, path))
   match node:
     case Bpt():
       _validate_bpt(node, session, path)
@@ -479,7 +558,7 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
     case Ph():
       _validate_ph(node, session, path)
     case Hi():
-      _validate_hi(node, session, path)
+      _validate_hi(node, session, path, flow)
     case Ut():
       _validate_ut(node, session, path)
     case _:
@@ -488,7 +567,9 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
 
 
 def _validate_sub_content_node(node: object, session: _Session, path: NodePath) -> None:
-  """One item of a ``list[SubOrStr]``: text or a ``<sub>`` element."""
+  """One item of a ``list[SubOrStr]``: text or a ``<sub>`` element. A
+  ``<sub>`` owns a flow of its own (the embedded segment), so nothing
+  here joins the enclosing flow."""
   if not _check_content_depth(session, path, node):
     return
   if isinstance(node, str):
@@ -503,9 +584,9 @@ def _validate_sub_content_node(node: object, session: _Session, path: NodePath) 
   session.ascend()
 
 
-def _validate_tuv_metadata_node(node: object, session: _Session, path: NodePath) -> None:
-  """Dispatches one ``<tuv>`` metadata child: a ``<tuv>`` may not hold a
-  ``<ude>``."""
+def _validate_note_or_property_node(node: object, session: _Session, path: NodePath) -> None:
+  """Dispatches one ``<tu>``/``<tuv>`` metadata child: their metadata
+  may hold ``<note>``/``<prop>`` only, never a ``<ude>``."""
   match node:
     case Note():
       _validate_note(node, session, path)
@@ -538,11 +619,17 @@ def _validate_translation_unit_variant(tuv: object, session: _Session, path: Nod
   _check_optional(session, path / "changedate", tuv.changedate, _check_datetime)
   _check_optional(session, path / "o_tmf", tuv.o_tmf, _check_str)
   _check_optional(session, path / "changeid", tuv.changeid, _check_str)
-  # The legacy-lang deprecation advisory rides on the translation-unit
-  # pass; the field itself is validated now.
-  _check_optional(session, path / "lang", tuv.lang, _check_language_tag)
-  _check_list(session, path / "metadata", tuv.metadata, _validate_tuv_metadata_node)
-  _check_list(session, path / "content", tuv.content, _validate_inline_content_node)
+  # The legacy-lang deprecation advisory rides on this pass.
+  _check_optional(session, path / "lang", tuv.lang, _check_deprecated_lang)
+  _check_list(session, path / "metadata", tuv.metadata, _validate_note_or_property_node)
+  flow: _Flow = []
+  _check_list(
+    session,
+    path / "content",
+    tuv.content,
+    lambda item, item_session, item_path: _validate_inline_content_node(item, item_session, item_path, flow),
+  )
+  _check_bpt_ept_pairing(flow, session)
   session.ascend()
 
 
@@ -554,7 +641,14 @@ def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
   _check_element(session, path / "element", sub.element, "sub")
   _check_optional(session, path / "datatype", sub.datatype, _check_str)
   _check_optional(session, path / "type", sub.type, _check_str)
-  _check_list(session, path / "content", sub.content, _validate_inline_content_node)
+  flow: _Flow = []
+  _check_list(
+    session,
+    path / "content",
+    sub.content,
+    lambda item, item_session, item_path: _validate_inline_content_node(item, item_session, item_path, flow),
+  )
+  _check_bpt_ept_pairing(flow, session)
   session.ascend()
 
 
@@ -614,7 +708,9 @@ def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
   session.ascend()
 
 
-def _validate_hi(hi: object, session: _Session, path: NodePath) -> None:
+def _validate_hi(hi: object, session: _Session, path: NodePath, flow: _Flow) -> None:
+  """``<hi>`` is transparent for pairing: its inline content joins the
+  flow it was reached through."""
   if not isinstance(hi, Hi):
     session.error(TmxFieldTypeError(path, hi, Hi))
     return
@@ -622,7 +718,12 @@ def _validate_hi(hi: object, session: _Session, path: NodePath) -> None:
   _check_element(session, path / "element", hi.element, "hi")
   _check_optional(session, path / "x", hi.x, _check_unsigned_integer)
   _check_optional(session, path / "type", hi.type, _check_str)
-  _check_list(session, path / "content", hi.content, _validate_inline_content_node)
+  _check_list(
+    session,
+    path / "content",
+    hi.content,
+    lambda item, item_session, item_path: _validate_inline_content_node(item, item_session, item_path, flow),
+  )
   session.ascend()
 
 
@@ -630,10 +731,79 @@ def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
   if not isinstance(ut, Ut):
     session.error(TmxFieldTypeError(path, ut, Ut))
     return
+  session.warn(
+    TmxAdvisory(
+      TmxDeprecationWarning,
+      "the <ut> element is deprecated, use <bpt>, <ept>, <it>, or <ph> instead",
+      path,
+    )
+  )
   session.descend(ut)
   _check_element(session, path / "element", ut.element, "ut")
   _check_optional(session, path / "x", ut.x, _check_unsigned_integer)
   _check_list(session, path / "content", ut.content, _validate_sub_content_node)
+  session.ascend()
+
+
+def _harvest_x_values(content: object, x_values: set[int]) -> None:
+  """Collects every well-typed ``x`` of the ``<bpt>``/``<it>``/``<ph>``/
+  ``<hi>`` elements reachable from a variant's content tree -- external
+  matching spans the whole variant, embedded ``<sub>`` segments
+  included. Runs on the same nodes the type pass already vetted, but
+  guards its own access so planted garbage cannot crash it."""
+  if not isinstance(content, list):
+    return
+  for item in content:
+    if isinstance(item, Bpt | It | Ph | Hi) and _is_integer(item.x):
+      x_values.add(item.x)
+    if isinstance(item, Bpt | Ept | It | Ph | Hi | Ut | Sub):
+      _harvest_x_values(item.content, x_values)
+
+
+def _validate_translation_unit(tu: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(tu, TranslationUnit):
+    session.error(TmxFieldTypeError(path, tu, TranslationUnit))
+    return
+  if not _check_required_fields(session, path, tu, ("srclang", "variants")):
+    return
+  session.descend(tu)
+  _check_element(session, path / "element", tu.element, "tu")
+  _check_optional(session, path / "tuid", tu.tuid, _check_tuid)
+  _check_optional(session, path / "o_encoding", tu.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "datatype", tu.datatype, _check_str)
+  _check_optional(session, path / "usagecount", tu.usagecount, _check_unsigned_integer)
+  _check_optional(session, path / "lastusagedate", tu.lastusagedate, _check_datetime)
+  _check_optional(session, path / "creationtool", tu.creationtool, _check_str)
+  _check_optional(session, path / "creationtoolversion", tu.creationtoolversion, _check_str)
+  _check_optional(session, path / "creationdate", tu.creationdate, _check_datetime)
+  _check_optional(session, path / "creationid", tu.creationid, _check_str)
+  _check_optional(session, path / "changedate", tu.changedate, _check_datetime)
+  _check_optional(session, path / "segtype", tu.segtype, _check_segtype)
+  _check_optional(session, path / "changeid", tu.changeid, _check_str)
+  _check_optional(session, path / "o_tmf", tu.o_tmf, _check_str)
+  _check_srclang(session, path / "srclang", tu.srclang)
+  _check_list(session, path / "metadata", tu.metadata, _validate_note_or_property_node)
+  _check_list(session, path / "variants", tu.variants, _validate_translation_unit_variant, minimum=1)
+  # External matching across sibling variants: each variant's set of x
+  # values should agree. A disagreement is the spec's advisory, not an
+  # error; variants without x-valued inline elements do not participate.
+  variants = tu.variants if isinstance(tu.variants, list) else ()
+  variant_x_sets: set[frozenset[int]] = set()
+  for variant in variants:
+    if isinstance(variant, TranslationUnitVariant):
+      x_values: set[int] = set()
+      _harvest_x_values(variant.content, x_values)
+      if x_values:
+        variant_x_sets.add(frozenset(x_values))
+  if len(variant_x_sets) > 1:
+    listing = " vs ".join(", ".join(map(str, sorted(x_set))) for x_set in sorted(variant_x_sets, key=sorted))
+    session.warn(
+      TmxAdvisory(
+        TmxWarning,
+        f"sibling variants disagree on their x values: {listing}",
+        path / "variants",
+      )
+    )
   session.ascend()
 
 
@@ -677,11 +847,21 @@ def validate_ude(ude: Ude) -> None:
 
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   """Validate a :class:`TranslationUnitVariant` and its whole content
-  tree. See :func:`validate_header` for semantics; the legacy-``lang``
-  deprecation advisory rides on the translation-unit pass."""
+  tree, including the internal-matching rules and the deprecation
+  advisories. See :func:`validate_header` for semantics."""
   session = _Session()
   _validate_translation_unit_variant(tuv, session, NodePath())
   session.finish("TranslationUnitVariant")
+
+
+def validate_translation_unit(tu: TranslationUnit) -> None:
+  """Validate a :class:`TranslationUnit` and every variant it holds,
+  including the cross-variant external-matching advisory (sibling
+  variants disagreeing on their ``x`` values). See
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_translation_unit(tu, session, NodePath())
+  session.finish("TranslationUnit")
 
 
 def validate_bpt(bpt: Bpt) -> None:
@@ -718,9 +898,13 @@ def validate_ph(ph: Ph) -> None:
 
 def validate_hi(hi: Hi) -> None:
   """Validate a :class:`Hi` and its content tree; see
-  :func:`validate_header` for semantics."""
+  :func:`validate_header` for semantics. Standalone, the ``<hi>``'s own
+  content is treated as the pairing flow -- the enclosing segment that
+  would own it is unknown here."""
   session = _Session()
-  _validate_hi(hi, session, NodePath())
+  flow: _Flow = []
+  _validate_hi(hi, session, NodePath(), flow)
+  _check_bpt_ept_pairing(flow, session)
   session.finish("Hi")
 
 

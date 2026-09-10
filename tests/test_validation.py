@@ -26,7 +26,22 @@ from hypomnema.errors import (
   TmxFieldValueError,
   TmxWarning,
 )
-from hypomnema.models import Bpt, Ept, Header, Hi, It, Map, Note, Ph, Property, Sub, TranslationUnitVariant, Ude, Ut
+from hypomnema.models import (
+  Bpt,
+  Ept,
+  Header,
+  Hi,
+  It,
+  Map,
+  Note,
+  Ph,
+  Property,
+  Sub,
+  TranslationUnit,
+  TranslationUnitVariant,
+  Ude,
+  Ut,
+)
 from hypomnema.validation import (
   validate_bpt,
   validate_ept,
@@ -37,6 +52,7 @@ from hypomnema.validation import (
   validate_ph,
   validate_property,
   validate_sub,
+  validate_translation_unit,
   validate_translation_unit_variant,
   validate_ude,
   validate_ut,
@@ -664,6 +680,7 @@ def test_content_tree_from_entry_boundary_validates_clean():
 def test_mutated_content_tree_still_validates_clean():
   tree, bpt, *_ = content_tree()
   tree.content.append(Bpt(i=7))
+  tree.content.append(Ept(i=7))
   bpt.content.append("appended")
   validate_translation_unit_variant(tree)
 
@@ -982,6 +999,7 @@ def test_deeper_than_the_bound_is_reported(height, leaf_errors):
     (validate_bpt, Bpt.model_construct, ("i",)),
     (validate_ept, Ept.model_construct, ("i",)),
     (validate_it, It.model_construct, ("pos",)),
+    (validate_translation_unit, TranslationUnit.model_construct, ("srclang", "variants")),
   ],
 )
 def test_missing_required_fields_are_reported(validate, empty, required, leaf_errors):
@@ -1003,23 +1021,32 @@ def test_missing_map_unicode_is_reported():
 # unit pass, so a variant pass gathers none even for legacy `lang`.
 
 
-def test_tuv_lang_gathers_no_advisory_in_this_pass():
+def test_tuv_lang_gathers_deprecation_advisory():
+  """The legacy-``lang`` advisory for the variant itself is gathered on
+  the variant pass now."""
   with pytest.raises(TmxErrorGroup) as excinfo:
     validate_translation_unit_variant(planted_tuv(lang="en", xml_lang=42))
-  assert excinfo.value.advisories == ()
+  assert len(excinfo.value.exceptions) == 1
+  advisories = excinfo.value.advisories
+  assert len(advisories) == 1
+  assert advisories[0].category is TmxDeprecationWarning
+  assert advisories[0].path == NodePath() / "lang"
 
 
-def test_ut_gathers_no_deprecation_advisory_in_this_pass():
+def test_ut_gathers_deprecation_advisory():
+  """The <ut> advisory rides on every pass that reaches one."""
   with pytest.raises(TmxErrorGroup) as excinfo:
     validate_ut(planted_ut(content=[42]))
-  assert excinfo.value.advisories == ()
+  assert len(excinfo.value.exceptions) == 1
+  advisories = excinfo.value.advisories
+  assert len(advisories) == 1
+  assert advisories[0].category is TmxDeprecationWarning
+  assert advisories[0].path == NodePath()
 
 
 @pytest.mark.parametrize(
   ("plant_item", "bad_path", "overrides"),
   [
-    (planted_bpt, NodePath() / "content" / 0 / "i", dict(i=-1)),
-    (planted_ept, NodePath() / "content" / 0 / "i", dict(i=-1)),
     (planted_it, NodePath() / "content" / 0 / "pos", dict(pos="middle")),
     (planted_ph, NodePath() / "content" / 0 / "assoc", dict(assoc="both")),
     (planted_hi, NodePath() / "content" / 0 / "content" / 0, dict(content=[42])),
@@ -1029,12 +1056,39 @@ def test_ut_gathers_no_deprecation_advisory_in_this_pass():
 def test_inline_nodes_in_content_are_field_validated(plant_item, bad_path, overrides, leaf_errors):
   """An inline node reached through a content list is field-validated,
   not just type-checked at the dispatch: one bad field inside it is
-  reported at the deep path."""
+  reported at the deep path. The pairing elements (bpt/ept) get their
+  own tests: a lone one also carries a pairing error."""
   with pytest.raises(TmxErrorGroup) as excinfo:
     validate_translation_unit_variant(planted_tuv(content=[plant_item(**overrides)]))
   errors = leaf_errors(excinfo.value)
   assert len(errors) == 1
   assert errors[0].path == bad_path
+
+
+def test_bpt_in_content_is_field_validated(leaf_errors):
+  """A lone <bpt> through a content list is field-validated, and its
+  pairing rule speaks too: no subsequent <ept> in the flow."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_bpt(type=42)]))
+  errors = leaf_errors(excinfo.value)
+  assert [error.path for error in errors] == [
+    NodePath() / "content" / 0 / "type",
+    NodePath() / "content" / 0,
+  ]
+  assert isinstance(errors[1], TmxContractError)
+
+
+def test_ept_in_content_is_field_validated(leaf_errors):
+  """A lone <ept> through a content list is field-validated, and its
+  pairing rule speaks too: no preceding <bpt> in the flow."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_ept(i=-1)]))
+  errors = leaf_errors(excinfo.value)
+  assert [error.path for error in errors] == [
+    NodePath() / "content" / 0 / "i",
+    NodePath() / "content" / 0,
+  ]
+  assert isinstance(errors[1], TmxContractError)
 
 
 def test_sub_reached_through_content_is_field_validated(leaf_errors):
@@ -1072,3 +1126,326 @@ def test_depth_bound_applies_to_node_items(leaf_errors):
   assert isinstance(errors[0], TmxContractError)
   assert errors[0].path == NodePath(("content", 0) * 64)
   assert errors[0].value is innermost
+
+
+# Internal matching: bpt/ept pairing, per flow (the <seg> scope).
+
+
+def test_pairing_matches_overlapping_ranges():
+  """The spec's internal matching is order-based, deliberately not stack
+  nesting: overlapping bpt/ept ranges are legal."""
+  validate_translation_unit_variant(
+    planted_tuv(
+      content=[
+        planted_bpt(i=1),
+        planted_bpt(i=2),
+        planted_ept(i=1),
+        planted_ept(i=2),
+      ]
+    )
+  )
+
+
+def test_hi_is_transparent_for_pairing():
+  """A <bpt> at flow level pairs with an <ept> inside a transparent
+  <hi>."""
+  validate_translation_unit_variant(planted_tuv(content=[planted_bpt(i=1), planted_hi(content=[planted_ept(i=1)])]))
+
+
+def test_sub_content_is_its_own_flow(leaf_errors):
+  """A <sub> is an embedded segment: its <ept> cannot pair with an
+  OPEN <bpt> of the enclosing flow (the scenario that would look clean
+  if flows were merged), and the enclosing <bpt> is left unmatched."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(
+      planted_tuv(
+        content=[
+          planted_bpt(i=1),
+          planted_ph(content=[planted_sub(content=[planted_ept(i=1)])]),
+        ]
+      )
+    )
+  errors = leaf_errors(excinfo.value)
+  assert [error.path for error in errors] == [
+    NodePath() / "content" / 1 / "content" / 0 / "content" / 0,
+    NodePath() / "content" / 0,
+  ]
+
+
+def test_duplicate_bpt_i_after_closure_is_reported(leaf_errors):
+  """Uniqueness is over all <bpt> of the flow, whether closed or not:
+  a later <bpt> reusing a closed i is still a duplicate. The duplicate
+  never opens (it was already reported), so no leftover error follows
+  it."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_bpt(i=1), planted_ept(i=1), planted_bpt(i=1)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 2
+
+
+def test_duplicate_bpt_i_is_reported(leaf_errors):
+  """<bpt> i must be unique within a flow."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_bpt(i=1), planted_bpt(i=1), planted_ept(i=1)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 1
+
+
+def test_bpt_without_subsequent_ept_is_reported(leaf_errors):
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_bpt(i=3)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 0
+
+
+def test_ept_without_preceding_bpt_is_reported(leaf_errors):
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[planted_ept(i=3)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 0
+
+
+def test_only_well_typed_bpt_ept_participate_in_pairing(leaf_errors):
+  """A <bpt> whose i is not an integer does not join the pairing, so it
+  gathers no leftover error on top of its type error."""
+  error = error_of(validate_translation_unit_variant, planted_tuv(content=[planted_bpt(i="x")]))
+  assert error.path == NodePath() / "content" / 0 / "i"
+
+
+# External matching: the cross-variant x advisory, riding on <tu>.
+
+
+def planted_tu(**overrides: object) -> TranslationUnit:
+  fields: dict[str, Any] = dict(srclang="en", variants=[planted_tuv()])
+  fields.update(overrides)
+  return TranslationUnit.model_construct(**fields)
+
+
+def test_tu_from_entry_boundary_validates_clean():
+  """The spec's own external-matching example: same x values across
+  variants, in a different order."""
+  validate_translation_unit(
+    TranslationUnit(
+      srclang="en",
+      variants=[
+        TranslationUnitVariant(
+          xml_lang="en",
+          content=[
+            "The ",
+            Bpt(i=1, x=1, content=["{\\b "]),
+            "black",
+            Ept(i=1, content=["}"]),
+            Bpt(i=2, x=2, content=["{\\i "]),
+            "cat",
+            Ept(i=2, content=["}"]),
+          ],
+        ),
+        TranslationUnitVariant(
+          xml_lang="fr",
+          content=[
+            "Le ",
+            Bpt(i=1, x=2, content=["{\\i "]),
+            "chat",
+            Ept(i=1, content=["}"]),
+            Bpt(i=2, x=1, content=["{\\b "]),
+            "noir",
+            Ept(i=2, content=["]"]),
+          ],
+        ),
+      ],
+    )
+  )
+
+
+def test_cross_variant_x_disagreement_gathers_advisory():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",  # one error so the advisory-bearing pass still raises
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(xml_lang="fr", content=[planted_bpt(i=1, x=2), planted_ept(i=1)]),
+        ],
+      )
+    )
+  assert len(excinfo.value.exceptions) == 1
+  advisories = excinfo.value.advisories
+  assert len(advisories) == 1
+  assert advisories[0].category is TmxWarning
+  assert advisories[0].path == NodePath() / "variants"
+
+
+def test_cross_variant_x_agreement_gathers_no_advisory():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(xml_lang="fr", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+        ],
+      )
+    )
+  assert excinfo.value.advisories == ()
+
+
+def test_variant_without_x_does_not_participate():
+  """A variant with no x-valued inline elements is not a disagreement."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(xml_lang="fr"),
+        ],
+      )
+    )
+  assert excinfo.value.advisories == ()
+
+
+def test_x_inside_sub_content_participates(leaf_errors):
+  """External matching spans embedded <sub> segments: an x harvested
+  from inside one still compares."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(
+            xml_lang="fr",
+            content=[
+              planted_bpt(i=2, content=[planted_sub(content=[planted_hi(x=2)])]),
+              planted_ept(i=2),
+            ],
+          ),
+        ],
+      )
+    )
+  assert [error.path for error in leaf_errors(excinfo.value)] == [NodePath() / "tuid"]
+  assert [advisory.category for advisory in excinfo.value.advisories] == [TmxWarning]
+
+
+def test_ut_x_is_excluded_from_external_matching():
+  """<ut> carries an x attribute, but the spec matches bpt/it/ph/hi
+  only: a lone <ut> x is not a disagreement. (The <ut>'s own
+  deprecation advisory still fires, and is the only one.)"""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(xml_lang="fr", content=[planted_ut(x=5)]),
+        ],
+      )
+    )
+  assert [(advisory.category, advisory.path) for advisory in excinfo.value.advisories] == [
+    (TmxDeprecationWarning, NodePath() / "variants" / 1 / "content" / 0)
+  ]
+
+
+def test_garbage_x_is_excluded_from_external_matching():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(
+        tuid="a b",
+        variants=[
+          planted_tuv(xml_lang="en", content=[planted_bpt(i=1, x=1), planted_ept(i=1)]),
+          planted_tuv(xml_lang="fr", content=[planted_bpt(i=2, x="junk"), planted_ept(i=2)]),
+        ],
+      )
+    )
+  assert excinfo.value.advisories == ()
+
+
+# The <tu> node: fields, metadata, variants, and its wiring.
+
+
+def test_tu_from_entry_boundary_minimal_validates_clean():
+  validate_translation_unit(TranslationUnit(srclang="en", variants=[TranslationUnitVariant(xml_lang="en")]))
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("tuid", "a b", TmxFieldValueError),
+    ("tuid", 42, TmxFieldTypeError),
+    ("o_encoding", 42, TmxFieldTypeError),
+    ("datatype", 42, TmxFieldTypeError),
+    ("usagecount", -1, TmxFieldValueError),
+    ("lastusagedate", 42, TmxFieldTypeError),
+    ("creationtool", 42, TmxFieldTypeError),
+    ("creationtoolversion", 42, TmxFieldTypeError),
+    ("creationdate", 42, TmxFieldTypeError),
+    ("creationid", 42, TmxFieldTypeError),
+    ("changedate", 42, TmxFieldTypeError),
+    ("segtype", "word", TmxFieldValueError),
+    ("changeid", 42, TmxFieldTypeError),
+    ("o_tmf", 42, TmxFieldTypeError),
+    ("srclang", 42, TmxFieldTypeError),
+    ("srclang", "not a tag!", TmxFieldValueError),
+    ("srclang", "*ALL*", TmxFieldValueError),
+    ("metadata", "not a list", TmxFieldTypeError),
+    ("variants", "not a list", TmxFieldTypeError),
+    ("variants", 42, TmxFieldTypeError),
+  ],
+)
+def test_tu_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_translation_unit, planted_tu(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+def test_tu_variants_minimum_is_reported(leaf_errors):
+  error = error_of(validate_translation_unit, planted_tu(variants=[]))
+  assert isinstance(error, TmxContractError)
+  assert error.path == NodePath() / "variants"
+
+
+def test_tu_metadata_rejects_ude(leaf_errors):
+  """A <tu>'s metadata is <note>/<prop> only, like a <tuv>'s."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(planted_tu(metadata=[planted_ude()]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxFieldTypeError)
+  assert errors[0].path == NodePath() / "metadata" / 0
+  assert errors[0].expected == (Note, Property)
+
+
+def test_tu_metadata_lang_gathers_advisory():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(planted_tu(tuid="a b", metadata=[planted_note(lang="en")]))
+  assert len(excinfo.value.exceptions) == 1
+  advisories = excinfo.value.advisories
+  assert [advisory.path for advisory in advisories] == [NodePath() / "metadata" / 0 / "lang"]
+
+
+def test_tu_validates_variants(leaf_errors):
+  error = error_of(validate_translation_unit, planted_tu(variants=[planted_tuv(xml_lang=42)]))
+  assert isinstance(error, TmxFieldTypeError)
+  assert error.path == NodePath() / "variants" / 0 / "xml_lang"
+
+
+def test_ut_advisory_rides_on_every_pass_reaching_one(leaf_errors):
+  """A <ut> deep in a variant's content gathers the deprecation advisory
+  through the <tu> pass as well. The advisory is invisible on a quiet
+  pass by design, so a deliberate error is planted to surface it."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit(
+      planted_tu(tuid="a b", variants=[planted_tuv(content=[planted_hi(content=[planted_ut()])])])
+    )
+  assert [error.path for error in leaf_errors(excinfo.value)] == [NodePath() / "tuid"]
+  advisories = excinfo.value.advisories
+  assert [advisory.category for advisory in advisories] == [TmxDeprecationWarning]
+  assert [advisory.path for advisory in advisories] == [NodePath() / "variants" / 0 / "content" / 0 / "content" / 0]
