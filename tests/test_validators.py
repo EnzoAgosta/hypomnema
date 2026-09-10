@@ -8,50 +8,41 @@ boundaries from datetime.fromisoformat's measured behavior on Python 3.14
 sub-microsecond truncation, offsets with seconds), not from a re-reading of
 ISO 8601: the policy is deliberately bounded to that parser.
 """
-
 import warnings
 from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
+from hypomnema.coercion import format_datetime, format_hex_integer, parse_datetime, parse_hex_integer, parse_integer
 from hypomnema.errors import TmxWarning
-from hypomnema.validators import (
-  TMXAsciiText,
-  TMXAssoc,
-  TMXDatetime,
-  TMXEncodingName,
-  TMXHexInteger,
-  TMXIdentifier,
-  TMXInteger,
-  TMXLanguageTag,
-  TMXPos,
-  TMXSegType,
-  TMXSourceLanguage,
-  TMXUnicodeCodePoint,
-  format_datetime,
-  format_hex_integer,
-  format_integer,
-  parse_datetime,
-  parse_hex_integer,
-  parse_integer,
+from hypomnema.models import (
+  AsciiText,
+  Datetime,
+  EncodingName,
+  HexInteger,
+  Integer,
+  LanguageTag,
+  SegType,
+  Tuid,
+  UnicodeCodePoint,
 )
 
 STRICT = ConfigDict(strict=True, validation_error_cause=True)
 
-INTEGER = TypeAdapter(TMXInteger, config=STRICT)
-DATETIME = TypeAdapter(TMXDatetime, config=STRICT)
-HEX_INTEGER = TypeAdapter(TMXHexInteger, config=STRICT)
-CODE_POINT = TypeAdapter(TMXUnicodeCodePoint, config=STRICT)
-IDENTIFIER = TypeAdapter(TMXIdentifier, config=STRICT)
-LANGUAGE_TAG = TypeAdapter(TMXLanguageTag, config=STRICT)
-SOURCE_LANGUAGE = TypeAdapter(TMXSourceLanguage, config=STRICT)
-ENCODING = TypeAdapter(TMXEncodingName, config=STRICT)
-SEG_TYPE = TypeAdapter(TMXSegType, config=STRICT)
-POS = TypeAdapter(TMXPos, config=STRICT)
-ASSOC = TypeAdapter(TMXAssoc, config=STRICT)
-ASCII_TEXT = TypeAdapter(TMXAsciiText, config=STRICT)
+INTEGER = TypeAdapter(Integer, config=STRICT)
+DATETIME = TypeAdapter(Datetime, config=STRICT)
+HEX_INTEGER = TypeAdapter(HexInteger, config=STRICT)
+CODE_POINT = TypeAdapter(UnicodeCodePoint, config=STRICT)
+IDENTIFIER = TypeAdapter(Tuid, config=STRICT)
+LANGUAGE_TAG = TypeAdapter(LanguageTag, config=STRICT)
+SOURCE_LANGUAGE = TypeAdapter(LanguageTag | Literal["*all*"], config=STRICT)
+ENCODING = TypeAdapter(EncodingName, config=STRICT)
+SEG_TYPE = TypeAdapter(SegType, config=STRICT)
+POS = TypeAdapter(Literal["begin", "end"], config=STRICT)
+ASSOC = TypeAdapter(Literal["p", "b", "f"], config=STRICT)
+ASCII_TEXT = TypeAdapter(AsciiText, config=STRICT)
 
 
 ACCEPTED_INTEGERS = (
@@ -111,7 +102,7 @@ def test_parse_integer_rejects_everything_outside_the_domain(value: object) -> N
 
 def test_format_integer_renders_canonical_decimal_digits() -> None:
   # Leading zeros are accepted by the parser but not retained by the format.
-  assert format_integer(parse_integer("0042")) == "42"
+  assert str(parse_integer("0042")) == "42"
 
 
 ACCEPTED_HEX_INTEGERS = (
@@ -473,9 +464,9 @@ def as_runtime_input(value: object) -> Any:
 class ValueProbe(BaseModel):
   model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validation_error_cause=True)
 
-  integer: TMXInteger
-  code_point: TMXUnicodeCodePoint | None = None
-  creation_date: TMXDatetime | None = None
+  integer: Integer
+  code_point: UnicodeCodePoint | None = None
+  creation_date: Datetime | None = None
 
 
 BAD_MODEL_INPUTS = (

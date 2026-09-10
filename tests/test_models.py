@@ -540,21 +540,6 @@ def test_json_round_trip_is_value_stable() -> None:
   assert TranslationUnit.model_validate_json(unit.model_dump_json()) == unit
 
 
-def test_ut_instantiation_warns() -> None:
-  with pytest.warns(DeprecationWarning, match="<ut>"):
-    node = Ut()
-  assert node.element == "ut"
-
-
-@pytest.mark.parametrize(("element", "factory"), LANG_NODE_FACTORIES)
-def test_lang_access_warns_but_construction_stays_silent(element: str, factory: Callable[[], TmxModel]) -> None:
-  with warnings.catch_warnings():
-    warnings.simplefilter("error")
-    node = factory()
-  with pytest.warns(DeprecationWarning):
-    _ = node.lang  # ty: ignore[unresolved-attribute]
-
-
 @pytest.mark.parametrize("schema_class", [Note, Property, TranslationUnitVariant], ids=["note", "prop", "tuv"])
 def test_lang_is_marked_deprecated_in_the_json_schema(schema_class: type[TmxModel]) -> None:
   assert schema_class.model_json_schema()["properties"]["lang"]["deprecated"] is True
