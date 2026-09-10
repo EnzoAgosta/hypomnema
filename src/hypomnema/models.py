@@ -49,7 +49,15 @@ class Note(TmxModel):
   element: Annotated[Literal["note"], Field(default="note", init=False, repr=False, frozen=True)]
   o_encoding: EncodingName | None = None
   xml_lang: LanguageTag | None = None
-  lang: Annotated[LanguageTag | None, Field(json_schema_extra={"deprecated": True, "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang"})] = None
+  lang: Annotated[
+    LanguageTag | None,
+    Field(
+      json_schema_extra={
+        "deprecated": True,
+        "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang",
+      }
+    ),
+  ] = None
   text: str | None = None
 
 
@@ -58,7 +66,15 @@ class Property(TmxModel):
   type: str
   xml_lang: LanguageTag | None = None
   o_encoding: EncodingName | None = None
-  lang: Annotated[LanguageTag | None, Field(json_schema_extra={"deprecated": True, "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang"})] = None
+  lang: Annotated[
+    LanguageTag | None,
+    Field(
+      json_schema_extra={
+        "deprecated": True,
+        "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang",
+      }
+    ),
+  ] = None
   text: str | None = None
 
 
@@ -164,7 +180,15 @@ class TranslationUnitVariant(TmxModel):
   changedate: Datetime | None = None
   o_tmf: str | None = None
   changeid: str | None = None
-  lang: Annotated[LanguageTag | None, Field(json_schema_extra={"deprecated": True, "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang"})] = None
+  lang: Annotated[
+    LanguageTag | None,
+    Field(
+      json_schema_extra={
+        "deprecated": True,
+        "description": "the lang attribute is deprecated since TMX 1.3 in favor of xml_lang",
+      }
+    ),
+  ] = None
   metadata: Annotated[list[Note | Property], Field(default_factory=list)]
   content: Annotated[list[InlineNodeOrStr], Field(default_factory=list)]
 
