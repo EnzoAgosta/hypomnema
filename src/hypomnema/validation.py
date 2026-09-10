@@ -4,7 +4,7 @@ strict output).
 The models accept nearly anything at the entry boundary and coerce it.
 These validators are the other half of the contract: they check the
 *runtime* type and value of every single field of a node and of everything
-reachable from it (metadata tuples, nested nodes), so a node that passes
+reachable from it (metadata lists, nested nodes), so a node that passes
 validation is safe to output. Nothing here mutates or coerces: a node
 either passes as a whole, or fails as a whole.
 
@@ -219,7 +219,7 @@ def _check_encoding_name(session: _Session, path: NodePath, value: object) -> No
     )
 
 
-def _check_tuple(
+def _check_list(
   session: _Session,
   path: NodePath,
   value: object,
@@ -227,12 +227,12 @@ def _check_tuple(
   *,
   minimum: int = 0,
 ) -> None:
-  """A tuple field: the container itself, its length, then each item.
+  """A list field: the container itself, its length, then each item.
   Item well-formedness is the item validator's business -- each one
   starts with its own instance check and reports a foreign item as
   ``TmxFieldTypeError`` without descending into it."""
-  if not isinstance(value, tuple):
-    session.error(TmxFieldTypeError(path, value, tuple))
+  if not isinstance(value, list):
+    session.error(TmxFieldTypeError(path, value, list))
     return
   if len(value) < minimum:
     session.error(TmxContractError(path, value, f"expected at least {minimum} item(s), got {len(value)}"))
@@ -262,7 +262,7 @@ def _validate_header(header: object, session: _Session, path: NodePath) -> None:
   _check_optional(session, path / "creationid", header.creationid, _check_str)
   _check_optional(session, path / "changedate", header.changedate, _check_datetime)
   _check_optional(session, path / "changeid", header.changeid, _check_str)
-  _check_tuple(session, path / "metadata", header.metadata, _validate_metadata_node)
+  _check_list(session, path / "metadata", header.metadata, _validate_metadata_node)
 
 
 def _validate_metadata_node(node: object, session: _Session, path: NodePath) -> None:
@@ -320,11 +320,11 @@ def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
   _check_element(session, path, ude.element, "ude")
   _check_str(session, path / "name", ude.name)
   _check_optional(session, path / "base", ude.base, _check_encoding_name)
-  _check_tuple(session, path / "maps", ude.maps, _validate_map, minimum=1)
+  _check_list(session, path / "maps", ude.maps, _validate_map, minimum=1)
   # Cross-field rules consult only well-typed values, and skip a maps
-  # field that is not even a tuple: garbage in speaks through its type
+  # field that is not even a list: garbage in speaks through its type
   # errors, the contract rules stay quiet.
-  maps = ude.maps if isinstance(ude.maps, tuple) else ()
+  maps = ude.maps if isinstance(ude.maps, list) else ()
   if not _is_string(ude.base):
     for index, node in enumerate(maps):
       if isinstance(node, Map) and _is_integer(node.code):

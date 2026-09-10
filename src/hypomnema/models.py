@@ -82,14 +82,14 @@ class Ude(TmxModel):
   element: Annotated[Literal["ude"], Field(default="ude", init=False, repr=False, frozen=True)]
   name: str
   base: EncodingName | None = None
-  maps: Annotated[tuple[Map, ...], Field(min_length=1)]
+  maps: Annotated[list[Map], Field(min_length=1)]
 
 
 class Sub(TmxModel):
   element: Annotated[Literal["sub"], Field(default="sub", init=False, repr=False, frozen=True)]
   datatype: str | None = None
   type: str | None = None
-  content: Annotated[tuple[InlineNodeOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[InlineNodeOrStr], Field(default_factory=list)]
 
 
 class Bpt(TmxModel):
@@ -97,13 +97,13 @@ class Bpt(TmxModel):
   i: Integer
   x: Integer | None = None
   type: str | None = None
-  content: Annotated[tuple[SubOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
 
 class Ept(TmxModel):
   element: Annotated[Literal["ept"], Field(default="ept", init=False, repr=False, frozen=True)]
   i: Integer
-  content: Annotated[tuple[SubOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
 
 class It(TmxModel):
@@ -111,7 +111,7 @@ class It(TmxModel):
   pos: Literal["begin", "end"]
   x: Integer | None = None
   type: str | None = None
-  content: Annotated[tuple[SubOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
 
 class Ph(TmxModel):
@@ -119,14 +119,14 @@ class Ph(TmxModel):
   x: Integer | None = None
   assoc: Literal["p", "f", "b"] | None = None
   type: str | None = None
-  content: Annotated[tuple[SubOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
 
 class Hi(TmxModel):
   element: Annotated[Literal["hi"], Field(default="hi", init=False, repr=False, frozen=True)]
   x: Integer | None = None
   type: str | None = None
-  content: Annotated[tuple[InlineNodeOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[InlineNodeOrStr], Field(default_factory=list)]
 
 
 @deprecated("the <ut> element is deprecated, use <bpt>, <ept>, <it>, or <ph> instead")
@@ -139,7 +139,7 @@ class Ut(TmxModel):
   )
   element: Annotated[Literal["ut"], Field(default="ut", init=False, repr=False, frozen=True)]
   x: Integer | None = None
-  content: Annotated[tuple[SubOrStr, ...], Field(default_factory=tuple)]
+  content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
 
 class Header(TmxModel):
@@ -156,7 +156,7 @@ class Header(TmxModel):
   creationid: str | None = None
   changedate: Datetime | None = None
   changeid: str | None = None
-  metadata: Annotated[tuple[Note | Property | Ude, ...], Field(default_factory=tuple)]
+  metadata: Annotated[list[Note | Property | Ude], Field(default_factory=list)]
 
 
 class TranslationUnitVariant(TmxModel):
@@ -175,8 +175,8 @@ class TranslationUnitVariant(TmxModel):
   changeid: str | None = None
   # Deprecated by TMX 1.3: use xml_lang.
   lang: Annotated[LanguageTag | None, Field(deprecated=True)] = None
-  metadata: Annotated[tuple[Note | Property, ...], Field(default_factory=tuple)]
-  content: Annotated[tuple[InlineNodeOrStr, ...], Field(default_factory=tuple)]
+  metadata: Annotated[list[Note | Property], Field(default_factory=list)]
+  content: Annotated[list[InlineNodeOrStr], Field(default_factory=list)]
 
 
 class TranslationUnit(TmxModel):
@@ -195,5 +195,5 @@ class TranslationUnit(TmxModel):
   changeid: str | None = None
   o_tmf: str | None = None
   srclang: Annotated[LanguageTag | Literal["*all*"], BeforeValidator(str.lower)]
-  metadata: Annotated[tuple[Note | Property, ...], Field(default_factory=tuple)]
-  variants: Annotated[tuple[TranslationUnitVariant, ...], Field(min_length=1)]
+  metadata: Annotated[list[Note | Property], Field(default_factory=list)]
+  variants: Annotated[list[TranslationUnitVariant], Field(min_length=1)]
