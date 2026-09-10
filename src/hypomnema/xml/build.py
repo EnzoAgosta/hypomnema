@@ -27,7 +27,7 @@ from ..models import (
 from ..validators import format_datetime, format_hex_integer, format_integer
 from ..validation import validate
 from .content import write_mixed_content, write_text
-from .names import XML_LANG
+from .names import NON_ATTRIBUTE_FIELDS, xml_attribute_name
 
 
 def to_element(model: TmxNode) -> etree._Element:
@@ -76,7 +76,7 @@ def _write_attributes(element: etree._Element, model: TmxModel) -> None:
   """Walk native fields, excluding the discriminator and explicit child slots."""
   field_value: object
   for field_name, field_value in model:
-    if field_name in {"element", "metadata", "content", "text", "maps", "variants"} or field_value is None:
+    if field_name in NON_ATTRIBUTE_FIELDS or field_value is None:
       continue
 
     match field_value:
@@ -92,7 +92,7 @@ def _write_attributes(element: etree._Element, model: TmxModel) -> None:
       case _:
         raise TypeError(f"unsupported attribute value for {type(model).__name__}.{field_name}")
 
-    xml_name = XML_LANG if field_name == "xml_lang" else field_name.replace("_", "-")
+    xml_name = xml_attribute_name(field_name)
     try:
       element.set(xml_name, formatted)
     except ValueError as error:
