@@ -78,8 +78,8 @@ def test_map_with_empty_content_validates(xml: str) -> None:
 
 
 def test_map_inside_its_ude_context_validates() -> None:
-  # The base-required-with-code rule belongs to explicit domain validation,
-  # not the DTD; that broader check has not been implemented yet.
+  # The base-required-with-code rule belongs to explicit domain validation
+  # (validate_ude, tested in test_validation.py), not the DTD.
   validate_fragment(etree.fromstring("<ude name='custom'><map unicode='#x41' code='#x0041'/></ude>"))
 
 

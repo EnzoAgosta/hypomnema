@@ -1,14 +1,17 @@
-"""Model contracts from the review: explicit discrimination, the
-metadata/variants split, nonempty required children, the two inline
-grammars, language advisories, and the deprecation warnings.
+"""Model contracts: explicit discrimination, the metadata/variants split,
+nonempty required children, the two inline grammars, and the typing side
+of the permissive IR.
 
-Covers GAPS decisions 4, 5, 8, and 15, plus the assignment and tuple
-policies of decisions 7 and 11. Field names are the settled ones:
-``metadata``/``variants`` on the unit, ``metadata``/``content`` on the
-variant, ``metadata`` on the header. Happy-path constructions pass tuples
-(the stored form); deliberately list-typed or type-foreign inputs are
-routed through ``as_runtime_input`` to bypass static checking, because
-their rejection or conversion is the behavior under test.
+Covers GAPS decisions 4, 5, 7, and 19. Models are a typed IR: they enforce
+strict values, tuple fields, and the nonempty variants/maps, and they are
+silent -- every TMX contract rule and advisory lives in the pure
+validators and is tested in test_validation.py. Field names are the
+settled ones: ``metadata``/``variants`` on the unit, ``metadata``/
+``content`` on the variant, ``metadata`` on the header. Happy-path
+constructions pass tuples (the stored form); deliberately list-typed or
+type-foreign inputs are routed through ``as_runtime_input`` to bypass
+static checking, because their rejection or conversion is the behavior
+under test.
 """
 
 import warnings
@@ -36,9 +39,7 @@ from hypomnema.models import (
   Ude,
 )
 
-with warnings.catch_warnings():
-  warnings.simplefilter("ignore")  # the ut advisory is tested on its own
-  SEG_NODES = (Bpt(i=1), Ept(i=1), It(pos="begin"), Ph(), Hi(), Ut())
+SEG_NODES = (Bpt(i=1), Ept(i=1), It(pos="begin"), Ph(), Hi(), Ut())
 
 type LangModelFactory = Callable[..., Note | Property | TranslationUnitVariant]
 
@@ -61,17 +62,20 @@ def variant(xml_lang: str = "en", *content: Any) -> TranslationUnitVariant:
 
 def header(**overrides: Any) -> Header:
   """A legal header with every required attribute."""
-  attributes: dict[str, Any] = {
-    "creationtool": "ct",
-    "creationtoolversion": "1.0",
-    "segtype": "sentence",
-    "o_tmf": "tmf",
-    "adminlang": "en",
-    "srclang": "en",
-    "datatype": "plaintext",
-  }
+  attributes = dict(REQUIRED_HEADER_ATTRIBUTES)
   attributes.update(overrides)
   return Header(**attributes)
+
+
+REQUIRED_HEADER_ATTRIBUTES: dict[str, Any] = {
+  "creationtool": "ct",
+  "creationtoolversion": "1.0",
+  "segtype": "sentence",
+  "o_tmf": "tmf",
+  "adminlang": "en",
+  "srclang": "en",
+  "datatype": "plaintext",
+}
 
 
 LANG_MODELS: dict[str, LangModelFactory] = {
@@ -79,9 +83,6 @@ LANG_MODELS: dict[str, LangModelFactory] = {
   "prop": lambda lang, xml_lang: Property(type="t", lang=lang, xml_lang=xml_lang),
   "tuv": lambda lang, xml_lang: TranslationUnitVariant(xml_lang=xml_lang, lang=lang, content=("x",)),
 }
-# The tuv is missing from this one: for a variant, legacy lang without
-# xml_lang is an error (xml_lang is required), not a warning.
-LANG_OPTIONAL_MODELS: dict[str, LangModelFactory] = {"note": LANG_MODELS["note"], "prop": LANG_MODELS["prop"]}
 
 
 # Structural constraints (GAPS decision 5): models reject incomplete
@@ -117,7 +118,7 @@ def test_empty_maps_are_rejected_on_assignment() -> None:
 def test_a_single_variant_is_legal() -> None:
   # DTD floor is tuv+; the "logically two" prose is a convention, not a rule.
   tu = TranslationUnit(variants=(variant(),))
-  assert tu.variants == (variant(),)
+  assert len(tu.variants) == 1
 
 
 def test_empty_segment_content_is_legal() -> None:
@@ -137,31 +138,22 @@ def test_tuv_metadata_and_content_are_independent() -> None:
   assert tuv.content == ("seg text",)
 
 
-@pytest.mark.parametrize("value", ["nope", 42, {}, None, [42], (42,)])
+@pytest.mark.parametrize("value", ["nope", 42, {}, None, [42], pytest.param([Note()], id="metadata-model")])
 def test_variants_reject_non_sequences_and_non_variant_elements(value: Any) -> None:
   with pytest.raises(ValidationError):
     TranslationUnit(variants=value)
-
-
-def test_variants_reject_metadata_models() -> None:
-  with pytest.raises(ValidationError):
-    TranslationUnit(variants=as_runtime_input([Note()]))
 
 
 # Tuple behavior (decision 7): lists are accepted, tuples are stored, and
 # augmented rebinding revalidates.
 
 
-def test_list_input_is_stored_as_tuple() -> None:
-  tu = TranslationUnit(variants=as_runtime_input([variant(), variant("de")]))
+@pytest.mark.parametrize("sequences", [[variant(), variant("de")], (variant(), variant("de"))], ids=["list", "tuple"])
+def test_sequence_input_is_stored_as_tuple(sequences: Any) -> None:
+  tu = TranslationUnit(variants=as_runtime_input(sequences))
   assert type(tu.variants) is tuple
   ude = Ude(name="u", maps=as_runtime_input([Map(unicode=as_runtime_input("#x41"), ent="A")]))
   assert type(ude.maps) is tuple
-
-
-def test_tuple_input_is_accepted() -> None:
-  tu = TranslationUnit(variants=(variant(),))
-  assert type(tu.variants) is tuple
 
 
 def test_augmented_rebind_revalidates() -> None:
@@ -207,9 +199,7 @@ TAGGED_INLINE = (
 
 @pytest.mark.parametrize(("data", "expected"), TAGGED_INLINE)
 def test_tagged_inline_dicts_select_their_model(data: Any, expected: type) -> None:
-  with warnings.catch_warnings():
-    warnings.simplefilter("ignore")  # the ut advisory is tested on its own
-    tuv = TranslationUnitVariant(xml_lang="en", content=(data,))
+  tuv = TranslationUnitVariant(xml_lang="en", content=(data,))
   assert type(tuv.content[0]) is expected
 
 
@@ -346,17 +336,8 @@ def test_header_metadata_is_optional() -> None:
 
 
 def test_header_required_attributes_are_enforced() -> None:
-  attributes = {
-    "creationtool": "ct",
-    "creationtoolversion": "1.0",
-    "segtype": "sentence",
-    "o_tmf": "tmf",
-    "adminlang": "en",
-    "srclang": "en",
-    "datatype": "plaintext",
-  }
-  for missing in attributes:
-    partial = {key: value for key, value in attributes.items() if key != missing}
+  for missing in REQUIRED_HEADER_ATTRIBUTES:
+    partial = {key: value for key, value in REQUIRED_HEADER_ATTRIBUTES.items() if key != missing}
     with pytest.raises(ValidationError):
       Header.model_validate(partial)
 

@@ -65,7 +65,9 @@ def as_runtime_input(value: object) -> Any:
 
 
 with warnings.catch_warnings():
-  warnings.filterwarnings("ignore", category=TmxWarning)  # ut deprecation and lang advisories while building the table
+  warnings.filterwarnings(
+    "ignore", category=TmxWarning
+  )  # the unknown-encoding advisory for the Alpha/Beta/Epsilon spellings
 
   # All fourteen node types, attributes with distinct values, datetimes in
   # native form, hex Map values, hyphen and xml:lang names.

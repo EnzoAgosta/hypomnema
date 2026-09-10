@@ -43,7 +43,7 @@ OFFSET_PLUS_0230 = timezone(timedelta(hours=2, minutes=30))
 with warnings.catch_warnings():
   warnings.filterwarnings(
     "ignore", category=TmxWarning
-  )  # ut deprecation and lang advisories while building expectations
+  )  # the unknown-encoding advisory for the Alpha/Beta/Epsilon spellings
 
   HAPPY_PATH = [
     (
@@ -369,18 +369,12 @@ def test_invalid_value_is_rejected_with_pydantic_cause(markup: str, match: str) 
   assert isinstance(excinfo.value.__cause__, ValidationError)
 
 
-@pytest.mark.parametrize(
-  ["markup", "tag", "line"],
-  [
-    # The DTD rejects this fragment first, so the wrapper reports <tu> at
-    # line 1 while the lxml cause still points at the offending line 3.
-    ('<bpt i="1x"/>', "bpt", "line 1"),
-    ('<tu>\n  <tuv xml:lang="en"><seg/></tuv>\n  <tuv><seg/></tuv>\n</tu>', "tu", "line 3"),
-  ],
-  ids=["single-line", "multiline-points-at-offender"],
-)
-def test_error_context_names_element_and_line(markup: str, tag: str, line: str) -> None:
-  with pytest.raises(TmxSpecError, match=f"<{tag}>.*{line}"):
+def test_error_context_names_element_and_line() -> None:
+  # The DTD rejects the tuv without xml:lang, so the wrapper reports the
+  # <tu> while the lxml cause still points at the offending line 3; the
+  # nested value-error case below covers projection's own checks.
+  markup = '<tu>\n  <tuv xml:lang="en"><seg/></tuv>\n  <tuv><seg/></tuv>\n</tu>'
+  with pytest.raises(TmxSpecError, match="<tu>.*line 3"):
     from_element(etree.fromstring(markup))
 
 
@@ -459,8 +453,9 @@ def test_map_without_any_target_warns() -> None:
 def test_pairing_contract_is_enforced_on_read(markup: str) -> None:
   # The boundary validation pass applies the prose rules to the projected
   # model, not just the DTD and typing: unmatched bpt, mismatched pair,
-  # duplicate ept i, and ept before bpt all fail on read.
-  with pytest.raises(TmxSpecError):
+  # duplicate ept i, and ept before bpt all fail on read. Matching the
+  # pairing marker proves the failure came from that pass.
+  with pytest.raises(TmxSpecError, match="inline_tag_pairing"):
     from_element(etree.fromstring(markup))
 
 

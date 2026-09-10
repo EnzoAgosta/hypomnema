@@ -88,15 +88,10 @@ def test_rfc_examples_are_accepted(tag: str) -> None:
 
 
 @pytest.mark.parametrize("tag", IRREGULAR_TAGS + REGULAR_TAGS)
-@pytest.mark.parametrize("case", ["lower", "upper", "swapcase"])
-def test_grandfathered_tags_are_case_insensitive(tag: str, case: str) -> None:
-  match case:
-    case "lower":
-      spelling = tag.lower()
-    case "upper":
-      spelling = tag.upper()
-    case _:
-      spelling = tag.swapcase()
+def test_grandfathered_tags_are_case_insensitive(tag: str) -> None:
+  # Comparison runs on lowercased input, so a per-character inversion
+  # (covering both case directions) is accepted, spelling preserved.
+  spelling = tag.swapcase()
   assert is_well_formed_language_tag(spelling)
   assert validate_language_tag_is_well_formed(spelling) == spelling
 

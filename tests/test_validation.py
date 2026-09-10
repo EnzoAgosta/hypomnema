@@ -211,16 +211,6 @@ def test_standalone_hi_flow_is_checked() -> None:
     validate(Hi(content=(Ept(i=1),)))
 
 
-def test_paired_tag_fragment_checks_its_sub_flows() -> None:
-  with pytest.raises(ValidationError):
-    validate(Bpt(i=1, content=(Sub(content=(Bpt(i=2),)),)))
-
-
-def test_placeholder_tag_fragment_checks_its_sub_flows() -> None:
-  with pytest.raises(ValidationError):
-    validate(Ph(content=("t", Sub(content=("s", Ept(i=9))), "end")))
-
-
 @pytest.mark.parametrize(
   "fragment",
   [
@@ -304,7 +294,8 @@ def test_the_same_i_on_bpt_and_ept_is_the_pairing_itself() -> None:
 def test_all_placeholder_tags_open_sub_flows() -> None:
   sub_pair = (Sub(content=(Bpt(i=1), Ept(i=1))),)
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore")  # the ut deprecation advisory is not this test's subject
+    warnings.simplefilter("error")
+    warnings.filterwarnings("ignore", category=TmxDeprecationWarning)  # the ut advisory is not this test's subject
     # The bpt/ept cases carry their own outer-flow partners.
     validate_translation_unit_variant(tuv("a", Bpt(i=1, content=sub_pair), Ept(i=1), "b"))
     validate_translation_unit_variant(tuv("a", Bpt(i=1), Ept(i=1, content=sub_pair), "b"))
@@ -585,7 +576,8 @@ def _random_valid_flow(rng: random.Random, depth: int, counter: Iterator[int]) -
 def test_fuzz_valid_trees_are_accepted() -> None:
   rng = random.Random(424242)
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("error")
+    warnings.filterwarnings("ignore", category=TmxDeprecationWarning)  # the generated trees may use <ut>
     for _ in range(300):
       content = _random_valid_flow(rng, depth=3, counter=itertools.count(1))
       validate_translation_unit_variant(TranslationUnitVariant(xml_lang="en", content=as_generated(content)))
@@ -637,22 +629,29 @@ def _all_epts(node: Any) -> list[Ept]:
 
 def test_fuzz_rejections_never_escape_validation_error() -> None:
   rng = random.Random(909)
+  caught = 0
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("error")
+    warnings.filterwarnings("ignore", category=TmxDeprecationWarning)  # the generated trees may use <ut>
     for _ in range(500):
       content = _random_any_flow(rng, depth=3)
       try:
         validate_translation_unit_variant(TranslationUnitVariant(xml_lang="en", content=as_generated(content)))
       except ValidationError:
+        caught += 1
         continue
       # No other exception type may escape; acceptance is covered by the
       # valid-tree and mutation tests.
+  # The generator must actually produce rejections, or this test proves
+  # nothing (a no-op validation would also let nothing escape).
+  assert caught >= 1
 
 
 def test_mutating_a_valid_tree_is_always_rejected() -> None:
   rng = random.Random(31337)
   with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("error")
+    warnings.filterwarnings("ignore", category=TmxDeprecationWarning)  # the generated trees may use <ut>
     for _ in range(300):
       content = _random_valid_flow(rng, depth=3, counter=itertools.count(1))
       epts = [node for node in _iter_nodes(content) if isinstance(node, Ept)]

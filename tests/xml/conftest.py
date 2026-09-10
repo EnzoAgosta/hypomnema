@@ -55,11 +55,7 @@ def minimal_header() -> Header:
   ]
 )
 def minimal_node(request: pytest.FixtureRequest, minimal_header: Header) -> TmxNode:
-  """A fresh node with required attributes/children only, and no text.
-
-  Suppress advisories only while constructing Ut and target-less Map nodes;
-  the test body keeps its own warning policy.
-  """
+  """A fresh node with required attributes/children only, and no text."""
   model_type: type[TmxNode] = request.param
   factories: dict[type[TmxNode], Callable[[], TmxNode]] = {
     Note: Note,
