@@ -249,9 +249,7 @@ def parse_hex_integer(value: object) -> int:
     if not value.startswith("#x"):
       raise ValueError(f"expected a '#x' prefix, e.g. '#xF8FF', got {value!r}")
     digits = value[2:]
-    if not digits:
-      raise ValueError(f"expected hexadecimal digits after '#x', e.g. '#xF8FF', got {value!r}")
-    if any(digit not in _HEX_DIGITS for digit in digits):
+    if not digits or any(digit not in _HEX_DIGITS for digit in digits):
       raise ValueError(f"expected hexadecimal digits after '#x', e.g. '#xF8FF', got {value!r}")
     return int(digits, 16)
   raise ValueError(f"expected an unsigned integer or a '#x'-prefixed string, got {type(value).__name__!r}")

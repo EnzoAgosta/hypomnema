@@ -42,7 +42,7 @@ from warnings import warn
 
 from pydantic import ValidationError
 from pydantic_core import InitErrorDetails, PydanticCustomError
-from typing_extensions import LiteralString
+from typing import LiteralString
 
 from .errors import TmxWarning
 from .models import (
@@ -126,40 +126,37 @@ def _walk_items(
       continue
     path.add(id(node))
     child_loc = (*loc, index, "content")
-    if isinstance(node, Bpt):
-      if node.i in bpt_locations:
-        errors.append(
-          _pairing_error(
-            (*loc, index), f"duplicate <bpt> i={node.i} within one flow; i must be unique among <bpt> elements", node
-          )
-        )
-      else:
-        bpt_locations[node.i] = ((*loc, index), node)
-      _walk_sub_flows(node.content, child_loc, errors, path)
-    elif isinstance(node, Ept):
-      if node.i in ept_seen:
-        errors.append(
-          _pairing_error(
-            (*loc, index), f"duplicate <ept> i={node.i} within one flow; i must be unique among <ept> elements", node
-          )
-        )
-      ept_seen.add(node.i)
-      if node.i not in bpt_locations:
-        errors.append(
-          _pairing_error((*loc, index), f"<ept> i={node.i} has no corresponding <bpt> earlier in this flow", node)
-        )
-      _walk_sub_flows(node.content, child_loc, errors, path)
-    elif isinstance(node, Ut):
-      warn_deprecated_ut()
-      _walk_sub_flows(node.content, child_loc, errors, path)
-    elif isinstance(node, It | Ph):
-      _walk_sub_flows(node.content, child_loc, errors, path)
-    elif isinstance(node, Hi):
+    if isinstance(node, Hi):
+      # Transparent: its inline elements join the enclosing flow.
       _walk_items(node.content, child_loc, errors, bpt_locations, ept_seen, path)
-    elif isinstance(node, Sub):
-      # Not part of the typed SegContentItem grammar; reachable only by
-      # bypassing construction APIs. Walk it like any flow-bearing node so
-      # no bypassed content edge escapes the cycle path.
+    else:
+      if isinstance(node, Bpt):
+        if node.i in bpt_locations:
+          errors.append(
+            _pairing_error(
+              (*loc, index), f"duplicate <bpt> i={node.i} within one flow; i must be unique among <bpt> elements", node
+            )
+          )
+        else:
+          bpt_locations[node.i] = ((*loc, index), node)
+      elif isinstance(node, Ept):
+        if node.i in ept_seen:
+          errors.append(
+            _pairing_error(
+              (*loc, index), f"duplicate <ept> i={node.i} within one flow; i must be unique among <ept> elements", node
+            )
+          )
+        ept_seen.add(node.i)
+        if node.i not in bpt_locations:
+          errors.append(
+            _pairing_error((*loc, index), f"<ept> i={node.i} has no corresponding <bpt> earlier in this flow", node)
+          )
+      elif isinstance(node, Ut):
+        warn_deprecated_ut()
+      # It, Ph, and Sub (the latter reachable only by bypassing
+      # construction) carry no pairing state. Every non-Hi node's content
+      # opens fresh sub-flows, so no bypassed content edge escapes the
+      # cycle path.
       _walk_sub_flows(node.content, child_loc, errors, path)
     path.discard(id(node))
 
@@ -225,9 +222,7 @@ def validate_ude(ude: Ude) -> None:
   ``<map>`` carries ``code`` (one error per offending map). Emits the
   map-target advisory for each map. Raises ``ValidationError``.
   """
-  errors = _ude_errors(ude, ())
-  if errors:
-    raise ValidationError.from_exception_data("Ude", errors)
+  _raise_if_errors(_ude_errors(ude, ()), "Ude")
   for mapping in ude.maps:
     warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
 
@@ -249,8 +244,7 @@ def validate_header(header: Header) -> None:
         errors.extend(_ude_errors(node, ("metadata", index)))
         for mapping in node.maps:
           warn_map_without_target(mapping.code, mapping.ent, mapping.subst)
-  if errors:
-    raise ValidationError.from_exception_data("Header", errors)
+  _raise_if_errors(errors, "Header")
 
 
 def validate(node: TmxNode) -> None:
@@ -259,8 +253,9 @@ def validate(node: TmxNode) -> None:
   The projection boundary's dispatcher, and the one-call convenience for
   users. Header/unit/unit-variant/ude nodes run their full checks; leaf
   nodes emit their advisory (legacy ``lang``, map target, deprecated
-  ``<ut>``); inline nodes carry nothing checkable outside a flow scope --
-  pairing rules apply when a ``<tuv>`` or ``<tu>`` is validated.
+  ``<ut>``); inline nodes run the cycle/content walk on their own
+  subtree -- pairing and ``i`` uniqueness apply only within a flow
+  scope, i.e. when a ``<tuv>`` or ``<tu>`` is validated.
   Raises ``ValidationError``; emits ``TmxWarning`` advisories.
   """
   match node:
@@ -278,18 +273,18 @@ def validate(node: TmxNode) -> None:
       warn_map_without_target(node.code, node.ent, node.subst)
     case Ut():
       warn_deprecated_ut()
-      _raise_if_errors(_walk_sub_flows_checked(node.content))
+      _raise_if_errors(_walk_sub_flows_checked(node.content), "TmxNode")
     case Bpt() | Ept() | It() | Ph():
-      _raise_if_errors(_walk_sub_flows_checked(node.content))
+      _raise_if_errors(_walk_sub_flows_checked(node.content), "TmxNode")
     case Hi() | Sub():
-      _raise_if_errors(_walk_flow_checked(node.content))
+      _raise_if_errors(_walk_flow_checked(node.content), "TmxNode")
     case _:
       raise TypeError(f"{type(node).__name__} is not a TMX node model")
 
 
-def _raise_if_errors(errors: list[InitErrorDetails]) -> None:
+def _raise_if_errors(errors: list[InitErrorDetails], title: str) -> None:
   if errors:
-    raise ValidationError.from_exception_data("TmxNode", errors)
+    raise ValidationError.from_exception_data(title, errors)
 
 
 def _walk_flow_checked(items: tuple[SegContentItem, ...]) -> list[InitErrorDetails]:
@@ -319,22 +314,23 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   """
   errors: list[InitErrorDetails] = []
   _walk_segment(tuv.content, ("content",), errors, set())
-  if errors:
-    raise ValidationError.from_exception_data("TranslationUnitVariant", errors)
+  _raise_if_errors(errors, "TranslationUnitVariant")
   warn_deprecated_lang(tuv.lang, tuv.xml_lang)
   _warn_metadata_advisories(tuv.metadata)
 
 
-def _collect_x_values(node: SegContentItem | SubContentItem, into: set[int]) -> None:
+def _collect_x_values(items: tuple[SegContentItem | SubContentItem, ...]) -> set[int]:
   """Collect the ``x`` values of the inline elements the spec matches
   across variants (``bpt``, ``it``, ``ph``, ``hi``), including nested
   content."""
-  if isinstance(node, str):
-    return
-  if isinstance(node, Bpt | It | Ph | Hi) and node.x is not None:
-    into.add(node.x)
-  for child in node.content:
-    _collect_x_values(child, into)
+  values: set[int] = set()
+  for node in items:
+    if isinstance(node, str):
+      continue
+    if isinstance(node, Bpt | It | Ph | Hi) and node.x is not None:
+      values.add(node.x)
+    values.update(_collect_x_values(node.content))
+  return values
 
 
 def validate_translation_unit(tu: TranslationUnit) -> None:
@@ -352,14 +348,8 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
     for error in variant_errors:
       error["loc"] = ("variants", index, *error["loc"])
     errors.extend(variant_errors)
-  if errors:
-    raise ValidationError.from_exception_data("TranslationUnit", errors)
-  x_sets = []
-  for tuv in tu.variants:
-    values: set[int] = set()
-    for node in tuv.content:
-      _collect_x_values(node, values)
-    x_sets.append(frozenset(values))
+  _raise_if_errors(errors, "TranslationUnit")
+  x_sets = [frozenset(_collect_x_values(tuv.content)) for tuv in tu.variants]
   if len(set(x_sets)) > 1:
     all_values = sorted(set().union(*x_sets))
     warn(

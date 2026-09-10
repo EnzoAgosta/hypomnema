@@ -106,19 +106,17 @@ def _validate_langtag(subtags: list[str], original: str) -> None:
 
 def _validate_language(subtags: list[str], original: str) -> int:
   """``language = 2*3ALPHA ["-" extlang] / 4ALPHA / 5*8ALPHA`` -- returns the
-  index of the first subtag after the language."""
+  index of the first subtag after the language.
+
+  The three alternatives share ``ALPHA`` and together span lengths 2-8
+  (4ALPHA is reserved for future use, 5*8ALPHA covers registered language
+  subtags); only the 2-3 length branch admits extlangs."""
   language = subtags[0]
-  short_alpha_language = len(language) in (2, 3) and _is_alpha(language)
-  if not (
-    short_alpha_language
-    or (len(language) == 4 and _is_alpha(language))  # reserved for future use
-    or (5 <= len(language) <= 8 and _is_alpha(language))  # registered language subtags
-  ):
+  if not (_is_alpha(language) and 2 <= len(language) <= 8):
     raise ValueError(f"malformed language subtag {language!r}: {original!r}")
   index = 1
-  if short_alpha_language:
-    # extlang = 3ALPHA *2("-" 3ALPHA); only the 2*3ALPHA language branch
-    # admits extlangs
+  if len(language) in (2, 3):
+    # extlang = 3ALPHA *2("-" 3ALPHA)
     extlang_count = 0
     while extlang_count < 3 and index < len(subtags) and len(subtags[index]) == 3 and _is_alpha(subtags[index]):
       extlang_count += 1

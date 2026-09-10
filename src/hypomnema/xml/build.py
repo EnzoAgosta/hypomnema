@@ -34,27 +34,10 @@ def to_element(model: TmxNode) -> etree._Element:
   """Validate the model (GAPS decision 19), then build a detached element.
 
   The boundary validation pass applies every contract rule to the model's
-  current state before anything is built; failures raise ``TmxSpecError``.
+  current state before anything is built; failures raise ``TmxSpecError``,
+  and non-node input is rejected with ``TypeError`` by the same pass.
   This is projection, not pretty-printing, and no ``model_dump()``.
   """
-  if not isinstance(
-    model,
-    Header
-    | TranslationUnit
-    | TranslationUnitVariant
-    | Note
-    | Property
-    | Ude
-    | Map
-    | Bpt
-    | Ept
-    | It
-    | Ph
-    | Hi
-    | Ut
-    | Sub,
-  ):
-    raise TypeError(f"{type(model).__name__} is not a TMX node model")
   try:
     validate(model)
   except ValidationError as error:
@@ -90,7 +73,7 @@ def _to_element(model: TmxNode) -> etree._Element:
 
 
 def _write_attributes(element: etree._Element, model: TmxModel) -> None:
-  """Walk native fields, excluding the discriminator and explicit content slots."""
+  """Walk native fields, excluding the discriminator and explicit child slots."""
   field_value: object
   for field_name, field_value in model:
     if field_name in {"element", "metadata", "content", "text", "maps", "variants"} or field_value is None:
@@ -101,7 +84,8 @@ def _write_attributes(element: etree._Element, model: TmxModel) -> None:
         formatted = field_value
       case datetime():
         formatted = format_datetime(field_value)
-      case int() if isinstance(model, Map) and field_name in {"unicode", "code"}:
+      # Every int attribute of a <map> is a #x-hex value (unicode, code).
+      case int() if isinstance(model, Map):
         formatted = format_hex_integer(field_value)
       case int():
         formatted = format_integer(field_value)
