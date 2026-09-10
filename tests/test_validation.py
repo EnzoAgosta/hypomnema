@@ -26,8 +26,21 @@ from hypomnema.errors import (
   TmxFieldValueError,
   TmxWarning,
 )
-from hypomnema.models import Header, Map, Note, Property, Ude
-from hypomnema.validation import validate_header, validate_note, validate_property, validate_ude
+from hypomnema.models import Bpt, Ept, Header, Hi, It, Map, Note, Ph, Property, Sub, TranslationUnitVariant, Ude, Ut
+from hypomnema.validation import (
+  validate_bpt,
+  validate_ept,
+  validate_header,
+  validate_hi,
+  validate_it,
+  validate_note,
+  validate_ph,
+  validate_property,
+  validate_sub,
+  validate_translation_unit_variant,
+  validate_ude,
+  validate_ut,
+)
 
 # Builders. The ``planted_*`` constructors bypass the entry boundary via
 # model_construct, so any field can hold any value; their defaults are a
@@ -415,6 +428,14 @@ def test_ude_checks_the_siblings_of_a_foreign_map_item(leaf_errors):
     (validate_note, planted_header),
     (validate_property, planted_note),
     (validate_ude, planted_header),
+    (validate_translation_unit_variant, lambda: planted_bpt()),
+    (validate_bpt, lambda: planted_ept()),
+    (validate_ept, lambda: planted_bpt()),
+    (validate_it, lambda: planted_ph()),
+    (validate_ph, lambda: planted_it()),
+    (validate_hi, lambda: planted_ut()),
+    (validate_ut, lambda: planted_hi()),
+    (validate_sub, lambda: planted_bpt()),
   ],
 )
 def test_wrongly_typed_root_is_reported_at_root(validate, wrong_node, leaf_errors):
@@ -551,3 +572,503 @@ def test_errors_and_advisories_travel_separately(leaf_errors):
     validate_note(planted_note(lang="en", text=42))
   assert [error.path for error in leaf_errors(excinfo.value)] == [NodePath() / "text"]
   assert [advisory.path for advisory in excinfo.value.advisories] == [NodePath() / "lang"]
+
+
+# Builders for the variant and inline nodes. Only required fields are
+# seeded; model_construct injects every default, which the clean-pass
+# tests then pin.
+
+
+def planted_tuv(**overrides: object) -> TranslationUnitVariant:
+  fields: dict[str, Any] = dict(xml_lang="en")
+  fields.update(overrides)
+  return TranslationUnitVariant.model_construct(**fields)
+
+
+def planted_sub(**overrides: object) -> Sub:
+  fields: dict[str, Any] = dict()
+  fields.update(overrides)
+  return Sub.model_construct(**fields)
+
+
+def planted_bpt(**overrides: object) -> Bpt:
+  fields: dict[str, Any] = dict(i=1)
+  fields.update(overrides)
+  return Bpt.model_construct(**fields)
+
+
+def planted_ept(**overrides: object) -> Ept:
+  fields: dict[str, Any] = dict(i=1)
+  fields.update(overrides)
+  return Ept.model_construct(**fields)
+
+
+def planted_it(**overrides: object) -> It:
+  fields: dict[str, Any] = dict(pos="begin")
+  fields.update(overrides)
+  return It.model_construct(**fields)
+
+
+def planted_ph(**overrides: object) -> Ph:
+  fields: dict[str, Any] = dict()
+  fields.update(overrides)
+  return Ph.model_construct(**fields)
+
+
+def planted_hi(**overrides: object) -> Hi:
+  fields: dict[str, Any] = dict()
+  fields.update(overrides)
+  return Hi.model_construct(**fields)
+
+
+def planted_ut(**overrides: object) -> Ut:
+  fields: dict[str, Any] = dict()
+  fields.update(overrides)
+  return Ut.model_construct(**fields)
+
+
+# Soundness: a constructor-built content tree validates clean at every
+# level, from the variant down to the innermost inline element.
+
+
+def content_tree() -> tuple[TranslationUnitVariant, Bpt, Ept, It, Ph, Sub, Hi, Ut]:
+  """A fully valid tree plus references to its parts, so each node can
+  be validated directly without indexing through the content unions."""
+  hi = Hi(x=9)
+  sub = Sub(datatype="rtf", content=[hi, "tail"])
+  bpt = Bpt(i=1, x=2, content=["inside", sub])
+  ept = Ept(i=1, content=[Sub(type="f", content=["x"])])
+  it = It(pos="begin", content=["ok"])
+  ph = Ph(x=3, assoc="f", content=["deep"])
+  ut = Ut(x=4)
+  tree = TranslationUnitVariant(
+    xml_lang="en",
+    metadata=[Note(text="n"), Property(type="client")],
+    content=["before", bpt, ept, it, ph, Hi(content=[ut, "u"]), "after"],
+  )
+  return tree, bpt, ept, it, ph, sub, hi, ut
+
+
+def test_content_tree_from_entry_boundary_validates_clean():
+  tree, bpt, ept, it, ph, sub, hi, ut = content_tree()
+  validate_translation_unit_variant(tree)
+  validate_bpt(bpt)
+  validate_ept(ept)
+  validate_it(it)
+  validate_ph(ph)
+  validate_sub(sub)
+  validate_hi(hi)
+  validate_ut(ut)
+
+
+def test_mutated_content_tree_still_validates_clean():
+  tree, bpt, *_ = content_tree()
+  tree.content.append(Bpt(i=7))
+  bpt.content.append("appended")
+  validate_translation_unit_variant(tree)
+
+
+# Field sweeps: every field of every new node, wrong type and bad value.
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("xml_lang", 42, TmxFieldTypeError),
+    ("xml_lang", "not a tag!", TmxFieldValueError),
+    ("o_encoding", 42, TmxFieldTypeError),
+    ("datatype", 42, TmxFieldTypeError),
+    ("usagecount", "5", TmxFieldTypeError),
+    ("usagecount", -1, TmxFieldValueError),
+    ("usagecount", True, TmxFieldTypeError),
+    ("lastusagedate", 42, TmxFieldTypeError),
+    ("creationtool", 42, TmxFieldTypeError),
+    ("creationtoolversion", 42, TmxFieldTypeError),
+    ("creationdate", "2024-01-01T00:00:00", TmxFieldTypeError),
+    ("creationid", 42, TmxFieldTypeError),
+    ("changedate", 42, TmxFieldTypeError),
+    ("o_tmf", 42, TmxFieldTypeError),
+    ("changeid", 42, TmxFieldTypeError),
+    ("lang", 42, TmxFieldTypeError),
+    ("lang", "not a tag!", TmxFieldValueError),
+    ("metadata", "not a list", TmxFieldTypeError),
+    ("content", "not a list", TmxFieldTypeError),
+  ],
+)
+def test_tuv_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_translation_unit_variant, planted_tuv(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("i", None, TmxFieldTypeError),
+    ("i", -1, TmxFieldValueError),
+    ("i", True, TmxFieldTypeError),
+    ("x", "5", TmxFieldTypeError),
+    ("x", -1, TmxFieldValueError),
+    ("type", 42, TmxFieldTypeError),
+    ("content", "not a list", TmxFieldTypeError),
+  ],
+)
+def test_bpt_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_bpt, planted_bpt(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [("i", None, TmxFieldTypeError), ("i", True, TmxFieldTypeError), ("content", "not a list", TmxFieldTypeError)],
+)
+def test_ept_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_ept, planted_ept(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+def test_tuv_metadata_children_are_field_validated(leaf_errors):
+  """Nodes reached through <tuv> metadata are validated, not just
+  type-checked at the dispatch."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(metadata=[planted_note(text=42), planted_property(type=42)]))
+  errors = leaf_errors(excinfo.value)
+  assert [error.path for error in errors] == [
+    NodePath() / "metadata" / 0 / "text",
+    NodePath() / "metadata" / 1 / "type",
+  ]
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("pos", 42, TmxFieldTypeError),
+    ("pos", "middle", TmxFieldValueError),
+    ("x", "5", TmxFieldTypeError),
+    ("type", 42, TmxFieldTypeError),
+    ("content", "not a list", TmxFieldTypeError),
+  ],
+)
+def test_it_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_it, planted_it(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("x", "5", TmxFieldTypeError),
+    ("assoc", "both", TmxFieldValueError),
+    ("assoc", 42, TmxFieldTypeError),
+    ("type", 42, TmxFieldTypeError),
+    ("content", "not a list", TmxFieldTypeError),
+  ],
+)
+def test_ph_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_ph, planted_ph(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [
+    ("x", "5", TmxFieldTypeError),
+    ("x", -1, TmxFieldValueError),
+    ("type", 42, TmxFieldTypeError),
+    ("content", "not a list", TmxFieldTypeError),
+  ],
+)
+def test_hi_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_hi, planted_hi(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [("x", "5", TmxFieldTypeError), ("x", -1, TmxFieldValueError), ("content", "not a list", TmxFieldTypeError)],
+)
+def test_ut_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_ut, planted_ut(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+@pytest.mark.parametrize(
+  ("field", "bad_value", "expected_kind"),
+  [("datatype", 42, TmxFieldTypeError), ("type", 42, TmxFieldTypeError), ("content", "not a list", TmxFieldTypeError)],
+)
+def test_sub_rejects_bad_field_values(field, bad_value, expected_kind):
+  error = error_of(validate_sub, planted_sub(**{field: bad_value}))
+  assert isinstance(error, expected_kind)
+  assert error.path == NodePath() / field
+
+
+# Element literals across the whole content vocabulary.
+
+
+@pytest.mark.parametrize(
+  ("validate", "plant", "foreign"),
+  [
+    (validate_translation_unit_variant, planted_tuv, "tu"),
+    (validate_bpt, planted_bpt, "ept"),
+    (validate_ept, planted_ept, "bpt"),
+    (validate_it, planted_it, "ph"),
+    (validate_ph, planted_ph, "it"),
+    (validate_hi, planted_hi, "ut"),
+    (validate_ut, planted_ut, "hi"),
+    (validate_sub, planted_sub, "bpt"),
+  ],
+)
+def test_content_node_rejects_foreign_element_literal(validate, plant, foreign):
+  error = error_of(validate, plant(element=foreign))
+  assert isinstance(error, TmxFieldValueError)
+  assert error.path == NodePath() / "element"
+
+
+def test_content_node_rejects_non_string_element():
+  error = error_of(validate_bpt, planted_bpt(element=42))
+  assert isinstance(error, TmxFieldTypeError)
+  assert error.path == NodePath() / "element"
+
+
+# Content dispatchers: each content list accepts exactly its declared
+# union, foreign items are reported once, siblings are still checked.
+
+
+@pytest.mark.parametrize(
+  ("validate", "plant", "foreign", "expected_union"),
+  [
+    (validate_translation_unit_variant, planted_tuv, planted_sub(), (str, Bpt, Ept, Ph, It, Hi, Ut)),
+    (validate_translation_unit_variant, planted_tuv, planted_note(), (str, Bpt, Ept, Ph, It, Hi, Ut)),
+    (validate_bpt, planted_bpt, planted_hi(), (str, Sub)),
+    (validate_ept, planted_ept, planted_hi(), (str, Sub)),
+    (validate_it, planted_it, planted_bpt(), (str, Sub)),
+    (validate_ph, planted_ph, planted_hi(), (str, Sub)),
+    (validate_ut, planted_ut, planted_bpt(), (str, Sub)),
+    (validate_hi, planted_hi, planted_sub(), (str, Bpt, Ept, Ph, It, Hi, Ut)),
+    (validate_sub, planted_sub, planted_sub(), (str, Bpt, Ept, Ph, It, Hi, Ut)),
+  ],
+  ids=[
+    "tuv-sub",
+    "tuv-note",
+    "bpt-hi",
+    "ept-hi",
+    "it-bpt",
+    "ph-hi",
+    "ut-bpt",
+    "hi-sub",
+    "sub-sub",
+  ],
+)
+def test_content_rejects_foreign_items(validate, plant, foreign, expected_union, leaf_errors):
+  """Each content list accepts exactly its declared union: the foreign
+  item is one type error at the item's path, whose expected tuple pins
+  the union the dispatcher mirrors."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate(plant(content=[foreign]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxFieldTypeError)
+  assert errors[0].path == NodePath() / "content" / 0
+  assert errors[0].expected == expected_union
+
+
+def test_tuv_metadata_rejects_ude():
+  """A <tuv> may not hold a <ude> in its metadata, unlike a <header>."""
+  error = error_of(validate_translation_unit_variant, planted_tuv(metadata=[planted_ude()]))
+  assert isinstance(error, TmxFieldTypeError)
+  assert error.path == NodePath() / "metadata" / 0
+
+
+def test_content_checks_the_siblings_of_a_foreign_item(leaf_errors):
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_bpt(planted_bpt(content=[42, planted_sub(content=[42])]))
+  assert [error.path for error in leaf_errors(excinfo.value)] == [
+    NodePath() / "content" / 0,
+    NodePath() / "content" / 1 / "content" / 0,
+  ]
+
+
+# Cyclic content: a node that is its own ancestor is reported once, at
+# the first revisit; a shared subtree seen twice as siblings is legal.
+
+
+def test_self_cycle_is_reported_once(leaf_errors):
+  hi = planted_hi()
+  hi.content.append(hi)
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_hi(hi)
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 0
+
+
+def test_three_node_cycle_is_reported_once(leaf_errors):
+  bpt = planted_bpt()
+  sub = planted_sub()
+  hi = planted_hi()
+  hi.content.append(bpt)
+  sub.content.append(hi)
+  bpt.content.append(sub)
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_bpt(bpt)
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath() / "content" / 0 / "content" / 0 / "content" / 0
+
+
+def test_diamond_content_is_legal():
+  """The same node referenced twice as siblings is not a cycle."""
+  shared = planted_hi(content=["x"])
+  validate_hi(planted_hi(content=[shared, shared, "tail"]))
+
+
+def test_shared_node_across_branches_is_legal():
+  shared = planted_hi(content=["x"])
+  tree = planted_hi(content=[shared, planted_hi(content=[shared])])
+  validate_hi(tree)
+
+
+# The depth bound: legitimate depth is walked, pathological depth is
+# reported at the level where the walk stops.
+
+
+def deep_hi_chain(height: int) -> Hi:
+  """A chain of `height` <hi> elements, the innermost holding text."""
+  node = planted_hi(content=["leaf"])
+  for _ in range(height - 1):
+    node = planted_hi(content=[node])
+  return node
+
+
+@pytest.mark.parametrize("height", [1, 63])
+def test_deep_acyclic_content_validates_clean(height):
+  validate_hi(deep_hi_chain(height))
+
+
+@pytest.mark.parametrize("height", [64, 200])
+def test_deeper_than_the_bound_is_reported(height, leaf_errors):
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_hi(deep_hi_chain(height))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  # The walk stops at the first item 64 levels down: 2 * 64 segments.
+  assert errors[0].path == NodePath(("content", 0) * 64)
+
+
+# Missing required fields (a node built past the entry boundary) are
+# reported instead of crashing with an attribute error.
+
+
+@pytest.mark.parametrize(
+  ("validate", "empty", "required"),
+  [
+    (
+      validate_header,
+      Header.model_construct,
+      ("creationtool", "creationtoolversion", "segtype", "o_tmf", "adminlang", "srclang", "datatype"),
+    ),
+    (validate_property, Property.model_construct, ("type",)),
+    (validate_ude, Ude.model_construct, ("name", "maps")),
+    (validate_translation_unit_variant, TranslationUnitVariant.model_construct, ("xml_lang",)),
+    (validate_bpt, Bpt.model_construct, ("i",)),
+    (validate_ept, Ept.model_construct, ("i",)),
+    (validate_it, It.model_construct, ("pos",)),
+  ],
+)
+def test_missing_required_fields_are_reported(validate, empty, required, leaf_errors):
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate(empty())
+  errors = leaf_errors(excinfo.value)
+  assert [type(error) for error in errors] == [TmxContractError] * len(required)
+  assert [error.path for error in errors] == [NodePath() / name for name in required]
+
+
+def test_missing_map_unicode_is_reported():
+  """<map>'s own guard, reached through its <ude>."""
+  error = error_of(validate_ude, planted_ude(maps=[Map.model_construct(element="map")]))
+  assert isinstance(error, TmxContractError)
+  assert error.path == NodePath() / "maps" / 0 / "unicode"
+
+
+# Scope of this pass: the deprecation advisories ride on the translation
+# unit pass, so a variant pass gathers none even for legacy `lang`.
+
+
+def test_tuv_lang_gathers_no_advisory_in_this_pass():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(lang="en", xml_lang=42))
+  assert excinfo.value.advisories == ()
+
+
+def test_ut_gathers_no_deprecation_advisory_in_this_pass():
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_ut(planted_ut(content=[42]))
+  assert excinfo.value.advisories == ()
+
+
+@pytest.mark.parametrize(
+  ("plant_item", "bad_path", "overrides"),
+  [
+    (planted_bpt, NodePath() / "content" / 0 / "i", dict(i=-1)),
+    (planted_ept, NodePath() / "content" / 0 / "i", dict(i=-1)),
+    (planted_it, NodePath() / "content" / 0 / "pos", dict(pos="middle")),
+    (planted_ph, NodePath() / "content" / 0 / "assoc", dict(assoc="both")),
+    (planted_hi, NodePath() / "content" / 0 / "content" / 0, dict(content=[42])),
+    (planted_ut, NodePath() / "content" / 0 / "content" / 0, dict(content=[42])),
+  ],
+)
+def test_inline_nodes_in_content_are_field_validated(plant_item, bad_path, overrides, leaf_errors):
+  """An inline node reached through a content list is field-validated,
+  not just type-checked at the dispatch: one bad field inside it is
+  reported at the deep path."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_translation_unit_variant(planted_tuv(content=[plant_item(**overrides)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert errors[0].path == bad_path
+
+
+def test_sub_reached_through_content_is_field_validated(leaf_errors):
+  """The <sub> arm of the paired-content dispatcher: bpt -> sub -> bad
+  field, reported at the deep path."""
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_bpt(planted_bpt(content=[planted_sub(datatype=42)]))
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert errors[0].path == NodePath() / "content" / 0 / "datatype"
+
+
+def test_ut_content_items_are_checked(leaf_errors):
+  """<ut>'s content is walked: text and <sub> are accepted, a foreign
+  item is reported at its path."""
+  validate_ut(planted_ut(content=["text", planted_sub()]))
+  error = error_of(validate_ut, planted_ut(content=[42]))
+  assert error.path == NodePath() / "content" / 0
+
+
+def test_depth_bound_applies_to_node_items(leaf_errors):
+  """The depth guard fires on node items too, not only on text leaves;
+  the offending node is the reported value."""
+  node = root = planted_hi()
+  for _ in range(63):
+    child = planted_hi()
+    node.content.append(child)
+    node = child
+  innermost = planted_hi()
+  node.content.append(innermost)
+  with pytest.raises(TmxErrorGroup) as excinfo:
+    validate_hi(root)
+  errors = leaf_errors(excinfo.value)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxContractError)
+  assert errors[0].path == NodePath(("content", 0) * 64)
+  assert errors[0].value is innermost

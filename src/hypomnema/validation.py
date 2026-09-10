@@ -469,24 +469,22 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
   if not _check_content_acyclic(session, path, node):
     return
   session.descend(node)
-  try:
-    match node:
-      case Bpt():
-        _validate_bpt(node, session, path)
-      case Ept():
-        _validate_ept(node, session, path)
-      case It():
-        _validate_it(node, session, path)
-      case Ph():
-        _validate_ph(node, session, path)
-      case Hi():
-        _validate_hi(node, session, path)
-      case Ut():
-        _validate_ut(node, session, path)
-      case _:
-        session.error(TmxFieldTypeError(path, node, (str, Bpt, Ept, Ph, It, Hi, Ut)))
-  finally:
-    session.ascend()
+  match node:
+    case Bpt():
+      _validate_bpt(node, session, path)
+    case Ept():
+      _validate_ept(node, session, path)
+    case It():
+      _validate_it(node, session, path)
+    case Ph():
+      _validate_ph(node, session, path)
+    case Hi():
+      _validate_hi(node, session, path)
+    case Ut():
+      _validate_ut(node, session, path)
+    case _:
+      session.error(TmxFieldTypeError(path, node, (str, Bpt, Ept, Ph, It, Hi, Ut)))
+  session.ascend()
 
 
 def _validate_sub_content_node(node: object, session: _Session, path: NodePath) -> None:
@@ -498,14 +496,11 @@ def _validate_sub_content_node(node: object, session: _Session, path: NodePath) 
   if not _check_content_acyclic(session, path, node):
     return
   session.descend(node)
-  try:
-    match node:
-      case Sub():
-        _validate_sub(node, session, path)
-      case _:
-        session.error(TmxFieldTypeError(path, node, (str, Sub)))
-  finally:
-    session.ascend()
+  if isinstance(node, Sub):
+    _validate_sub(node, session, path)
+  else:
+    session.error(TmxFieldTypeError(path, node, (str, Sub)))
+  session.ascend()
 
 
 def _validate_tuv_metadata_node(node: object, session: _Session, path: NodePath) -> None:
@@ -529,6 +524,7 @@ def _validate_translation_unit_variant(tuv: object, session: _Session, path: Nod
     return
   if not _check_required_fields(session, path, tuv, ("xml_lang",)):
     return
+  session.descend(tuv)
   _check_element(session, path / "element", tuv.element, "tuv")
   _check_language_tag(session, path / "xml_lang", tuv.xml_lang)
   _check_optional(session, path / "o_encoding", tuv.o_encoding, _check_encoding_name)
@@ -547,16 +543,19 @@ def _validate_translation_unit_variant(tuv: object, session: _Session, path: Nod
   _check_optional(session, path / "lang", tuv.lang, _check_language_tag)
   _check_list(session, path / "metadata", tuv.metadata, _validate_tuv_metadata_node)
   _check_list(session, path / "content", tuv.content, _validate_inline_content_node)
+  session.ascend()
 
 
 def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
   if not isinstance(sub, Sub):
     session.error(TmxFieldTypeError(path, sub, Sub))
     return
+  session.descend(sub)
   _check_element(session, path / "element", sub.element, "sub")
   _check_optional(session, path / "datatype", sub.datatype, _check_str)
   _check_optional(session, path / "type", sub.type, _check_str)
   _check_list(session, path / "content", sub.content, _validate_inline_content_node)
+  session.ascend()
 
 
 def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
@@ -565,11 +564,13 @@ def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
     return
   if not _check_required_fields(session, path, bpt, ("i",)):
     return
+  session.descend(bpt)
   _check_element(session, path / "element", bpt.element, "bpt")
   _check_unsigned_integer(session, path / "i", bpt.i)
   _check_optional(session, path / "x", bpt.x, _check_unsigned_integer)
   _check_optional(session, path / "type", bpt.type, _check_str)
   _check_list(session, path / "content", bpt.content, _validate_sub_content_node)
+  session.ascend()
 
 
 def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
@@ -578,9 +579,11 @@ def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
     return
   if not _check_required_fields(session, path, ept, ("i",)):
     return
+  session.descend(ept)
   _check_element(session, path / "element", ept.element, "ept")
   _check_unsigned_integer(session, path / "i", ept.i)
   _check_list(session, path / "content", ept.content, _validate_sub_content_node)
+  session.ascend()
 
 
 def _validate_it(it: object, session: _Session, path: NodePath) -> None:
@@ -589,41 +592,49 @@ def _validate_it(it: object, session: _Session, path: NodePath) -> None:
     return
   if not _check_required_fields(session, path, it, ("pos",)):
     return
+  session.descend(it)
   _check_element(session, path / "element", it.element, "it")
   _check_position(session, path / "pos", it.pos)
   _check_optional(session, path / "x", it.x, _check_unsigned_integer)
   _check_optional(session, path / "type", it.type, _check_str)
   _check_list(session, path / "content", it.content, _validate_sub_content_node)
+  session.ascend()
 
 
 def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
   if not isinstance(ph, Ph):
     session.error(TmxFieldTypeError(path, ph, Ph))
     return
+  session.descend(ph)
   _check_element(session, path / "element", ph.element, "ph")
   _check_optional(session, path / "x", ph.x, _check_unsigned_integer)
   _check_optional(session, path / "assoc", ph.assoc, _check_association)
   _check_optional(session, path / "type", ph.type, _check_str)
   _check_list(session, path / "content", ph.content, _validate_sub_content_node)
+  session.ascend()
 
 
 def _validate_hi(hi: object, session: _Session, path: NodePath) -> None:
   if not isinstance(hi, Hi):
     session.error(TmxFieldTypeError(path, hi, Hi))
     return
+  session.descend(hi)
   _check_element(session, path / "element", hi.element, "hi")
   _check_optional(session, path / "x", hi.x, _check_unsigned_integer)
   _check_optional(session, path / "type", hi.type, _check_str)
   _check_list(session, path / "content", hi.content, _validate_inline_content_node)
+  session.ascend()
 
 
 def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
   if not isinstance(ut, Ut):
     session.error(TmxFieldTypeError(path, ut, Ut))
     return
+  session.descend(ut)
   _check_element(session, path / "element", ut.element, "ut")
   _check_optional(session, path / "x", ut.x, _check_unsigned_integer)
   _check_list(session, path / "content", ut.content, _validate_sub_content_node)
+  session.ascend()
 
 
 def validate_header(header: Header) -> None:
