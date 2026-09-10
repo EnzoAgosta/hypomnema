@@ -41,7 +41,7 @@ from hypomnema.models import (
   TranslationUnit,
   TranslationUnitVariant,
   Ude,
-  Ut,  # ty: ignore[deprecated]
+  Ut,
 )
 
 # One minimal valid payload per element. Payloads carry ``element`` so the
@@ -83,7 +83,7 @@ NODE_CLASSES: dict[str, type[TmxModel]] = {
   "it": It,
   "ph": Ph,
   "hi": Hi,
-  "ut": Ut,  # ty: ignore[deprecated]
+  "ut": Ut,
   "header": Header,
   "tuv": TranslationUnitVariant,
   "tu": TranslationUnit,
@@ -177,11 +177,11 @@ def test_optional_fields_default_to_none_or_empty() -> None:
   bpt = Bpt(i=1)
   assert bpt.x is None
   assert bpt.type is None
-  assert bpt.content == ()
+  assert bpt.content == []
   header = make_header()
   assert header.o_encoding is None
   assert header.creationdate is None
-  assert header.metadata == ()
+  assert header.metadata == []
   mapping = Map(unicode="#x41")
   assert mapping.code is None
   assert mapping.ent is None
@@ -197,8 +197,8 @@ def test_optional_fields_default_to_none_or_empty() -> None:
   assert variant.changedate is None
   assert variant.o_tmf is None
   assert variant.changeid is None
-  assert variant.metadata == ()
-  assert variant.content == ()
+  assert variant.metadata == []
+  assert variant.content == []
   unit = TranslationUnit.model_validate(MINIMAL_PAYLOADS["tu"])
   assert unit.tuid is None
   assert unit.o_encoding is None
@@ -213,7 +213,7 @@ def test_optional_fields_default_to_none_or_empty() -> None:
   assert unit.segtype is None
   assert unit.changeid is None
   assert unit.o_tmf is None
-  assert unit.metadata == ()
+  assert unit.metadata == []
 
 
 @pytest.mark.parametrize("element", MINIMAL_PAYLOADS)
@@ -309,7 +309,14 @@ def test_unknown_element_name_is_rejected() -> None:
 def test_sub_content_elements_take_text_and_sub_only(element: str) -> None:
   payload = {**MINIMAL_PAYLOADS[element], "content": ("leading text", {"element": "sub", "content": ("in",)})}
   node = NODE_CLASSES[element].model_validate(payload)
-  assert node.content == ("leading text", Sub(content=("in",)))  # ty: ignore[unresolved-attribute]
+  assert node.content == [  # ty: ignore[unresolved-attribute]
+    "leading text",
+    Sub(
+      content=[
+        "in",
+      ]
+    ),
+  ]
 
 
 @pytest.mark.parametrize("foreign_payload", [{"element": "ph"}, {"element": "hi"}, {"element": "note", "text": "n"}])
@@ -338,7 +345,7 @@ def test_seg_content_elements_reject_sub(element: str) -> None:
 def test_hi_recurses_into_hi() -> None:
   payload = {"element": "hi", "content": ({"element": "hi", "content": ("inner",)}, "outer")}
   node = Hi.model_validate(payload)
-  assert node.content[0].content == ("inner",)  # ty: ignore[unresolved-attribute]
+  assert node.content[0].content == ["inner"]  # ty: ignore[unresolved-attribute]
   assert node.content[1] == "outer"
 
 
@@ -375,13 +382,13 @@ def test_hi_recurses_into_hi() -> None:
     ),
   ],
 )
-def test_tuple_fields_keep_document_order(
+def test_list_fields_keep_document_order(
   element: str, field: str, payloads: list[dict[str, Any]], expected_elements: list[str]
 ) -> None:
   payload = {**MINIMAL_PAYLOADS[element], field: payloads}
   node = NODE_CLASSES[element].model_validate(payload)
   children = getattr(node, field)
-  assert isinstance(children, tuple)
+  assert isinstance(children, list)
   assert [child.element for child in children] == expected_elements
 
 
@@ -506,7 +513,7 @@ def test_model_dump_keeps_native_python_values() -> None:
   header = make_header(creationdate="20240302T010203Z", metadata=[{"element": "note", "text": "n"}])
   dumped = header.model_dump()
   assert type(dumped["creationdate"]) is datetime
-  assert isinstance(dumped["metadata"], tuple)
+  assert isinstance(dumped["metadata"], list)
   assert dumped["metadata"][0]["text"] == "n"
 
 
@@ -535,7 +542,7 @@ def test_json_round_trip_is_value_stable() -> None:
 
 def test_ut_instantiation_warns() -> None:
   with pytest.warns(DeprecationWarning, match="<ut>"):
-    node = Ut()  # ty: ignore[deprecated]
+    node = Ut()
   assert node.element == "ut"
 
 
@@ -554,7 +561,7 @@ def test_lang_is_marked_deprecated_in_the_json_schema(schema_class: type[TmxMode
 
 
 def test_ut_is_marked_deprecated_in_the_json_schema() -> None:
-  definition = Ut.model_json_schema()["$defs"]["Ut"]  # ty: ignore[deprecated]
+  definition = Ut.model_json_schema()["$defs"]["Ut"]
   assert definition["deprecated"] is True
   assert "deprecated" in definition["description"]
 

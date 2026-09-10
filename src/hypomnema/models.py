@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Annotated, Literal
-from warnings import deprecated
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer
 
@@ -32,12 +31,12 @@ type Datetime = Annotated[
 type Integer = Annotated[int, BeforeValidator(parse_integer), PlainSerializer(str, return_type=str, when_used="json")]
 
 type TmxNode = Annotated[
-  Header | TranslationUnit | TranslationUnitVariant | Note | Property | Ude | Map | Bpt | Ept | It | Ph | Hi | Ut | Sub,  # ty: ignore[deprecated]
+  Header | TranslationUnit | TranslationUnitVariant | Note | Property | Ude | Map | Bpt | Ept | It | Ph | Hi | Ut | Sub,
   Field(discriminator="element"),
 ]
 type StructureNode = Annotated[Header | TranslationUnit | TranslationUnitVariant | Ude, Field(discriminator="element")]
 type LeafNode = Annotated[Note | Property | Map, Field(discriminator="element")]
-type InlineNode = Annotated[Bpt | Ept | Ph | It | Hi | Ut, Field(discriminator="element")]  # ty: ignore[deprecated]
+type InlineNode = Annotated[Bpt | Ept | Ph | It | Hi | Ut, Field(discriminator="element")]
 type InlineNodeOrStr = str | InlineNode
 type SubOrStr = str | Sub
 
@@ -50,11 +49,7 @@ class Note(TmxModel):
   element: Annotated[Literal["note"], Field(default="note", init=False, repr=False, frozen=True)]
   o_encoding: EncodingName | None = None
   xml_lang: LanguageTag | None = None
-  # Deprecated by TMX 1.3: use xml_lang.
-  lang: Annotated[
-    LanguageTag | None,
-    Field(deprecated=deprecated("the lang attribute is deprecated since TMX 1.3 in favor of xml_lang")),
-  ] = None
+  lang: LanguageTag | None = None
   text: str | None = None
 
 
@@ -63,10 +58,7 @@ class Property(TmxModel):
   type: str
   xml_lang: LanguageTag | None = None
   o_encoding: EncodingName | None = None
-  lang: Annotated[
-    LanguageTag | None,
-    Field(deprecated=deprecated("the lang attribute is deprecated since TMX 1.3 in favor of xml_lang")),
-  ] = None
+  lang: LanguageTag | None = None
   text: str | None = None
 
 
@@ -129,7 +121,6 @@ class Hi(TmxModel):
   content: Annotated[list[InlineNodeOrStr], Field(default_factory=list)]
 
 
-@deprecated("the <ut> element is deprecated, use <bpt>, <ept>, <it>, or <ph> instead")
 class Ut(TmxModel):
   model_config = ConfigDict(
     json_schema_extra={
