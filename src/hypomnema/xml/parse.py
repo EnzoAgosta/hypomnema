@@ -1,12 +1,21 @@
 """Direct element-to-model projection for all TMX node models.
 
-Accepts already-parsed lxml elements, not bytes. Parser configuration and
-document wrappers remain separate work. There are no standalone models for
-tmx/body/seg; seg is a tuv content wrapper.
+Accepts already-parsed lxml elements, not bytes: parser configuration and
+streaming belong to the Reader, not to these functions, so a consumer can
+bring their own parsing. The domain is closed -- the DTD fixes every node
+kind -- so the surface is one flat, self-contained function per element,
+mirroring ``validation.py``'s per-node family: each function knows
+everything about its own element, gates its own fragment on the DTD, and
+is safe to call standalone from anywhere. ``from_element`` is a thin
+tag-dispatching convenience on top for callers that hold a bare element.
 
-Every case dispatches on the element tag and owns its content/child shape
-in code; the mechanical attribute-name mapping (models.py's field-naming
-rule) is shared with the build direction through ``names.py``.
+Projection is the lax half. The DTD checks the fragment's structure
+(required attributes, child patterns, unknown attributes) and pydantic
+coerces or rejects bad values -- both raising ``TmxSpecError`` with the
+offending element and line. The strict contract pass is deliberately NOT
+run here: a projected node is not yet safe to output, and validation is
+the Writer's (or a consumer's) explicit call. There are no standalone
+models for tmx/body/seg; ``seg`` is a ``tuv`` content wrapper.
 """
 
 from lxml import etree
@@ -19,8 +28,8 @@ from ..models import (
   Header,
   Hi,
   It,
-  Note,
   Map,
+  Note,
   Ph,
   Property,
   Sub,
@@ -31,10 +40,25 @@ from ..models import (
   Ude,
   Ut,
 )
-from ..validation import validate
 from .content import child_elements, read_mixed_content, read_text
 from .dtd import validate_fragment
 from .names import NON_ATTRIBUTE_FIELDS, xml_attribute_name
+
+
+def _element_qname(element: etree._Element) -> etree.QName:
+  """The element's tag as a namespace-free ``QName``.
+
+  lxml accepts tag types beyond plain names -- comments and processing
+  instructions carry a callable tag -- and a namespaced element is not a
+  TMX element at all. Anything but a plain namespace-free name is a
+  ``TmxSpecError``."""
+  try:
+    qname = etree.QName(element)
+  except ValueError as error:
+    raise TmxSpecError(f"expected a namespace-free TMX element, got {element.tag!r}") from error
+  if qname.namespace is not None:
+    raise TmxSpecError(f"expected a namespace-free TMX element, got {element.tag!r}")
+  return qname
 
 
 def _attributes(element: etree._Element, model_type: type[TmxModel]) -> dict[str, str | None]:
@@ -52,93 +76,154 @@ def _attributes(element: etree._Element, model_type: type[TmxModel]) -> dict[str
   }
 
 
-def from_element(element: etree._Element) -> TmxNode:
-  """DTD-check a fragment, project it, then validate it (GAPS decision 19).
-
-  The DTD runs once over the whole fragment; recursion projects trusted
-  structure; the boundary validation pass then applies every contract
-  rule to the projected model. Typing errors surface with the nested
-  element and line that caused them; contract errors from the validation
-  pass surface with the fragment's root element and line, with
-  model-relative error locations.
-  """
+def _project[ModelType: TmxModel](
+  element: etree._Element, model_type: type[ModelType], fields: dict[str, object]
+) -> ModelType:
+  """The one projection body, shared by every ``*_from_element``:
+  namespace guard, DTD gate, attribute mapping plus the node's own
+  fields, coercion. Keeping it here makes each per-node function safe to
+  call standalone on any fragment."""
+  qname = _element_qname(element)
   validate_fragment(element)
-  node = _from_element(element)
   try:
-    validate(node)
+    return model_type.model_validate(_attributes(element, model_type) | fields)
   except ValidationError as error:
-    raise TmxSpecError(f"<{element.tag}> at line {element.sourceline}: {error}") from error
-  return node
+    raise TmxSpecError(f"<{qname.localname}> at line {element.sourceline}: {error}") from error
 
 
-def _from_element(element: etree._Element) -> TmxNode:
-  if not isinstance(element.tag, str) or element.tag.startswith("{"):
-    raise TmxSpecError(f"expected a namespace-free TMX element, got {element.tag!r}")
-  try:
-    match element.tag:
-      case "header":
-        # The DTD has already checked the required attributes and the
-        # (note|prop|ude)* child pattern.
-        return Header.model_validate(
-          _attributes(element, Header) | {"metadata": tuple(_from_element(child) for child in child_elements(element))}
-        )
-      case "tu":
-        children = tuple(child_elements(element))
-        # The DTD has already checked ((note|prop)*, tuv+): metadata first,
-        # then the variants, so document order survives the split.
-        return TranslationUnit.model_validate(
-          _attributes(element, TranslationUnit)
-          | {
-            "metadata": tuple(_from_element(child) for child in children if child.tag in ("note", "prop")),
-            "variants": tuple(_from_element(child) for child in children if child.tag == "tuv"),
-          }
-        )
-      case "tuv":
-        children = tuple(child_elements(element))
-        # The DTD has already checked ((note|prop)*, seg), so the single
-        # <seg> exists and follows the metadata.
-        (segment,) = (child for child in children if child.tag == "seg")
-        return TranslationUnitVariant.model_validate(
-          _attributes(element, TranslationUnitVariant)
-          | {
-            "metadata": tuple(_from_element(child) for child in children if child.tag in ("note", "prop")),
-            "content": _parse_content(segment),
-          }
-        )
-      case "note":
-        return Note.model_validate(_attributes(element, Note) | {"text": read_text(element)})
-      case "prop":
-        return Property.model_validate(_attributes(element, Property) | {"text": read_text(element)})
-      case "ude":
-        # The DTD has already checked map+.
-        return Ude.model_validate(
-          _attributes(element, Ude) | {"maps": tuple(_from_element(child) for child in child_elements(element))}
-        )
-      case "map":
-        return Map.model_validate(_attributes(element, Map))
-      case "seg" | "tmx" | "body":
-        raise TmxSpecError(
-          f"<{element.tag}> has no standalone domain model: project a <tuv>, <header>, or <tu> fragment instead"
-        )
-      case "bpt":
-        return Bpt.model_validate(_attributes(element, Bpt) | {"content": _parse_content(element)})
-      case "ept":
-        return Ept.model_validate(_attributes(element, Ept) | {"content": _parse_content(element)})
-      case "it":
-        return It.model_validate(_attributes(element, It) | {"content": _parse_content(element)})
-      case "ph":
-        return Ph.model_validate(_attributes(element, Ph) | {"content": _parse_content(element)})
-      case "hi":
-        return Hi.model_validate(_attributes(element, Hi) | {"content": _parse_content(element)})
-      case "ut":
-        return Ut.model_validate(_attributes(element, Ut) | {"content": _parse_content(element)})
-      case "sub":
-        return Sub.model_validate(_attributes(element, Sub) | {"content": _parse_content(element)})
-      case _:
-        raise TmxSpecError(f"<{element.tag}> is not a TMX 1.4b element")
-  except ValidationError as error:
-    raise TmxSpecError(f"<{element.tag}> at line {element.sourceline}: {error}") from error
+def note_from_element(element: etree._Element) -> Note:
+  """A ``<note>``: its attributes plus its text."""
+  return _project(element, Note, {"text": read_text(element)})
 
 
-def _parse_content(element: etree._Element) -> tuple[str | TmxNode, ...]:
-  return tuple(item if isinstance(item, str) else _from_element(item) for item in read_mixed_content(element))
+def prop_from_element(element: etree._Element) -> Property:
+  """A ``<prop>``: its attributes plus its text."""
+  return _project(element, Property, {"text": read_text(element)})
+
+
+def map_from_element(element: etree._Element) -> Map:
+  """A ``<map>``: attributes only, not even formatting whitespace."""
+  return _project(element, Map, {})
+
+
+def ude_from_element(element: etree._Element) -> Ude:
+  """A ``<ude>``: its attributes plus its ``<map>`` children."""
+  return _project(element, Ude, {"maps": [from_element(child) for child in child_elements(element)]})
+
+
+def header_from_element(element: etree._Element) -> Header:
+  """A ``<header>``: its attributes plus its metadata children."""
+  return _project(element, Header, {"metadata": [from_element(child) for child in child_elements(element)]})
+
+
+def tu_from_element(element: etree._Element) -> TranslationUnit:
+  """A ``<tu>``: its attributes, its metadata children, then its
+  variants -- document order survives the split."""
+  children = list(child_elements(element))
+  return _project(
+    element,
+    TranslationUnit,
+    {
+      "metadata": [from_element(child) for child in children if child.tag in ("note", "prop")],
+      "variants": [from_element(child) for child in children if child.tag == "tuv"],
+    },
+  )
+
+
+def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
+  """A ``<tuv>``: its attributes, its metadata children, and its
+  content -- the DTD's single ``<seg>`` is the content wrapper."""
+  children = list(child_elements(element))
+  (segment,) = (child for child in children if child.tag == "seg")
+  return _project(
+    element,
+    TranslationUnitVariant,
+    {
+      "metadata": [from_element(child) for child in children if child.tag in ("note", "prop")],
+      "content": _parse_content(segment),
+    },
+  )
+
+
+def bpt_from_element(element: etree._Element) -> Bpt:
+  """A ``<bpt>``: its attributes plus its mixed content."""
+  return _project(element, Bpt, {"content": _parse_content(element)})
+
+
+def ept_from_element(element: etree._Element) -> Ept:
+  """An ``<ept>``: its attributes plus its mixed content."""
+  return _project(element, Ept, {"content": _parse_content(element)})
+
+
+def it_from_element(element: etree._Element) -> It:
+  """An ``<it>``: its attributes plus its mixed content."""
+  return _project(element, It, {"content": _parse_content(element)})
+
+
+def ph_from_element(element: etree._Element) -> Ph:
+  """A ``<ph>``: its attributes plus its mixed content."""
+  return _project(element, Ph, {"content": _parse_content(element)})
+
+
+def hi_from_element(element: etree._Element) -> Hi:
+  """A ``<hi>``: its attributes plus its mixed content."""
+  return _project(element, Hi, {"content": _parse_content(element)})
+
+
+def ut_from_element(element: etree._Element) -> Ut:
+  """A ``<ut>``: its attributes plus its mixed content."""
+  return _project(element, Ut, {"content": _parse_content(element)})
+
+
+def sub_from_element(element: etree._Element) -> Sub:
+  """A ``<sub>``: its attributes plus its mixed content."""
+  return _project(element, Sub, {"content": _parse_content(element)})
+
+
+def from_element(element: etree._Element) -> TmxNode:
+  """Project any TMX element, dispatching on its tag's local name.
+
+  Convenience for callers that hold a bare element; the per-node
+  functions each gate their own fragment on the DTD, so this dispatcher
+  adds no checks of its own beyond the name guard.
+  """
+  qname = _element_qname(element)
+  match qname.localname:
+    case "header":
+      return header_from_element(element)
+    case "tu":
+      return tu_from_element(element)
+    case "tuv":
+      return tuv_from_element(element)
+    case "note":
+      return note_from_element(element)
+    case "prop":
+      return prop_from_element(element)
+    case "ude":
+      return ude_from_element(element)
+    case "map":
+      return map_from_element(element)
+    case "bpt":
+      return bpt_from_element(element)
+    case "ept":
+      return ept_from_element(element)
+    case "it":
+      return it_from_element(element)
+    case "ph":
+      return ph_from_element(element)
+    case "hi":
+      return hi_from_element(element)
+    case "ut":
+      return ut_from_element(element)
+    case "sub":
+      return sub_from_element(element)
+    case "seg" | "tmx" | "body":
+      raise TmxSpecError(
+        f"<{qname.localname}> has no standalone domain model: project a <tuv>, <header>, or <tu> fragment instead"
+      )
+    case _:
+      raise TmxSpecError(f"<{qname.localname}> is not a TMX 1.4b element")
+
+
+def _parse_content(element: etree._Element) -> list[str | TmxNode]:
+  return [item if isinstance(item, str) else from_element(item) for item in read_mixed_content(element)]

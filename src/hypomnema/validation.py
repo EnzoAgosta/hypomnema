@@ -87,6 +87,7 @@ __all__ = [
   "validate_header",
   "validate_hi",
   "validate_it",
+  "validate_map",
   "validate_note",
   "validate_ph",
   "validate_property",
@@ -822,6 +823,13 @@ def validate_header(header: Header) -> None:
   session = _Session()
   _validate_header(header, session, NodePath())
   session.finish("Header")
+
+
+def validate_map(map_node: Map) -> None:
+  """Validate a :class:`Map`; see :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_map(map_node, session, NodePath())
+  session.finish("Map")
 
 
 def validate_note(note: Note) -> None:

@@ -10,7 +10,6 @@ from lxml import etree
 
 from ..errors import TmxSpecError
 
-
 type XmlContentItem = str | etree._Element
 
 
