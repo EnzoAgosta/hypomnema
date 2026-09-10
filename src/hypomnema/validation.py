@@ -26,7 +26,8 @@ e.g. ``metadata[2].maps[0].code``.
 Field checks stop at the first failure per field -- a wrong type is not
 followed by value checks of that same value -- and untyped/foreign
 children are reported once as ``TmxFieldTypeError`` rather than cascading
-into their innards.
+into their innards. Errors and advisories are reported in field
+traversal order: top-level fields first, then children depth-first.
 """
 
 import codecs
@@ -249,7 +250,7 @@ def _validate_header(header: object, session: _Session, path: NodePath) -> None:
   if not isinstance(header, Header):
     session.error(TmxFieldTypeError(path, header, Header))
     return
-  _check_element(session, path, header.element, "header")
+  _check_element(session, path / "element", header.element, "header")
   _check_str(session, path / "creationtool", header.creationtool)
   _check_str(session, path / "creationtoolversion", header.creationtoolversion)
   _check_segtype(session, path / "segtype", header.segtype)
@@ -283,7 +284,7 @@ def _validate_note(note: object, session: _Session, path: NodePath) -> None:
   if not isinstance(note, Note):
     session.error(TmxFieldTypeError(path, note, Note))
     return
-  _check_element(session, path, note.element, "note")
+  _check_element(session, path / "element", note.element, "note")
   _check_optional(session, path / "o_encoding", note.o_encoding, _check_encoding_name)
   _check_optional(session, path / "xml_lang", note.xml_lang, _check_language_tag)
   _check_optional(session, path / "lang", note.lang, _check_deprecated_lang)
@@ -294,7 +295,7 @@ def _validate_property(property_node: object, session: _Session, path: NodePath)
   if not isinstance(property_node, Property):
     session.error(TmxFieldTypeError(path, property_node, Property))
     return
-  _check_element(session, path, property_node.element, "prop")
+  _check_element(session, path / "element", property_node.element, "prop")
   _check_str(session, path / "type", property_node.type)
   _check_optional(session, path / "xml_lang", property_node.xml_lang, _check_language_tag)
   _check_optional(session, path / "o_encoding", property_node.o_encoding, _check_encoding_name)
@@ -306,7 +307,7 @@ def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
   if not isinstance(map_node, Map):
     session.error(TmxFieldTypeError(path, map_node, Map))
     return
-  _check_element(session, path, map_node.element, "map")
+  _check_element(session, path / "element", map_node.element, "map")
   _check_unicode_scalar(session, path / "unicode", map_node.unicode)
   _check_optional(session, path / "code", map_node.code, _check_unsigned_integer)
   _check_optional(session, path / "ent", map_node.ent, _check_ascii_text)
@@ -317,7 +318,7 @@ def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
   if not isinstance(ude, Ude):
     session.error(TmxFieldTypeError(path, ude, Ude))
     return
-  _check_element(session, path, ude.element, "ude")
+  _check_element(session, path / "element", ude.element, "ude")
   _check_str(session, path / "name", ude.name)
   _check_optional(session, path / "base", ude.base, _check_encoding_name)
   _check_list(session, path / "maps", ude.maps, _validate_map, minimum=1)
