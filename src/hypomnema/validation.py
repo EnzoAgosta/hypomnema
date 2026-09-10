@@ -28,6 +28,12 @@ followed by value checks of that same value -- and untyped/foreign
 children are reported once as ``TmxFieldTypeError`` rather than cascading
 into their innards. Errors and advisories are reported in field
 traversal order: top-level fields first, then children depth-first.
+
+The variant and inline validators (``<tuv>``, ``<bpt>``, ``<ept>``,
+``<it>``, ``<ph>``, ``<hi>``, ``<ut>``, ``<sub>``) currently check type
+validity and structure only: the cross-field contract rules (bpt/ept
+pairing, ``x`` matching) and the deprecation advisories for the legacy
+``lang`` on ``<tuv>`` and for ``<ut>`` ride on the translation-unit pass.
 """
 
 import codecs
@@ -47,9 +53,22 @@ from .errors import (
   TmxFieldValueError,
   TmxWarning,
 )
-from .models import Header, Map, Note, Property, Ude
+from .models import Bpt, Ept, Header, Hi, It, Map, Note, Ph, Property, Sub, TranslationUnitVariant, Ude, Ut
 
-__all__ = ["validate_header", "validate_note", "validate_property", "validate_ude"]
+__all__ = [
+  "validate_bpt",
+  "validate_ept",
+  "validate_header",
+  "validate_hi",
+  "validate_it",
+  "validate_note",
+  "validate_ph",
+  "validate_property",
+  "validate_sub",
+  "validate_translation_unit_variant",
+  "validate_ude",
+  "validate_ut",
+]
 
 
 class _Session:
@@ -60,17 +79,27 @@ class _Session:
   returns quietly, however many advisories were gathered.
   """
 
-  __slots__ = ("errors", "warnings")
+  __slots__ = ("ancestors", "errors", "warnings")
 
   def __init__(self) -> None:
     self.errors: list[TmxFieldError] = []
     self.warnings: list[TmxAdvisory] = []
+    # ``id()`` of the content nodes on the current descent path. A node
+    # whose id is here while the walk is still inside it is its own
+    # ancestor: a cycle. A node seen elsewhere in the tree is fine.
+    self.ancestors: list[int] = []
 
   def error(self, error: TmxFieldError) -> None:
     self.errors.append(error)
 
   def warn(self, advisory: TmxAdvisory) -> None:
     self.warnings.append(advisory)
+
+  def descend(self, node: object) -> None:
+    self.ancestors.append(id(node))
+
+  def ascend(self) -> None:
+    self.ancestors.pop()
 
   def finish(self, node_name: str) -> None:
     """Raise the group if errors were gathered, advisories attached;
@@ -83,6 +112,15 @@ type _FieldCheck = Callable[[_Session, NodePath, object], None]
 """What an optional-field check looks like: session, path, unknown value."""
 
 _SEGMENT_TYPES = ("block", "paragraph", "sentence", "phrase")
+_POSITIONS = ("begin", "end")
+_ASSOCIATIONS = ("p", "f", "b")
+_MAX_CONTENT_NESTING = 64
+"""The most nesting levels of inline content one pass will walk.
+
+Each nesting level (e.g. ``<bpt>`` → ``<sub>`` → ``<hi>`` → ``<bpt>``)
+adds exactly two ``NodePath`` segments; a legal document never gets near
+this bound, and a pathological one is reported rather than walked into
+a raw ``RecursionError``."""
 
 
 # Predicates shared by checkers and cross-field rules. Field rules consult
@@ -193,12 +231,24 @@ def _check_srclang(session: _Session, path: NodePath, value: object) -> None:
   _check_language_tag(session, path, value)
 
 
-def _check_segtype(session: _Session, path: NodePath, value: object) -> None:
+def _check_one_of(session: _Session, path: NodePath, value: object, allowed: tuple[str, ...]) -> None:
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
-  if value not in _SEGMENT_TYPES:
-    session.error(TmxFieldValueError(path, value, f"expected one of {', '.join(map(repr, _SEGMENT_TYPES))}"))
+  if value not in allowed:
+    session.error(TmxFieldValueError(path, value, f"expected one of {', '.join(map(repr, allowed))}"))
+
+
+def _check_segtype(session: _Session, path: NodePath, value: object) -> None:
+  _check_one_of(session, path, value, _SEGMENT_TYPES)
+
+
+def _check_position(session: _Session, path: NodePath, value: object) -> None:
+  _check_one_of(session, path, value, _POSITIONS)
+
+
+def _check_association(session: _Session, path: NodePath, value: object) -> None:
+  _check_one_of(session, path, value, _ASSOCIATIONS)
 
 
 def _check_encoding_name(session: _Session, path: NodePath, value: object) -> None:
@@ -250,6 +300,13 @@ def _validate_header(header: object, session: _Session, path: NodePath) -> None:
   if not isinstance(header, Header):
     session.error(TmxFieldTypeError(path, header, Header))
     return
+  if not _check_required_fields(
+    session,
+    path,
+    header,
+    ("creationtool", "creationtoolversion", "segtype", "o_tmf", "adminlang", "srclang", "datatype"),
+  ):
+    return
   _check_element(session, path / "element", header.element, "header")
   _check_str(session, path / "creationtool", header.creationtool)
   _check_str(session, path / "creationtoolversion", header.creationtoolversion)
@@ -295,6 +352,8 @@ def _validate_property(property_node: object, session: _Session, path: NodePath)
   if not isinstance(property_node, Property):
     session.error(TmxFieldTypeError(path, property_node, Property))
     return
+  if not _check_required_fields(session, path, property_node, ("type",)):
+    return
   _check_element(session, path / "element", property_node.element, "prop")
   _check_str(session, path / "type", property_node.type)
   _check_optional(session, path / "xml_lang", property_node.xml_lang, _check_language_tag)
@@ -307,6 +366,8 @@ def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
   if not isinstance(map_node, Map):
     session.error(TmxFieldTypeError(path, map_node, Map))
     return
+  if not _check_required_fields(session, path, map_node, ("unicode",)):
+    return
   _check_element(session, path / "element", map_node.element, "map")
   _check_unicode_scalar(session, path / "unicode", map_node.unicode)
   _check_optional(session, path / "code", map_node.code, _check_unsigned_integer)
@@ -317,6 +378,8 @@ def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
 def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
   if not isinstance(ude, Ude):
     session.error(TmxFieldTypeError(path, ude, Ude))
+    return
+  if not _check_required_fields(session, path, ude, ("name", "maps")):
     return
   _check_element(session, path / "element", ude.element, "ude")
   _check_str(session, path / "name", ude.name)
@@ -348,6 +411,219 @@ def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
           path / "maps" / index,
         )
       )
+
+
+# Content-tree dispatchers. A content list mixes plain text with inline
+# elements; each dispatcher validates one item and recurses into nodes.
+# ``<hi>``, ``<sub>``, and ``<tuv>`` hold inline content (any inline
+# element); the paired-content elements (text or ``<sub>``) are
+# ``<bpt>``, ``<ept>``, ``<it>``, ``<ph>``, and ``<ut>``.
+
+
+def _check_content_depth(session: _Session, path: NodePath, node: object) -> bool:
+  """Whether the walk may descend into this content item: cyclic content
+  (a node containing itself, planted via ``model_construct``) would
+  otherwise recurse until a raw ``RecursionError`` escapes the pass.
+  Each nesting level adds exactly two ``NodePath`` segments."""
+  if len(path.segments) < 2 * _MAX_CONTENT_NESTING:
+    return True
+  session.error(TmxContractError(path, node, f"content nested deeper than {_MAX_CONTENT_NESTING} levels"))
+  return False
+
+
+def _check_required_fields(session: _Session, path: NodePath, node: object, names: tuple[str, ...]) -> bool:
+  """A node built through ``model_construct`` may lack required fields
+  entirely (nothing injects their values); report each one instead of
+  crashing the pass with a raw attribute error."""
+  missing = [name for name in names if not hasattr(node, name)]
+  for name in missing:
+    session.error(
+      TmxContractError(
+        path / name,
+        None,
+        "required field is missing (the node was not built at the entry boundary)",
+      )
+    )
+  return not missing
+
+
+def _check_content_acyclic(session: _Session, path: NodePath, node: object) -> bool:
+  """Whether the walk may descend into this content node: a node whose
+  ``id()`` is on the current descent path is its own ancestor, a cycle
+  that ``hi.content.append(hi)`` can plant through ``model_construct``
+  (XML cannot express one). The walk breaks there instead of recursing
+  into a raw ``RecursionError``. A node seen elsewhere in the tree is
+  not a cycle and stays legal."""
+  if id(node) not in session.ancestors:
+    return True
+  session.error(TmxContractError(path, node, "cyclic content: this element is its own ancestor"))
+  return False
+
+
+def _validate_inline_content_node(node: object, session: _Session, path: NodePath) -> None:
+  """One item of a ``list[InlineNodeOrStr]``: text or any inline element."""
+  if not _check_content_depth(session, path, node):
+    return
+  if isinstance(node, str):
+    return
+  if not _check_content_acyclic(session, path, node):
+    return
+  session.descend(node)
+  try:
+    match node:
+      case Bpt():
+        _validate_bpt(node, session, path)
+      case Ept():
+        _validate_ept(node, session, path)
+      case It():
+        _validate_it(node, session, path)
+      case Ph():
+        _validate_ph(node, session, path)
+      case Hi():
+        _validate_hi(node, session, path)
+      case Ut():
+        _validate_ut(node, session, path)
+      case _:
+        session.error(TmxFieldTypeError(path, node, (str, Bpt, Ept, Ph, It, Hi, Ut)))
+  finally:
+    session.ascend()
+
+
+def _validate_sub_content_node(node: object, session: _Session, path: NodePath) -> None:
+  """One item of a ``list[SubOrStr]``: text or a ``<sub>`` element."""
+  if not _check_content_depth(session, path, node):
+    return
+  if isinstance(node, str):
+    return
+  if not _check_content_acyclic(session, path, node):
+    return
+  session.descend(node)
+  try:
+    match node:
+      case Sub():
+        _validate_sub(node, session, path)
+      case _:
+        session.error(TmxFieldTypeError(path, node, (str, Sub)))
+  finally:
+    session.ascend()
+
+
+def _validate_tuv_metadata_node(node: object, session: _Session, path: NodePath) -> None:
+  """Dispatches one ``<tuv>`` metadata child: a ``<tuv>`` may not hold a
+  ``<ude>``."""
+  match node:
+    case Note():
+      _validate_note(node, session, path)
+    case Property():
+      _validate_property(node, session, path)
+    case _:
+      session.error(TmxFieldTypeError(path, node, (Note, Property)))
+
+
+# The variant and inline nodes.
+
+
+def _validate_translation_unit_variant(tuv: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(tuv, TranslationUnitVariant):
+    session.error(TmxFieldTypeError(path, tuv, TranslationUnitVariant))
+    return
+  if not _check_required_fields(session, path, tuv, ("xml_lang",)):
+    return
+  _check_element(session, path / "element", tuv.element, "tuv")
+  _check_language_tag(session, path / "xml_lang", tuv.xml_lang)
+  _check_optional(session, path / "o_encoding", tuv.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "datatype", tuv.datatype, _check_str)
+  _check_optional(session, path / "usagecount", tuv.usagecount, _check_unsigned_integer)
+  _check_optional(session, path / "lastusagedate", tuv.lastusagedate, _check_datetime)
+  _check_optional(session, path / "creationtool", tuv.creationtool, _check_str)
+  _check_optional(session, path / "creationtoolversion", tuv.creationtoolversion, _check_str)
+  _check_optional(session, path / "creationdate", tuv.creationdate, _check_datetime)
+  _check_optional(session, path / "creationid", tuv.creationid, _check_str)
+  _check_optional(session, path / "changedate", tuv.changedate, _check_datetime)
+  _check_optional(session, path / "o_tmf", tuv.o_tmf, _check_str)
+  _check_optional(session, path / "changeid", tuv.changeid, _check_str)
+  # The legacy-lang deprecation advisory rides on the translation-unit
+  # pass; the field itself is validated now.
+  _check_optional(session, path / "lang", tuv.lang, _check_language_tag)
+  _check_list(session, path / "metadata", tuv.metadata, _validate_tuv_metadata_node)
+  _check_list(session, path / "content", tuv.content, _validate_inline_content_node)
+
+
+def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(sub, Sub):
+    session.error(TmxFieldTypeError(path, sub, Sub))
+    return
+  _check_element(session, path / "element", sub.element, "sub")
+  _check_optional(session, path / "datatype", sub.datatype, _check_str)
+  _check_optional(session, path / "type", sub.type, _check_str)
+  _check_list(session, path / "content", sub.content, _validate_inline_content_node)
+
+
+def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(bpt, Bpt):
+    session.error(TmxFieldTypeError(path, bpt, Bpt))
+    return
+  if not _check_required_fields(session, path, bpt, ("i",)):
+    return
+  _check_element(session, path / "element", bpt.element, "bpt")
+  _check_unsigned_integer(session, path / "i", bpt.i)
+  _check_optional(session, path / "x", bpt.x, _check_unsigned_integer)
+  _check_optional(session, path / "type", bpt.type, _check_str)
+  _check_list(session, path / "content", bpt.content, _validate_sub_content_node)
+
+
+def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(ept, Ept):
+    session.error(TmxFieldTypeError(path, ept, Ept))
+    return
+  if not _check_required_fields(session, path, ept, ("i",)):
+    return
+  _check_element(session, path / "element", ept.element, "ept")
+  _check_unsigned_integer(session, path / "i", ept.i)
+  _check_list(session, path / "content", ept.content, _validate_sub_content_node)
+
+
+def _validate_it(it: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(it, It):
+    session.error(TmxFieldTypeError(path, it, It))
+    return
+  if not _check_required_fields(session, path, it, ("pos",)):
+    return
+  _check_element(session, path / "element", it.element, "it")
+  _check_position(session, path / "pos", it.pos)
+  _check_optional(session, path / "x", it.x, _check_unsigned_integer)
+  _check_optional(session, path / "type", it.type, _check_str)
+  _check_list(session, path / "content", it.content, _validate_sub_content_node)
+
+
+def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(ph, Ph):
+    session.error(TmxFieldTypeError(path, ph, Ph))
+    return
+  _check_element(session, path / "element", ph.element, "ph")
+  _check_optional(session, path / "x", ph.x, _check_unsigned_integer)
+  _check_optional(session, path / "assoc", ph.assoc, _check_association)
+  _check_optional(session, path / "type", ph.type, _check_str)
+  _check_list(session, path / "content", ph.content, _validate_sub_content_node)
+
+
+def _validate_hi(hi: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(hi, Hi):
+    session.error(TmxFieldTypeError(path, hi, Hi))
+    return
+  _check_element(session, path / "element", hi.element, "hi")
+  _check_optional(session, path / "x", hi.x, _check_unsigned_integer)
+  _check_optional(session, path / "type", hi.type, _check_str)
+  _check_list(session, path / "content", hi.content, _validate_inline_content_node)
+
+
+def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
+  if not isinstance(ut, Ut):
+    session.error(TmxFieldTypeError(path, ut, Ut))
+    return
+  _check_element(session, path / "element", ut.element, "ut")
+  _check_optional(session, path / "x", ut.x, _check_unsigned_integer)
+  _check_list(session, path / "content", ut.content, _validate_sub_content_node)
 
 
 def validate_header(header: Header) -> None:
@@ -386,3 +662,69 @@ def validate_ude(ude: Ude) -> None:
   session = _Session()
   _validate_ude(ude, session, NodePath())
   session.finish("Ude")
+
+
+def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
+  """Validate a :class:`TranslationUnitVariant` and its whole content
+  tree. See :func:`validate_header` for semantics; the legacy-``lang``
+  deprecation advisory rides on the translation-unit pass."""
+  session = _Session()
+  _validate_translation_unit_variant(tuv, session, NodePath())
+  session.finish("TranslationUnitVariant")
+
+
+def validate_bpt(bpt: Bpt) -> None:
+  """Validate a :class:`Bpt` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_bpt(bpt, session, NodePath())
+  session.finish("Bpt")
+
+
+def validate_ept(ept: Ept) -> None:
+  """Validate an :class:`Ept` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_ept(ept, session, NodePath())
+  session.finish("Ept")
+
+
+def validate_it(it: It) -> None:
+  """Validate an :class:`It` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_it(it, session, NodePath())
+  session.finish("It")
+
+
+def validate_ph(ph: Ph) -> None:
+  """Validate a :class:`Ph` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_ph(ph, session, NodePath())
+  session.finish("Ph")
+
+
+def validate_hi(hi: Hi) -> None:
+  """Validate a :class:`Hi` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_hi(hi, session, NodePath())
+  session.finish("Hi")
+
+
+def validate_ut(ut: Ut) -> None:
+  """Validate a :class:`Ut` and its content tree; the ``<ut>``
+  deprecation advisory rides on the translation-unit pass; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_ut(ut, session, NodePath())
+  session.finish("Ut")
+
+
+def validate_sub(sub: Sub) -> None:
+  """Validate a :class:`Sub` and its content tree; see
+  :func:`validate_header` for semantics."""
+  session = _Session()
+  _validate_sub(sub, session, NodePath())
+  session.finish("Sub")
