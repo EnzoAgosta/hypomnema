@@ -1,4 +1,5 @@
-"""Enums, Annotated value aliases, parse/format functions.
+"""Value-layer coercion: parse/format functions for the Annotated value
+aliases in ``models.py``.
 
 Value aliases are public Pydantic functional metadata so a value is honestly
 its Python type: a ``TMXDatetime`` is a ``datetime``. BeforeValidators accept
@@ -7,9 +8,6 @@ Pydantic surfaces rejections as ``ValidationError`` with the cause retained;
 no parser raises ``TypeError``, which Pydantic would not catch. Serializers
 split Python from JSON: ``model_dump()`` keeps native values, JSON mode and
 XML output share one string formatter per type (``when_used="json"``).
-
-Language-tag validation lives in ``bcp47.py`` (grammar-only, RFC 5646) and is
-used here through its ``validate_well_formed_language_tag``.
 """
 
 import codecs
@@ -17,7 +15,6 @@ import warnings
 from datetime import UTC, date, datetime, timedelta
 from string import digits, hexdigits
 
-from .bcp47 import validate_well_formed_language_tag
 from .errors import TmxWarning
 
 
@@ -36,13 +33,6 @@ def warn_unknown_encoding(value: str) -> str:
       TmxWarning,
     )
   return value
-
-
-def warn_map_without_target(code: int | None, ent: str | None, subst: str | None) -> None:
-  """The spec recommends at least one of ``code``, ``ent``, ``subst`` on a
-  ``<map>`` -- a soft "should", so this warns instead of rejecting."""
-  if code is None and ent is None and subst is None:
-    warnings.warn("a <map> should specify at least one of code, ent, or subst", TmxWarning)
 
 
 def parse_integer(value: object) -> int:
@@ -150,18 +140,6 @@ def validate_tuid(value: str) -> str:
   if any(character.isspace() for character in value):
     raise ValueError(f"expected a string without whitespace, got {value!r}")
   return value
-
-
-def validate_source_language(value: str) -> str:
-  """Check a ``srclang`` value: a language tag or ``*all*``.
-
-  The spec makes ``srclang`` values case-insensitive, so ``*ALL*`` is
-  normalized to the canonical ``*all*``; language tags keep their
-  spelling.
-  """
-  if value.lower() == "*all*":
-    return "*all*"
-  return validate_well_formed_language_tag(value)
 
 
 def parse_hex_integer(value: object) -> int:

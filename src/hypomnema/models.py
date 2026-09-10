@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer
 
 from hypomnema.bcp47 import validate_well_formed_language_tag
-from hypomnema.validators import (
+from hypomnema.coercion import (
   format_datetime,
   format_hex_integer,
   parse_datetime,
