@@ -22,7 +22,6 @@ import pytest
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from hypomnema.coercion import format_datetime, format_hex_integer, parse_datetime, parse_hex_integer, parse_integer
-from hypomnema.errors import TmxWarning
 from hypomnema.models import (
   AsciiText,
   Association,
@@ -396,16 +395,13 @@ def test_source_language_rejects_non_values(value: object) -> None:
     SOURCE_LANGUAGE.validate_python(value)
 
 
-@pytest.mark.parametrize("name", ["UTF-8", "Shift_JIS", "ISO-8859-1"])
-def test_known_encoding_does_not_warn(name: str) -> None:
+@pytest.mark.parametrize("name", ["UTF-8", "Shift_JIS", "madeup-charset", "x-vendor", ""])
+def test_encoding_accepts_any_string_silently(name: str) -> None:
+  """The entry boundary is purely coercing: any string passes, unknown
+  names included, with no warning side effect -- the unknown-encoding
+  advisory is validation's job, gathered once at validation time."""
   with warnings.catch_warnings():
     warnings.simplefilter("error")
-    assert ENCODING.validate_python(name) == name
-
-
-@pytest.mark.parametrize("name", ["madeup-charset", "x-vendor", ""])
-def test_unknown_encoding_warns_and_keeps_the_value(name: str) -> None:
-  with pytest.warns(TmxWarning, match="not recognized"):
     assert ENCODING.validate_python(name) == name
 
 

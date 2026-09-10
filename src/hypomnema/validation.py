@@ -329,7 +329,9 @@ def _check_bpt_ept_pairing(flow: _Flow, session: _Session) -> None:
 def _check_encoding_name(session: _Session, path: NodePath, value: object) -> None:
   """An encoding name: typed as ``str``; unknown to Python's codecs is an
   advisory, not an error -- the spec recommends IANA charset identifiers
-  but only as a soft "if possible"."""
+  but only as a soft "if possible". This is the advisory's single home:
+  the entry boundary accepts any string silently, so a document is
+  nudged once, at validation time."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return

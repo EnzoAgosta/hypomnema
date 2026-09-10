@@ -456,8 +456,12 @@ def test_integers_take_decimal_strings_and_serialize_as_strings() -> None:
   assert '"usagecount":"3"' in variant.model_dump_json()
 
 
-def test_unknown_encoding_names_warn_but_are_kept() -> None:
-  with pytest.warns(TmxWarning):
+def test_unknown_encoding_names_are_kept_silently() -> None:
+  """The entry boundary is purely coercing: any encoding name is kept,
+  no warning is emitted here -- the unknown-encoding advisory is
+  gathered once, at validation time."""
+  with warnings.catch_warnings():
+    warnings.simplefilter("error")
     header = make_header(o_encoding="x-unknown")
   assert header.o_encoding == "x-unknown"
 

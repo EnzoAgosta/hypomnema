@@ -14,11 +14,10 @@ from hypomnema.coercion import (
   validate_ascii,
   validate_tuid,
   validate_unicode_scalar,
-  warn_unknown_encoding,
 )
 
 type LanguageTag = Annotated[str, AfterValidator(validate_well_formed_language_tag)]
-type EncodingName = Annotated[str, BeforeValidator(warn_unknown_encoding)]
+type EncodingName = str
 type HexInteger = Annotated[
   int, BeforeValidator(parse_hex_integer), PlainSerializer(format_hex_integer, return_type=str, when_used="json")
 ]
