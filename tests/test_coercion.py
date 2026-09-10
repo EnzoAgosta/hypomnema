@@ -1,5 +1,5 @@
-"""Value contracts from the review: unsigned numbers, the ValidationError
-boundary, and fromisoformat-bounded datetimes (GAPS #1-3).
+"""Value contracts of the coercion layer: unsigned numbers, the
+ValidationError boundary, and fromisoformat-bounded datetimes.
 
 Expectations are explicit examples with asserted values, not echoes of the
 implementation's own round trips. The datetime examples derive their
@@ -7,10 +7,16 @@ boundaries from datetime.fromisoformat's measured behavior on Python 3.14
 (date-only detection, any-character separator, 24:00 normalization,
 sub-microsecond truncation, offsets with seconds), not from a re-reading of
 ISO 8601: the policy is deliberately bounded to that parser.
+
+Every adapter is built from an alias imported from ``models.py`` -- the
+same object the field annotations use, so an adapter cannot drift from the
+field it mirrors. An alias that does not exist yet is a reason to create
+one, not to hand-build the annotation here.
 """
+
 import warnings
 from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
@@ -19,12 +25,15 @@ from hypomnema.coercion import format_datetime, format_hex_integer, parse_dateti
 from hypomnema.errors import TmxWarning
 from hypomnema.models import (
   AsciiText,
+  Association,
   Datetime,
   EncodingName,
   HexInteger,
   Integer,
   LanguageTag,
+  Position,
   SegType,
+  SourceLanguage,
   Tuid,
   UnicodeCodePoint,
 )
@@ -37,11 +46,11 @@ HEX_INTEGER = TypeAdapter(HexInteger, config=STRICT)
 CODE_POINT = TypeAdapter(UnicodeCodePoint, config=STRICT)
 IDENTIFIER = TypeAdapter(Tuid, config=STRICT)
 LANGUAGE_TAG = TypeAdapter(LanguageTag, config=STRICT)
-SOURCE_LANGUAGE = TypeAdapter(LanguageTag | Literal["*all*"], config=STRICT)
+SOURCE_LANGUAGE = TypeAdapter(SourceLanguage, config=STRICT)
 ENCODING = TypeAdapter(EncodingName, config=STRICT)
 SEG_TYPE = TypeAdapter(SegType, config=STRICT)
-POS = TypeAdapter(Literal["begin", "end"], config=STRICT)
-ASSOC = TypeAdapter(Literal["p", "b", "f"], config=STRICT)
+POS = TypeAdapter(Position, config=STRICT)
+ASSOC = TypeAdapter(Association, config=STRICT)
 ASCII_TEXT = TypeAdapter(AsciiText, config=STRICT)
 
 
@@ -371,7 +380,7 @@ def test_language_tag_rejects_non_tags(tag: object) -> None:
   ("value", "expected"),
   [
     ("en", "en"),
-    ("zh-Hant", "zh-Hant"),  # language tags keep their spelling
+    ("zh-Hant", "zh-hant"),  # srclang is case-insensitive: normalized to lowercase
     ("*all*", "*all*"),
     ("*ALL*", "*all*"),  # srclang is case-insensitive and normalized
     ("*All*", "*all*"),

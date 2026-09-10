@@ -18,13 +18,30 @@ from string import digits, hexdigits
 from .errors import TmxWarning
 
 
+def lowercase_string(value: object) -> object:
+  """Lowercase a string, leaving anything else untouched.
+
+  A before-validator for case-insensitive fields such as ``srclang``:
+  the value passes through untouched when it is not a string, so the
+  core str check rejects it with a proper ``ValidationError`` --
+  ``str.lower(None)`` would otherwise crash the entry boundary with a
+  raw ``TypeError``.
+  """
+  return value.lower() if isinstance(value, str) else value
+
+
 def warn_unknown_encoding(value: str) -> str:
   """Nudge when an encoding name is unknown to Python's codecs.
 
   The spec recommends IANA charset identifiers for ``o-encoding`` and
   ``<ude base>`` but only as a soft "if possible" -- not enforceable, so
-  this warns and keeps the value instead of rejecting it.
+  this warns and keeps the value instead of rejecting it. Before this
+  validator runs before the core str check, so a non-string is returned
+  untouched and rejected by pydantic itself; codecs.lookup would
+  otherwise crash with a raw ``TypeError`` at the entry boundary.
   """
+  if not isinstance(value, str):
+    return value
   try:
     codecs.lookup(value)
   except LookupError:

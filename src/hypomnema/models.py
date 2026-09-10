@@ -7,6 +7,7 @@ from hypomnema.bcp47 import validate_well_formed_language_tag
 from hypomnema.coercion import (
   format_datetime,
   format_hex_integer,
+  lowercase_string,
   parse_datetime,
   parse_hex_integer,
   parse_integer,
@@ -24,6 +25,9 @@ type HexInteger = Annotated[
 type UnicodeCodePoint = Annotated[HexInteger, AfterValidator(validate_unicode_scalar)]
 type AsciiText = Annotated[str, AfterValidator(validate_ascii)]
 type SegType = Literal["block", "paragraph", "sentence", "phrase"]
+type Position = Literal["begin", "end"]
+type Association = Literal["p", "f", "b"]
+type SourceLanguage = Annotated[LanguageTag | Literal["*all*"], BeforeValidator(lowercase_string)]
 type Tuid = Annotated[str, AfterValidator(validate_tuid)]
 type Datetime = Annotated[
   datetime, BeforeValidator(parse_datetime), PlainSerializer(format_datetime, return_type=str, when_used="json")
@@ -116,7 +120,7 @@ class Ept(TmxModel):
 
 class It(TmxModel):
   element: Annotated[Literal["it"], Field(default="it", init=False, repr=False, frozen=True)]
-  pos: Literal["begin", "end"]
+  pos: Position
   x: Integer | None = None
   type: str | None = None
   content: Annotated[list[SubOrStr], Field(default_factory=list)]
@@ -125,7 +129,7 @@ class It(TmxModel):
 class Ph(TmxModel):
   element: Annotated[Literal["ph"], Field(default="ph", init=False, repr=False, frozen=True)]
   x: Integer | None = None
-  assoc: Literal["p", "f", "b"] | None = None
+  assoc: Association | None = None
   type: str | None = None
   content: Annotated[list[SubOrStr], Field(default_factory=list)]
 
@@ -156,7 +160,7 @@ class Header(TmxModel):
   segtype: SegType
   o_tmf: str
   adminlang: LanguageTag
-  srclang: Annotated[LanguageTag | Literal["*all*"], BeforeValidator(str.lower)]
+  srclang: SourceLanguage
   datatype: str
   o_encoding: EncodingName | None = None
   creationdate: Datetime | None = None
@@ -208,6 +212,6 @@ class TranslationUnit(TmxModel):
   segtype: SegType | None = None
   changeid: str | None = None
   o_tmf: str | None = None
-  srclang: Annotated[LanguageTag | Literal["*all*"], BeforeValidator(str.lower)]
+  srclang: SourceLanguage
   metadata: Annotated[list[Note | Property], Field(default_factory=list)]
   variants: Annotated[list[TranslationUnitVariant], Field(min_length=1)]
