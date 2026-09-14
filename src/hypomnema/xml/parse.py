@@ -86,9 +86,7 @@ def _project[ModelType: TmxModel](
   qname = _element_qname(element)
   expected_tag = model_type.model_fields["element"].default
   if qname.localname != expected_tag:
-    raise TmxSpecError(
-      f"expected <{expected_tag}>, got <{qname.localname}> at line {element.sourceline}"
-    )
+    raise TmxSpecError(f"expected <{expected_tag}>, got <{qname.localname}> at line {element.sourceline}")
   validate_fragment(element)
   try:
     return model_type.model_validate(_attributes(element, model_type) | fields)
@@ -140,15 +138,11 @@ def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
   content -- the DTD's single ``<seg>`` is the content wrapper."""
   qname = _element_qname(element)
   if qname.localname != "tuv":
-    raise TmxSpecError(
-      f"expected <tuv>, got <{qname.localname}> at line {element.sourceline}"
-    )
+    raise TmxSpecError(f"expected <tuv>, got <{qname.localname}> at line {element.sourceline}")
   children = list(child_elements(element))
   segments = [child for child in children if child.tag == "seg"]
   if len(segments) != 1:
-    raise TmxSpecError(
-      f"<tuv> at line {element.sourceline}: expected exactly one <seg>, got {len(segments)}"
-    )
+    raise TmxSpecError(f"<tuv> at line {element.sourceline}: expected exactly one <seg>, got {len(segments)}")
   return _project(
     element,
     TranslationUnitVariant,
