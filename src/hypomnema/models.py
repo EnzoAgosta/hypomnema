@@ -211,6 +211,6 @@ class TranslationUnit(TmxModel):
   segtype: SegType | None = None
   changeid: str | None = None
   o_tmf: str | None = None
-  srclang: SourceLanguage
+  srclang: SourceLanguage | None = None
   metadata: Annotated[list[Note | Property], Field(default_factory=list)]
   variants: Annotated[list[TranslationUnitVariant], Field(min_length=1)]

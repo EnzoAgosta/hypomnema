@@ -767,7 +767,7 @@ def _validate_translation_unit(tu: object, session: _Session, path: NodePath) ->
   if not isinstance(tu, TranslationUnit):
     session.error(TmxFieldTypeError(path, tu, TranslationUnit))
     return
-  if not _check_required_fields(session, path, tu, ("srclang", "variants")):
+  if not _check_required_fields(session, path, tu, ("variants",)):
     return
   session.descend(tu)
   _check_element(session, path / "element", tu.element, "tu")
@@ -784,7 +784,7 @@ def _validate_translation_unit(tu: object, session: _Session, path: NodePath) ->
   _check_optional(session, path / "segtype", tu.segtype, _check_segtype)
   _check_optional(session, path / "changeid", tu.changeid, _check_str)
   _check_optional(session, path / "o_tmf", tu.o_tmf, _check_str)
-  _check_srclang(session, path / "srclang", tu.srclang)
+  _check_optional(session, path / "srclang", tu.srclang, _check_srclang)
   _check_list(session, path / "metadata", tu.metadata, _validate_note_or_property_node)
   _check_list(session, path / "variants", tu.variants, _validate_translation_unit_variant, minimum=1)
   # External matching across sibling variants: each variant's set of x
