@@ -2,7 +2,7 @@
 
 import codecs
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from enum import Enum, auto
 from os import PathLike
 from typing import BinaryIO
@@ -15,6 +15,7 @@ from .xml.parse import header_from_element, tu_from_element
 
 type TmxPath = str | bytes | PathLike[str] | PathLike[bytes]
 type TmxSource = TmxPath | BinaryIO
+type TuCreationErrorHook = Callable[[TmxSpecError, etree._Element], TranslationUnit | None]
 
 _XML_DECLARATION_LIMIT = 1024
 _ENCODING_DECLARATION = re.compile(r"[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*(['\"])([A-Za-z][A-Za-z0-9._-]*)\1")
@@ -37,10 +38,13 @@ class TmxReader(Iterator[TranslationUnit]):
 
   Borrowed streams must be binary, seekable, and positioned at byte zero.
   The caller retains ownership and the reader leaves the stream open.
+  ``on_tu_creation_error`` may replace or skip a translation unit whose
+  model projection fails. Its XML element is cleared after the hook returns.
   """
 
-  def __init__(self, source: TmxSource) -> None:
+  def __init__(self, source: TmxSource, *, on_tu_creation_error: TuCreationErrorHook | None = None) -> None:
     self.source = source
+    self.on_tu_creation_error = on_tu_creation_error
     self.header_peek: dict[str, str] | None = None
     self._state = _ReaderState.NEW
     self._source: BinaryIO | None = None
@@ -159,10 +163,17 @@ class TmxReader(Iterator[TranslationUnit]):
       if event == "end" and parent is self._body:
         _require_tag(element, "tu")
         _require_only_xml_whitespace(element.tail, "between <tu> elements")
-        unit = tu_from_element(element)
+        try:
+          unit = tu_from_element(element)
+        except TmxSpecError as error:
+          if self.on_tu_creation_error is None:
+            raise
+          unit = self.on_tu_creation_error(error, element)
         element.clear()
         self._body.remove(element)
-        return unit
+        if unit is not None:
+          return unit
+        continue
 
       if event == "end" and element is self._body:
         self._finish_document()
