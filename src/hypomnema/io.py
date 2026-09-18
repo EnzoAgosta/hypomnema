@@ -13,6 +13,9 @@ from .errors import TmxSpecError
 from .models import Header, TranslationUnit
 from .xml.parse import header_from_element, tu_from_element
 
+type TmxPath = str | bytes | PathLike[str] | PathLike[bytes]
+type TmxSource = TmxPath | BinaryIO
+
 _XML_DECLARATION_LIMIT = 1024
 _ENCODING_DECLARATION = re.compile(r"[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*(['\"])([A-Za-z][A-Za-z0-9._-]*)\1")
 _TMX_ENCODINGS = frozenset({"utf-8", "utf-16", "us-ascii"})
@@ -30,13 +33,18 @@ class _ReaderState(Enum):
 
 
 class TmxReader(Iterator[TranslationUnit]):
-  """A single-pass, bounded-memory reader for a TMX file."""
+  """A single-pass, bounded-memory reader for a TMX path or borrowed stream.
 
-  def __init__(self, path: str | PathLike[str]) -> None:
-    self.path = path
+  Borrowed streams must be binary, seekable, and positioned at byte zero.
+  The caller retains ownership and the reader leaves the stream open.
+  """
+
+  def __init__(self, source: TmxSource) -> None:
+    self.source = source
     self.header_peek: dict[str, str] | None = None
     self._state = _ReaderState.NEW
     self._source: BinaryIO | None = None
+    self._owns_source = False
     self._events: Iterator[tuple[str, etree._Element]] | None = None
     self._root: etree._Element | None = None
     self._header_element: etree._Element | None = None
@@ -46,8 +54,21 @@ class TmxReader(Iterator[TranslationUnit]):
     if self._state is not _ReaderState.NEW:
       raise RuntimeError("a TmxReader can only be entered once")
 
-    self._source = open(self.path, "rb")
+    if isinstance(self.source, (str, bytes, PathLike)):
+      self._source = open(self.source, "rb")
+      self._owns_source = True
+    else:
+      self._source = self.source
+
     try:
+      if not self._owns_source:
+        if not isinstance(self._source.read(0), bytes):
+          raise TypeError("a borrowed TMX stream must be opened in binary mode")
+        if not self._source.seekable():
+          raise ValueError("a borrowed TMX stream must be seekable")
+        if self._source.tell() != 0:
+          raise ValueError("a borrowed TMX stream must be positioned at byte zero")
+
       _validate_document_encoding(self._source)
       self._events = etree.iterparse(
         self._source,
@@ -79,9 +100,10 @@ class TmxReader(Iterator[TranslationUnit]):
     self.close()
 
   def close(self) -> None:
-    if self._source is not None:
+    if self._source is not None and self._owns_source:
       self._source.close()
-      self._source = None
+    self._source = None
+    self._owns_source = False
     self._events = None
     self._root = None
     self._header_element = None
@@ -164,8 +186,10 @@ class TmxReader(Iterator[TranslationUnit]):
       raise TmxSpecError("unexpected content after </tmx>")
 
     assert self._source is not None, "finishing the document requires an open source"
-    self._source.close()
+    if self._owns_source:
+      self._source.close()
     self._source = None
+    self._owns_source = False
     self._events = None
     self._root = None
     self._body = None
