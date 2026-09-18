@@ -69,7 +69,7 @@ MINIMAL_PAYLOADS: dict[str, dict[str, Any]] = {
     "datatype": "txt",
   },
   "tuv": {"element": "tuv", "xml_lang": "en"},
-  "tu": {"element": "tu", "srclang": "*all*", "variants": [{"element": "tuv", "xml_lang": "en"}]},
+  "tu": {"element": "tu", "variants": [{"element": "tuv", "xml_lang": "en"}]},
 }
 
 NODE_CLASSES: dict[str, type[TmxModel]] = {
@@ -108,7 +108,6 @@ REQUIRED_FIELDS = (
   ("header", "datatype"),
   ("tuv", "xml_lang"),
   ("tu", "variants"),
-  ("tu", "srclang"),
 )
 
 # Elements whose ``content`` holds text plus ``<sub>`` only (SubOrStr), and
@@ -213,6 +212,7 @@ def test_optional_fields_default_to_none_or_empty() -> None:
   assert unit.segtype is None
   assert unit.changeid is None
   assert unit.o_tmf is None
+  assert unit.srclang is None
   assert unit.metadata == []
 
 
@@ -502,7 +502,7 @@ def test_ph_assoc_rejects_other_values(assoc: str | None) -> None:
 
 def test_srclang_takes_the_all_literal() -> None:
   assert make_header().srclang == "*all*"
-  assert TranslationUnit.model_validate(MINIMAL_PAYLOADS["tu"]).srclang == "*all*"
+  assert TranslationUnit.model_validate({**MINIMAL_PAYLOADS["tu"], "srclang": "*all*"}).srclang == "*all*"
 
 
 def test_srclang_is_normalized_to_lowercase() -> None:

@@ -999,7 +999,7 @@ def test_deeper_than_the_bound_is_reported(height, leaf_errors):
     (validate_bpt, Bpt.model_construct, ("i",)),
     (validate_ept, Ept.model_construct, ("i",)),
     (validate_it, It.model_construct, ("pos",)),
-    (validate_translation_unit, TranslationUnit.model_construct, ("srclang", "variants")),
+    (validate_translation_unit, TranslationUnit.model_construct, ("variants",)),
   ],
 )
 def test_missing_required_fields_are_reported(validate, empty, required, leaf_errors):
@@ -1372,7 +1372,7 @@ def test_garbage_x_is_excluded_from_external_matching():
 
 
 def test_tu_from_entry_boundary_minimal_validates_clean():
-  validate_translation_unit(TranslationUnit(srclang="en", variants=[TranslationUnitVariant(xml_lang="en")]))
+  validate_translation_unit(TranslationUnit(variants=[TranslationUnitVariant(xml_lang="en")]))
 
 
 @pytest.mark.parametrize(

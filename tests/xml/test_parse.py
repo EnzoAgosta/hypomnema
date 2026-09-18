@@ -344,13 +344,9 @@ def test_dtd_gate_rejects_missing_required_attributes(function, broken):
     function(etree.fromstring(broken))
 
 
-def test_tu_without_srclang_passes_the_dtd_but_not_the_entry_boundary():
-  """The DTD declares srclang #IMPLIED on <tu>, but the model requires
-  it: the entry boundary is stricter than the DTD, and a DTD-valid
-  fragment still fails coercion, with the line attached."""
-  with pytest.raises(TmxSpecError) as excinfo:
-    tu_from_element(etree.fromstring('<tu tuid="1"><tuv xml:lang="en"><seg>x</seg></tuv></tu>'))
-  assert "at line 1" in str(excinfo.value)
+def test_tu_without_srclang_inherits_from_the_header_later():
+  unit = tu_from_element(etree.fromstring('<tu tuid="1"><tuv xml:lang="en"><seg>x</seg></tuv></tu>'))
+  assert unit.srclang is None
 
 
 @pytest.mark.parametrize(
