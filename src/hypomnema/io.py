@@ -1,8 +1,11 @@
 """Streaming TMX input."""
 
+import codecs
+import re
 from collections.abc import Iterator
 from enum import Enum, auto
 from os import PathLike
+from typing import BinaryIO
 
 from lxml import etree
 
@@ -10,12 +13,18 @@ from .errors import TmxSpecError
 from .models import Header, TranslationUnit
 from .xml.parse import header_from_element, tu_from_element
 
+_XML_DECLARATION_LIMIT = 1024
+_ENCODING_DECLARATION = re.compile(r"[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*(['\"])([A-Za-z][A-Za-z0-9._-]*)\1")
+_TMX_ENCODINGS = frozenset({"utf-8", "utf-16", "us-ascii"})
+_UTF32_PREFIXES = tuple("<".encode(encoding) for encoding in ("utf-32-be", "utf-32-le"))
+_UTF16_PREFIXES = tuple("<".encode(encoding) for encoding in ("utf-16-be", "utf-16-le"))
+_EBCDIC_XML_PREFIX = "<?xm".encode("cp037")
+
 
 class _ReaderState(Enum):
   NEW = auto()
-  HEADER_START = auto()
-  BODY_START = auto()
-  ITERATING = auto()
+  HEADER = auto()
+  BODY = auto()
   EXHAUSTED = auto()
   CLOSED = auto()
 
@@ -27,38 +36,39 @@ class TmxReader(Iterator[TranslationUnit]):
     self.path = path
     self.header_peek: dict[str, str] | None = None
     self._state = _ReaderState.NEW
-    self._source = None
+    self._source: BinaryIO | None = None
     self._events: Iterator[tuple[str, etree._Element]] | None = None
     self._root: etree._Element | None = None
     self._header_element: etree._Element | None = None
     self._body: etree._Element | None = None
 
-  def __enter__(self) -> "TmxReader":
+  def __enter__(self) -> TmxReader:
     if self._state is not _ReaderState.NEW:
       raise RuntimeError("a TmxReader can only be entered once")
 
     self._source = open(self.path, "rb")
-    self._events = etree.iterparse(
-      self._source,
-      events=("start", "end"),
-      resolve_entities=False,
-      no_network=True,
-      recover=False,
-      huge_tree=False,
-    )
-
     try:
-      _, root = self._expect_event("start", "tmx")
+      _validate_document_encoding(self._source)
+      self._events = etree.iterparse(
+        self._source,
+        events=("start", "end"),
+        resolve_entities=False,
+        no_network=True,
+        recover=False,
+        huge_tree=False,
+        remove_comments=True,
+        remove_pis=True,
+      )
+
+      root = self._expect_event("start", "tmx")
       if dict(root.attrib) != {"version": "1.4"}:
         raise TmxSpecError("<tmx> must have exactly version='1.4'")
       self._root = root
 
-      _, header = self._expect_event("start", "header")
-      if header.getparent() is not root:
-        raise TmxSpecError("<header> must be the first child of <tmx>")
+      header = self._expect_event("start", "header")
       self._header_element = header
       self.header_peek = dict(header.attrib)
-      self._state = _ReaderState.HEADER_START
+      self._state = _ReaderState.HEADER
     except BaseException:
       self.close()
       raise
@@ -73,13 +83,16 @@ class TmxReader(Iterator[TranslationUnit]):
       self._source.close()
       self._source = None
     self._events = None
+    self._root = None
+    self._header_element = None
+    self._body = None
     self._state = _ReaderState.CLOSED
 
   def read_header(self) -> Header:
-    if self._state is not _ReaderState.HEADER_START:
+    if self._state is not _ReaderState.HEADER:
       raise RuntimeError("read_header() must be called once, after entering the reader")
-    if self._header_element is None or self._root is None:
-      raise RuntimeError("reader state is inconsistent")
+    assert self._header_element is not None, "HEADER state requires a retained <header> element"
+    assert self._root is not None, "HEADER state requires a retained <tmx> element"
 
     header_element = self._header_element
     while True:
@@ -88,9 +101,7 @@ class TmxReader(Iterator[TranslationUnit]):
         break
 
     header = header_from_element(header_element)
-    _, body = self._expect_event("start", "body")
-    if body.getparent() is not self._root:
-      raise TmxSpecError("<body> must immediately follow <header>")
+    body = self._expect_event("start", "body")
     if body.attrib:
       raise TmxSpecError("<body> must not have attributes")
     _require_only_xml_whitespace(self._root.text, "before <header>")
@@ -98,35 +109,28 @@ class TmxReader(Iterator[TranslationUnit]):
 
     header_element.clear()
     self._root.remove(header_element)
+    self._root = None
     self._header_element = None
     self._body = body
-    self._state = _ReaderState.BODY_START
+    self._state = _ReaderState.BODY
     return header
 
-  def __iter__(self) -> "TmxReader":
-    if self._state is _ReaderState.HEADER_START:
-      raise RuntimeError("read_header() must be called before iterating translation units")
-    if self._state in (_ReaderState.NEW, _ReaderState.CLOSED):
-      raise RuntimeError("the reader must be open before it can be iterated")
-    if self._state is _ReaderState.BODY_START:
-      self._state = _ReaderState.ITERATING
+  def __iter__(self) -> TmxReader:
     return self
 
   def __next__(self) -> TranslationUnit:
-    if self._state is _ReaderState.BODY_START:
-      self._state = _ReaderState.ITERATING
-    elif self._state is _ReaderState.EXHAUSTED:
+    if self._state is _ReaderState.EXHAUSTED:
       raise StopIteration
-    elif self._state is not _ReaderState.ITERATING:
+    if self._state is not _ReaderState.BODY:
       raise RuntimeError("read_header() must be called before iterating translation units")
-    if self._body is None:
-      raise RuntimeError("reader state is inconsistent")
+    assert self._body is not None, "BODY state requires a retained <body> element"
 
     while True:
       event, element = self._next_event()
       parent = element.getparent()
 
       if event == "start" and parent is self._body:
+        _require_only_xml_whitespace(self._body.text, "inside <body>")
         _require_tag(element, "tu")
         continue
 
@@ -144,30 +148,34 @@ class TmxReader(Iterator[TranslationUnit]):
         raise StopIteration
 
   def _finish_document(self) -> None:
-    if self._body is None or self._root is None:
-      raise RuntimeError("reader state is inconsistent")
+    assert self._body is not None, "finishing the document requires a retained <body> element"
     _require_only_xml_whitespace(self._body.text, "inside <body>")
-    _, root = self._expect_event("end", "tmx")
-    if root is not self._root:
-      raise TmxSpecError("unexpected </tmx>")
+    self._expect_event("end", "tmx")
     _require_only_xml_whitespace(self._body.tail, "after <body>")
 
-    if self._events is None:
-      raise RuntimeError("the reader is not open")
+    assert self._events is not None, "finishing the document requires an active event iterator"
     try:
       next(self._events)
     except StopIteration:
-      return
+      pass
     except etree.XMLSyntaxError as error:
       raise TmxSpecError(f"malformed XML: {error}") from error
-    raise TmxSpecError("unexpected content after </tmx>")
+    else:
+      raise TmxSpecError("unexpected content after </tmx>")
 
-  def _expect_event(self, expected_event: str, expected_tag: str) -> tuple[str, etree._Element]:
+    assert self._source is not None, "finishing the document requires an open source"
+    self._source.close()
+    self._source = None
+    self._events = None
+    self._root = None
+    self._body = None
+
+  def _expect_event(self, expected_event: str, expected_tag: str) -> etree._Element:
     event, element = self._next_event()
     if event != expected_event:
       raise TmxSpecError(f"expected the {expected_event} of <{expected_tag}>")
     _require_tag(element, expected_tag)
-    return event, element
+    return element
 
   def _next_event(self) -> tuple[str, etree._Element]:
     if self._events is None:
@@ -178,6 +186,56 @@ class TmxReader(Iterator[TranslationUnit]):
       raise TmxSpecError("unexpected end of XML document") from None
     except etree.XMLSyntaxError as error:
       raise TmxSpecError(f"malformed XML: {error}") from error
+
+
+def _validate_document_encoding(source: BinaryIO) -> None:
+  prefix = source.read(_XML_DECLARATION_LIMIT)
+  source.seek(0)
+  declaration = _xml_declaration(prefix)
+  if declaration is None:
+    return
+
+  match = _ENCODING_DECLARATION.search(declaration)
+  if match is not None and match[2].lower() not in _TMX_ENCODINGS:
+    raise TmxSpecError(f"TMX supports only UTF-8, UTF-16, and US-ASCII, not {match[2]!r}")
+
+
+def _xml_declaration(prefix: bytes) -> str | None:
+  if prefix.startswith((codecs.BOM_UTF32_BE, codecs.BOM_UTF32_LE)):
+    raise TmxSpecError("TMX does not support UTF-32")
+
+  if prefix.startswith(codecs.BOM_UTF16_BE):
+    return _extract_xml_declaration(prefix[len(codecs.BOM_UTF16_BE) :], "utf-16-be")
+  if prefix.startswith(codecs.BOM_UTF16_LE):
+    return _extract_xml_declaration(prefix[len(codecs.BOM_UTF16_LE) :], "utf-16-le")
+
+  if prefix.startswith(_UTF32_PREFIXES):
+    raise TmxSpecError("TMX does not support UTF-32")
+  if prefix.startswith(_UTF16_PREFIXES):
+    raise TmxSpecError("a UTF-16 TMX file must begin with a byte-order mark")
+  if prefix.startswith(_EBCDIC_XML_PREFIX):
+    raise TmxSpecError("TMX supports only UTF-8, UTF-16, and US-ASCII")
+
+  if prefix.startswith(codecs.BOM_UTF8):
+    prefix = prefix[len(codecs.BOM_UTF8) :]
+  return _extract_xml_declaration(prefix, "ascii")
+
+
+def _extract_xml_declaration(prefix: bytes, encoding: str) -> str | None:
+  start = "<?xml".encode(encoding)
+  if not prefix.startswith(start):
+    return None
+  end = "?>".encode(encoding)
+  end_index = prefix.find(end, len(start))
+  if end_index < 0:
+    raise TmxSpecError(f"XML declaration exceeds {_XML_DECLARATION_LIMIT} bytes or is not terminated")
+  try:
+    declaration = prefix[: end_index + len(end)].decode(encoding)
+  except UnicodeDecodeError as error:
+    raise TmxSpecError(f"malformed XML declaration: {error}") from error
+  if len(declaration) == len("<?xml") or declaration[len("<?xml")] not in " \t\r\n":
+    return None
+  return declaration
 
 
 def _require_tag(element: etree._Element, expected: str) -> None:
