@@ -1,20 +1,42 @@
-"""Streaming TMX input."""
+"""Streaming TMX input and output."""
 
 import codecs
 import re
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from enum import Enum, auto
 from os import PathLike
-from typing import BinaryIO
+from typing import Protocol
 
 from lxml import etree
 
 from .errors import TmxSpecError
 from .models import Header, TranslationUnit
+from .xml.build import header_to_element, tu_to_element
+from .xml.dtd import validate_fragment
 from .xml.parse import header_from_element, tu_from_element
 
 type TmxPath = str | bytes | PathLike[str] | PathLike[bytes]
-type TmxSource = TmxPath | BinaryIO
+
+
+class TmxBinaryReader(Protocol):
+  def read(self, size: int = -1, /) -> bytes: ...
+
+  def seek(self, offset: int, whence: int = 0, /) -> int: ...
+
+  def seekable(self) -> bool: ...
+
+  def tell(self) -> int: ...
+
+
+class TmxBinaryWriter(Protocol):
+  def write(self, data: bytes, /) -> int: ...
+
+  def flush(self) -> None: ...
+
+
+type TmxSource = TmxPath | TmxBinaryReader
+type TmxDestination = TmxPath | TmxBinaryWriter
 type TuCreationErrorHook = Callable[[TmxSpecError, etree._Element], TranslationUnit | None]
 
 _XML_DECLARATION_LIMIT = 1024
@@ -33,6 +55,13 @@ class _ReaderState(Enum):
   CLOSED = auto()
 
 
+class _WriterState(Enum):
+  NEW = auto()
+  OPEN = auto()
+  FAILED = auto()
+  CLOSED = auto()
+
+
 class TmxReader(Iterator[TranslationUnit]):
   """A single-pass, bounded-memory reader for a TMX path or borrowed stream.
 
@@ -47,8 +76,8 @@ class TmxReader(Iterator[TranslationUnit]):
     self.on_tu_creation_error = on_tu_creation_error
     self.header_peek: dict[str, str] | None = None
     self._state = _ReaderState.NEW
-    self._source: BinaryIO | None = None
-    self._owns_source = False
+    self._source: TmxBinaryReader | None = None
+    self._close_source: Callable[[], None] | None = None
     self._events: Iterator[tuple[str, etree._Element]] | None = None
     self._root: etree._Element | None = None
     self._header_element: etree._Element | None = None
@@ -60,12 +89,12 @@ class TmxReader(Iterator[TranslationUnit]):
 
     if isinstance(self.source, (str, bytes, PathLike)):
       self._source = open(self.source, "rb")
-      self._owns_source = True
+      self._close_source = self._source.close
     else:
       self._source = self.source
 
     try:
-      if not self._owns_source:
+      if self._close_source is None:
         if not isinstance(self._source.read(0), bytes):
           raise TypeError("a borrowed TMX stream must be opened in binary mode")
         if not self._source.seekable():
@@ -104,10 +133,10 @@ class TmxReader(Iterator[TranslationUnit]):
     self.close()
 
   def close(self) -> None:
-    if self._source is not None and self._owns_source:
-      self._source.close()
+    if self._close_source is not None:
+      self._close_source()
     self._source = None
-    self._owns_source = False
+    self._close_source = None
     self._events = None
     self._root = None
     self._header_element = None
@@ -197,10 +226,10 @@ class TmxReader(Iterator[TranslationUnit]):
       raise TmxSpecError("unexpected content after </tmx>")
 
     assert self._source is not None, "finishing the document requires an open source"
-    if self._owns_source:
-      self._source.close()
+    if self._close_source is not None:
+      self._close_source()
     self._source = None
-    self._owns_source = False
+    self._close_source = None
     self._events = None
     self._root = None
     self._body = None
@@ -223,7 +252,97 @@ class TmxReader(Iterator[TranslationUnit]):
       raise TmxSpecError(f"malformed XML: {error}") from error
 
 
-def _validate_document_encoding(source: BinaryIO) -> None:
+class TmxWriter:
+  """A single-pass, bounded-memory writer for a TMX path or borrowed stream.
+
+  Output is compact UTF-8 XML without a DOCTYPE. Borrowed streams must be
+  binary and writable; the caller retains ownership and the writer leaves
+  them open. Header and translation-unit models are strictly validated and
+  projected fragments are checked against the packaged DTD before writing.
+  """
+
+  def __init__(self, destination: TmxDestination, *, header: Header) -> None:
+    self.destination = destination
+    self.header = header
+    self._state = _WriterState.NEW
+    self._stack: ExitStack | None = None
+    self._write_element: Callable[[etree._Element], None] | None = None
+    self._flush_destination: Callable[[], None] | None = None
+
+  def __enter__(self) -> TmxWriter:
+    if self._state is not _WriterState.NEW:
+      raise RuntimeError("a TmxWriter can only be entered once")
+
+    # Finish both checks before a path is opened and possibly truncated.
+    try:
+      header_element = header_to_element(self.header)
+      validate_fragment(header_element)
+    except BaseException:
+      self._state = _WriterState.CLOSED
+      raise
+
+    stack = ExitStack()
+    try:
+      if isinstance(self.destination, (str, bytes, PathLike)):
+        destination = stack.enter_context(open(self.destination, "wb"))
+      else:
+        destination = self.destination
+        try:
+          destination.write(b"")
+        except TypeError:
+          raise TypeError("a borrowed TMX destination must be opened in binary mode") from None
+
+      stack.callback(destination.flush)
+      output = stack.enter_context(etree.xmlfile(destination, encoding="UTF-8", close=False, buffered=False))
+      output.write_declaration()
+      stack.enter_context(output.element("tmx", version="1.4"))
+      output.write(header_element)
+      stack.enter_context(output.element("body"))
+      destination.flush()
+    except BaseException:
+      self._state = _WriterState.CLOSED
+      stack.close()
+      raise
+
+    self._stack = stack
+    self._write_element = lambda element: output.write(element)
+    self._flush_destination = destination.flush
+    self._state = _WriterState.OPEN
+    return self
+
+  def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+    self.close()
+
+  def close(self) -> None:
+    stack = self._stack
+    self._stack = None
+    self._write_element = None
+    self._flush_destination = None
+    try:
+      if stack is not None:
+        stack.close()
+    finally:
+      self._state = _WriterState.CLOSED
+
+  def write(self, unit: TranslationUnit) -> None:
+    if self._state is _WriterState.FAILED:
+      raise RuntimeError("the TmxWriter cannot continue after an output failure")
+    if self._state is not _WriterState.OPEN:
+      raise RuntimeError("write() must be called inside an open TmxWriter context")
+    assert self._write_element is not None, "OPEN state requires an element writer"
+    assert self._flush_destination is not None, "OPEN state requires a destination flusher"
+
+    element = tu_to_element(unit)
+    validate_fragment(element)
+    try:
+      self._write_element(element)
+      self._flush_destination()
+    except BaseException:
+      self._state = _WriterState.FAILED
+      raise
+
+
+def _validate_document_encoding(source: TmxBinaryReader) -> None:
   prefix = source.read(_XML_DECLARATION_LIMIT)
   source.seek(0)
   declaration = _xml_declaration(prefix)
