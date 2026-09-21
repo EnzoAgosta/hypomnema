@@ -10,7 +10,7 @@ from typing import Protocol
 
 from lxml import etree
 
-from .errors import TmxSpecError
+from .errors import TmxErrorGroup, TmxSpecError
 from .models import Header, TranslationUnit
 from .xml.build import header_to_element, tu_to_element
 from .xml.dtd import validate_fragment
@@ -38,6 +38,8 @@ class TmxBinaryWriter(Protocol):
 type TmxSource = TmxPath | TmxBinaryReader
 type TmxDestination = TmxPath | TmxBinaryWriter
 type TuCreationErrorHook = Callable[[TmxSpecError, etree._Element], TranslationUnit | None]
+type TuValidationError = TmxErrorGroup | TmxSpecError
+type TuValidationErrorHook = Callable[[TuValidationError, TranslationUnit], TranslationUnit | None]
 
 _XML_DECLARATION_LIMIT = 1024
 _ENCODING_DECLARATION = re.compile(r"[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*(['\"])([A-Za-z][A-Za-z0-9._-]*)\1")
@@ -259,11 +261,20 @@ class TmxWriter:
   binary and writable; the caller retains ownership and the writer leaves
   them open. Header and translation-unit models are strictly validated and
   projected fragments are checked against the packaged DTD before writing.
+  ``on_tu_validation_error`` may replace or skip a translation unit rejected
+  before output begins. Replacements pass through the complete checks once.
   """
 
-  def __init__(self, destination: TmxDestination, *, header: Header) -> None:
+  def __init__(
+    self,
+    destination: TmxDestination,
+    *,
+    header: Header,
+    on_tu_validation_error: TuValidationErrorHook | None = None,
+  ) -> None:
     self.destination = destination
     self.header = header
+    self.on_tu_validation_error = on_tu_validation_error
     self._state = _WriterState.NEW
     self._stack: ExitStack | None = None
     self._write_element: Callable[[etree._Element], None] | None = None
@@ -332,14 +343,28 @@ class TmxWriter:
     assert self._write_element is not None, "OPEN state requires an element writer"
     assert self._flush_destination is not None, "OPEN state requires a destination flusher"
 
-    element = tu_to_element(unit)
-    validate_fragment(element)
+    try:
+      element = _validated_tu_element(unit)
+    except (TmxErrorGroup, TmxSpecError) as error:
+      if self.on_tu_validation_error is None:
+        raise
+      replacement = self.on_tu_validation_error(error, unit)
+      if replacement is None:
+        return
+      element = _validated_tu_element(replacement)
+
     try:
       self._write_element(element)
       self._flush_destination()
     except BaseException:
       self._state = _WriterState.FAILED
       raise
+
+
+def _validated_tu_element(unit: TranslationUnit) -> etree._Element:
+  element = tu_to_element(unit)
+  validate_fragment(element)
+  return element
 
 
 def _validate_document_encoding(source: TmxBinaryReader) -> None:
