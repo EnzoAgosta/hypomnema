@@ -1,7 +1,7 @@
 """Validate runtime model fields and TMX relationships without coercion.
 
 Public ``validate_*`` functions inspect the supplied node and its descendants.
-They return None on success or raise TmxErrorGroup containing path-bearing
+They return an advisory tuple on success or raise TmxErrorGroup with path-bearing
 TmxFieldTypeError, TmxFieldValueError, and TmxContractError leaves. Catch the
 whole group with ``except TmxErrorGroup`` or select leaf kinds with ``except*``.
 Validation never repairs or mutates the input. XML character and DTD checks
@@ -9,8 +9,8 @@ happen separately during XML conversion and writing.
 
 Advisories cover deprecated constructs, unknown encoding names, missing map
 targets, and cross-variant code mismatches. They are data attached to an error
-group's ``advisories`` tuple, never emitted Python warnings. A pass with only
-advisories returns None and does not expose them.
+group's ``advisories`` tuple on failure and returned directly on success.
+Validators never emit Python warnings.
 
 Paths are relative to the validated root. Checks visit parent fields before
 children and stop value checks after a field's type fails. Unmatched beginning
@@ -81,7 +81,7 @@ class _Session:
 
   Attributes:
       errors: Field failures in traversal order.
-      warnings: Advisory records retained only if finish raises a group.
+      warnings: Advisory records returned on success or attached to errors.
       ancestors: Object identities on the active content descent path.
       x_values: External identifiers collected in the current variant.
   """
@@ -114,8 +114,8 @@ class _Session:
     """Pop the identity added by the matching descend call."""
     self.ancestors.pop()
 
-  def finish(self, node_name: str) -> None:
-    """Raise collected failures with advisories, or return if none failed.
+  def finish(self, node_name: str) -> tuple[TmxAdvisory, ...]:
+    """Raise collected failures with advisories, or return the advisory tuple.
 
     Args:
         node_name: Model name to include in the group message.
@@ -125,6 +125,7 @@ class _Session:
     """
     if self.errors:
       raise TmxErrorGroup(f"failed to validate {node_name}", self.errors, self.warnings)
+    return tuple(self.warnings)
 
 
 type _FieldCheck = Callable[[_Session, NodePath, object], None]
@@ -833,14 +834,17 @@ def _validate_translation_unit(tu: object, session: _Session, path: NodePath) ->
   session.ascend()
 
 
-def validate_header(header: Header) -> None:
+def validate_header(header: Header) -> tuple[TmxAdvisory, ...]:
   """Validate a header and its metadata without modifying it.
 
   Checks required fields and all nested notes, properties, and UDE mappings.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       header: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -848,17 +852,20 @@ def validate_header(header: Header) -> None:
   """
   session = _Session()
   _validate_header(header, session, NodePath())
-  session.finish("Header")
+  return session.finish("Header")
 
 
-def validate_map(map_node: Map) -> None:
+def validate_map(map_node: Map) -> tuple[TmxAdvisory, ...]:
   """Validate a character mapping without modifying it.
 
   Parent-dependent base and missing-target checks run in validate_ude.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       map_node: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -866,17 +873,20 @@ def validate_map(map_node: Map) -> None:
   """
   session = _Session()
   _validate_map(map_node, session, NodePath())
-  session.finish("Map")
+  return session.finish("Map")
 
 
-def validate_note(note: Note) -> None:
+def validate_note(note: Note) -> tuple[TmxAdvisory, ...]:
   """Validate a note without modifying it.
 
   Legacy lang usage produces a deprecation advisory.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       note: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -895,17 +905,20 @@ def validate_note(note: Note) -> None:
   """
   session = _Session()
   _validate_note(note, session, NodePath())
-  session.finish("Note")
+  return session.finish("Note")
 
 
-def validate_property(property_node: Property) -> None:
+def validate_property(property_node: Property) -> tuple[TmxAdvisory, ...]:
   """Validate a property without modifying it.
 
   Checks the property type, optional attributes, and plain text.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       property_node: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -913,18 +926,21 @@ def validate_property(property_node: Property) -> None:
   """
   session = _Session()
   _validate_property(property_node, session, NodePath())
-  session.finish("Property")
+  return session.finish("Property")
 
 
-def validate_ude(ude: Ude) -> None:
+def validate_ude(ude: Ude) -> tuple[TmxAdvisory, ...]:
   """Validate a user-defined encoding and its maps without modifying it.
 
   Requires base if a map sets code. Maps without code, ent, or subst
   produce an advisory.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       ude: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -932,17 +948,20 @@ def validate_ude(ude: Ude) -> None:
   """
   session = _Session()
   _validate_ude(ude, session, NodePath())
-  session.finish("Ude")
+  return session.finish("Ude")
 
 
-def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
+def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> tuple[TmxAdvisory, ...]:
   """Validate a variant, metadata, and segment content without modifying it.
 
   Checks beginning/ending-code pairing in the segment and its embedded flows.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       tuv: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -950,18 +969,21 @@ def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
   """
   session = _Session()
   _validate_translation_unit_variant(tuv, session, NodePath())
-  session.finish("TranslationUnitVariant")
+  return session.finish("TranslationUnitVariant")
 
 
-def validate_translation_unit(tu: TranslationUnit) -> None:
+def validate_translation_unit(tu: TranslationUnit) -> tuple[TmxAdvisory, ...]:
   """Validate a translation unit and all its variants without modifying it.
 
   Checks each segment flow and compares nonempty external-identifier sets
   across variants. Differing sets produce an advisory.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       tu: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -969,17 +991,20 @@ def validate_translation_unit(tu: TranslationUnit) -> None:
   """
   session = _Session()
   _validate_translation_unit(tu, session, NodePath())
-  session.finish("TranslationUnit")
+  return session.finish("TranslationUnit")
 
 
-def validate_bpt(bpt: Bpt) -> None:
+def validate_bpt(bpt: Bpt) -> tuple[TmxAdvisory, ...]:
   """Validate a beginning code and its embedded segments without modifying it.
 
   The matching outer Ept is checked only when validating the enclosing flow.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       bpt: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -987,17 +1012,20 @@ def validate_bpt(bpt: Bpt) -> None:
   """
   session = _Session()
   _validate_bpt(bpt, session, NodePath())
-  session.finish("Bpt")
+  return session.finish("Bpt")
 
 
-def validate_ept(ept: Ept) -> None:
+def validate_ept(ept: Ept) -> tuple[TmxAdvisory, ...]:
   """Validate an ending code and its embedded segments without modifying it.
 
   The matching outer Bpt is checked only when validating the enclosing flow.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       ept: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1005,17 +1033,20 @@ def validate_ept(ept: Ept) -> None:
   """
   session = _Session()
   _validate_ept(ept, session, NodePath())
-  session.finish("Ept")
+  return session.finish("Ept")
 
 
-def validate_it(it: It) -> None:
+def validate_it(it: It) -> tuple[TmxAdvisory, ...]:
   """Validate an isolated code and its embedded segments without modifying it.
 
   Requires a begin or end position; no outer paired code is required.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       it: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1023,17 +1054,20 @@ def validate_it(it: It) -> None:
   """
   session = _Session()
   _validate_it(it, session, NodePath())
-  session.finish("It")
+  return session.finish("It")
 
 
-def validate_ph(ph: Ph) -> None:
+def validate_ph(ph: Ph) -> tuple[TmxAdvisory, ...]:
   """Validate a placeholder and its embedded segments without modifying it.
 
   Checks optional external identifiers and association with surrounding text.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       ph: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1041,18 +1075,21 @@ def validate_ph(ph: Ph) -> None:
   """
   session = _Session()
   _validate_ph(ph, session, NodePath())
-  session.finish("Ph")
+  return session.finish("Ph")
 
 
-def validate_hi(hi: Hi) -> None:
+def validate_hi(hi: Hi) -> tuple[TmxAdvisory, ...]:
   """Validate a highlight and its inline content without modifying it.
 
   Treats the highlight as a complete pairing flow. Validate its enclosing
   variant instead when a pair crosses the highlight boundary.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       hi: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1062,17 +1099,20 @@ def validate_hi(hi: Hi) -> None:
   flow: _Flow = []
   _validate_hi(hi, session, NodePath(), flow)
   _check_bpt_ept_pairing(flow, session)
-  session.finish("Hi")
+  return session.finish("Hi")
 
 
-def validate_ut(ut: Ut) -> None:
+def validate_ut(ut: Ut) -> tuple[TmxAdvisory, ...]:
   """Validate a legacy code and its embedded segments without modifying it.
 
   Collects the Ut deprecation advisory during this pass.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       ut: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1080,17 +1120,20 @@ def validate_ut(ut: Ut) -> None:
   """
   session = _Session()
   _validate_ut(ut, session, NodePath())
-  session.finish("Ut")
+  return session.finish("Ut")
 
 
-def validate_sub(sub: Sub) -> None:
+def validate_sub(sub: Sub) -> tuple[TmxAdvisory, ...]:
   """Validate an embedded segment and its inline content without modifying it.
 
   Checks pairing within this embedded flow independently of its parent code.
-  Advisories are exposed only when the pass also collects errors.
+  Advisories are returned on success and attached to the error group on failure.
 
   Args:
       sub: Model to inspect in its current runtime state.
+
+  Returns:
+      Immutable advisories in traversal order, or an empty tuple.
 
   Raises:
       TmxErrorGroup: Field or relationship failures, with relative paths and
@@ -1098,4 +1141,4 @@ def validate_sub(sub: Sub) -> None:
   """
   session = _Session()
   _validate_sub(sub, session, NodePath())
-  session.finish("Sub")
+  return session.finish("Sub")

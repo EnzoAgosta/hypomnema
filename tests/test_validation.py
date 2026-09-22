@@ -280,6 +280,42 @@ def test_unknown_encoding_advisory_alone_raises_nothing():
   validate_note(planted_note(o_encoding="not-an-encoding"))
 
 
+def test_successful_validation_returns_advisories_in_order() -> None:
+  """Expose recommendations without requiring an unrelated invalid field."""
+  note = Note(o_encoding="not-an-encoding", lang="en")
+  advisories = validate_note(note)
+  assert [(item.category, item.path) for item in advisories] == [
+    (TmxWarning, NodePath() / "o_encoding"),
+    (TmxDeprecationWarning, NodePath() / "lang"),
+  ]
+
+
+def test_successful_validation_returns_an_empty_tuple_without_advisories() -> None:
+  """Provide an immutable, consistent result for a clean validation pass."""
+  assert validate_note(Note(text="valid")) == ()
+
+
+def test_successful_unit_validation_exposes_cross_variant_advisories() -> None:
+  """Make differing external identifiers observable on a valid unit."""
+  unit = TranslationUnit(
+    variants=[
+      TranslationUnitVariant(xml_lang="en", content=[Ph(x=1)]),
+      TranslationUnitVariant(xml_lang="fr", content=[Ph(x=2)]),
+    ]
+  )
+  advisories = validate_translation_unit(unit)
+  assert len(advisories) == 1
+  assert advisories[0].path == NodePath() / "variants"
+  assert advisories[0].category is TmxWarning
+
+
+def test_successful_ude_validation_exposes_missing_map_target() -> None:
+  """Return a nested advisory with a path relative to the validated root."""
+  advisories = validate_ude(Ude(name="custom", maps=[Map(unicode=65)]))
+  assert len(advisories) == 1
+  assert advisories[0].path == NodePath() / "maps" / 0
+
+
 @pytest.mark.parametrize("segtype", ["block", "paragraph", "sentence", "phrase"])
 def test_header_accepts_every_segment_type(segtype):
   """No member of the vocabulary may silently drop out of the check."""
