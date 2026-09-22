@@ -18,6 +18,13 @@ def lowercase_string(value: object) -> object:
   return value.lower() if isinstance(value, str) else value
 
 
+def validate_unsigned_integer(value: int) -> int:
+  """Return a nonnegative integer unchanged after the caller checks its type."""
+  if value < 0:
+    raise ValueError(f"expected an unsigned integer, got {value!r}")
+  return value
+
+
 def parse_integer(value: object) -> int:
   """Parse a nonnegative integer from a native integer or ASCII digits.
 
@@ -34,9 +41,7 @@ def parse_integer(value: object) -> int:
   if isinstance(value, bool):
     raise ValueError("a boolean is not a number here, even though bool subclasses int")
   if isinstance(value, int):
-    if value < 0:
-      raise ValueError(f"expected an unsigned integer, got {value!r}")
-    return value
+    return validate_unsigned_integer(value)
   if isinstance(value, str):
     if not value or any(digit not in digits for digit in value):
       raise ValueError(f"expected decimal digits, e.g. '42', got {value!r}")
@@ -145,9 +150,7 @@ def parse_hex_integer(value: object) -> int:
   if isinstance(value, bool):
     raise ValueError("a boolean is not a number here, even though bool subclasses int")
   if isinstance(value, int):
-    if value < 0:
-      raise ValueError(f"expected an unsigned value, got {value}")
-    return value
+    return validate_unsigned_integer(value)
   if isinstance(value, str):
     if not value.startswith("#x"):
       raise ValueError(f"expected a '#x' prefix, e.g. '#xF8FF', got {value!r}")

@@ -25,12 +25,12 @@ Private checkers append findings to a shared session instead of raising them.
 import codecs
 from collections.abc import Callable
 from datetime import datetime
-from typing import TypeGuard
+from functools import cache
+from typing import TypeGuard, get_args
 
 from .bcp47 import validate_well_formed_language_tag
-from .coercion import validate_tuid
+from .coercion import validate_ascii, validate_tuid, validate_unicode_scalar, validate_unsigned_integer
 from .errors import (
-  LanguageTagError,
   NodePath,
   TmxAdvisory,
   TmxContractError,
@@ -42,6 +42,7 @@ from .errors import (
   TmxWarning,
 )
 from .models import (
+  Association,
   Bpt,
   Ept,
   Header,
@@ -50,8 +51,11 @@ from .models import (
   Map,
   Note,
   Ph,
+  Position,
   Property,
+  SegType,
   Sub,
+  TmxModel,
   TranslationUnit,
   TranslationUnitVariant,
   Ude,
@@ -137,9 +141,9 @@ A flow is owned by a ``<tuv>``'s segment or a ``<sub>``'s embedded
 segment; ``<hi>`` is transparent, so its inline elements join the
 enclosing flow."""
 
-_SEGMENT_TYPES = ("block", "paragraph", "sentence", "phrase")
-_POSITIONS = ("begin", "end")
-_ASSOCIATIONS = ("p", "f", "b")
+_SEGMENT_TYPES: tuple[str, ...] = get_args(SegType.__value__)
+_POSITIONS: tuple[str, ...] = get_args(Position.__value__)
+_ASSOCIATIONS: tuple[str, ...] = get_args(Association.__value__)
 _MAX_CONTENT_NESTING = 64
 """The most nesting levels of inline content one pass will walk.
 
@@ -170,13 +174,39 @@ def _is_integer(value: object) -> TypeGuard[int]:
 # reporting a wrong type returns without value-checking that value.
 
 
-def _check_element(session: _Session, path: NodePath, value: object, literal: str) -> None:
-  """Record a failure unless the discriminator is the expected string literal."""
+@cache
+def _required_fields(model_type: type[TmxModel]) -> tuple[str, ...]:
+  """Read constructor requirements once per model class."""
+  return tuple(name for name, field in model_type.model_fields.items() if field.is_required())
+
+
+def _check_model[ModelType: TmxModel](
+  node: object, model_type: type[ModelType], session: _Session, path: NodePath
+) -> TypeGuard[ModelType]:
+  """Check node type, required fields, and its declared element discriminator."""
+  if not isinstance(node, model_type):
+    session.error(TmxFieldTypeError(path, node, model_type))
+    return False
+  missing = [name for name in _required_fields(model_type) if not hasattr(node, name)]
+  for name in missing:
+    session.error(TmxContractError(path / name, None, "required field is missing"))
+  if missing:
+    return False
+  value: object = getattr(node, "element", None)
+  literal: object = model_type.model_fields["element"].default
   if not isinstance(value, str):
-    session.error(TmxFieldTypeError(path, value, str))
-    return
-  if value != literal:
-    session.error(TmxFieldValueError(path, value, f"expected the literal {literal!r}"))
+    session.error(TmxFieldTypeError(path / "element", value, str))
+  elif value != literal:
+    session.error(TmxFieldValueError(path / "element", value, f"expected the literal {literal!r}"))
+  return True
+
+
+def _check_value[Value](session: _Session, path: NodePath, value: Value, check: Callable[[Value], object]) -> None:
+  """Attach a path to a shared scalar rule's failure without coercing its input."""
+  try:
+    check(value)
+  except ValueError as error:
+    session.error(TmxFieldValueError(path, value, str(error)))
 
 
 def _check_optional(session: _Session, path: NodePath, value: object, check: _FieldCheck) -> None:
@@ -196,8 +226,7 @@ def _check_ascii_text(session: _Session, path: NodePath, value: object) -> None:
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
-  if not value.isascii():
-    session.error(TmxFieldValueError(path, value, "expected ASCII text"))
+  _check_value(session, path, value, validate_ascii)
 
 
 def _check_unsigned_integer(session: _Session, path: NodePath, value: object) -> None:
@@ -205,8 +234,7 @@ def _check_unsigned_integer(session: _Session, path: NodePath, value: object) ->
   if isinstance(value, bool) or not isinstance(value, int):
     session.error(TmxFieldTypeError(path, value, int))
     return
-  if value < 0:
-    session.error(TmxFieldValueError(path, value, "expected an unsigned integer"))
+  _check_value(session, path, value, validate_unsigned_integer)
 
 
 def _check_unicode_scalar(session: _Session, path: NodePath, value: object) -> None:
@@ -214,10 +242,7 @@ def _check_unicode_scalar(session: _Session, path: NodePath, value: object) -> N
   if isinstance(value, bool) or not isinstance(value, int):
     session.error(TmxFieldTypeError(path, value, int))
     return
-  if not 0 <= value <= 0x10FFFF:
-    session.error(TmxFieldValueError(path, value, "expected a Unicode scalar value in 0..0x10FFFF"))
-  elif 0xD800 <= value <= 0xDFFF:
-    session.error(TmxFieldValueError(path, value, "surrogate code points are not valid Unicode scalar values"))
+  _check_value(session, path, value, validate_unicode_scalar)
 
 
 def _check_datetime(session: _Session, path: NodePath, value: object) -> None:
@@ -234,10 +259,7 @@ def _check_language_tag(session: _Session, path: NodePath, value: object) -> Non
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
-  try:
-    validate_well_formed_language_tag(value)
-  except LanguageTagError as error:
-    session.error(TmxFieldValueError(path, value, str(error)))
+  _check_value(session, path, value, validate_well_formed_language_tag)
 
 
 def _check_deprecated_lang(session: _Session, path: NodePath, value: object) -> None:
@@ -295,10 +317,7 @@ def _check_tuid(session: _Session, path: NodePath, value: object) -> None:
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
-  try:
-    validate_tuid(value)
-  except ValueError as error:
-    session.error(TmxFieldValueError(path, value, str(error)))
+  _check_value(session, path, value, validate_tuid)
 
 
 def _check_bpt_ept_pairing(flow: _Flow, session: _Session) -> None:
@@ -380,24 +399,14 @@ def _check_list(
     item_check(item, session, path / index)
 
 
-# Node validators. Each private validator reads every field of its node --
-# so "every field is checked" is verifiable by reading the body -- and
-# recurses into children with an extended path.
+# Node validators share scalar and model checks, then apply explicit
+# node-specific field and relationship rules before recursing into children.
 
 
 def _validate_header(header: object, session: _Session, path: NodePath) -> None:
   """Collect header field failures and recursively check its metadata."""
-  if not isinstance(header, Header):
-    session.error(TmxFieldTypeError(path, header, Header))
+  if not _check_model(header, Header, session, path):
     return
-  if not _check_required_fields(
-    session,
-    path,
-    header,
-    ("creationtool", "creationtoolversion", "segtype", "o_tmf", "adminlang", "srclang", "datatype"),
-  ):
-    return
-  _check_element(session, path / "element", header.element, "header")
   _check_str(session, path / "creationtool", header.creationtool)
   _check_str(session, path / "creationtoolversion", header.creationtoolversion)
   _check_segtype(session, path / "segtype", header.segtype)
@@ -428,10 +437,8 @@ def _validate_metadata_node(node: object, session: _Session, path: NodePath) -> 
 
 def _validate_note(note: object, session: _Session, path: NodePath) -> None:
   """Collect note field failures and legacy-language advisories."""
-  if not isinstance(note, Note):
-    session.error(TmxFieldTypeError(path, note, Note))
+  if not _check_model(note, Note, session, path):
     return
-  _check_element(session, path / "element", note.element, "note")
   _check_optional(session, path / "o_encoding", note.o_encoding, _check_encoding_name)
   _check_optional(session, path / "xml_lang", note.xml_lang, _check_language_tag)
   _check_optional(session, path / "lang", note.lang, _check_deprecated_lang)
@@ -440,12 +447,8 @@ def _validate_note(note: object, session: _Session, path: NodePath) -> None:
 
 def _validate_property(property_node: object, session: _Session, path: NodePath) -> None:
   """Collect property field failures and legacy-language advisories."""
-  if not isinstance(property_node, Property):
-    session.error(TmxFieldTypeError(path, property_node, Property))
+  if not _check_model(property_node, Property, session, path):
     return
-  if not _check_required_fields(session, path, property_node, ("type",)):
-    return
-  _check_element(session, path / "element", property_node.element, "prop")
   _check_str(session, path / "type", property_node.type)
   _check_optional(session, path / "xml_lang", property_node.xml_lang, _check_language_tag)
   _check_optional(session, path / "o_encoding", property_node.o_encoding, _check_encoding_name)
@@ -455,12 +458,8 @@ def _validate_property(property_node: object, session: _Session, path: NodePath)
 
 def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
   """Check mapping fields; leave parent-dependent rules to UDE validation."""
-  if not isinstance(map_node, Map):
-    session.error(TmxFieldTypeError(path, map_node, Map))
+  if not _check_model(map_node, Map, session, path):
     return
-  if not _check_required_fields(session, path, map_node, ("unicode",)):
-    return
-  _check_element(session, path / "element", map_node.element, "map")
   _check_unicode_scalar(session, path / "unicode", map_node.unicode)
   _check_optional(session, path / "code", map_node.code, _check_unsigned_integer)
   _check_optional(session, path / "ent", map_node.ent, _check_ascii_text)
@@ -469,12 +468,8 @@ def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
 
 def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
   """Check mappings, require a base for coded maps, and advise on missing targets."""
-  if not isinstance(ude, Ude):
-    session.error(TmxFieldTypeError(path, ude, Ude))
+  if not _check_model(ude, Ude, session, path):
     return
-  if not _check_required_fields(session, path, ude, ("name", "maps")):
-    return
-  _check_element(session, path / "element", ude.element, "ude")
   _check_str(session, path / "name", ude.name)
   _check_optional(session, path / "base", ude.base, _check_encoding_name)
   _check_list(session, path / "maps", ude.maps, _validate_map, minimum=1)
@@ -526,30 +521,6 @@ def _check_content_depth(session: _Session, path: NodePath, node: object) -> boo
     return True
   session.error(TmxContractError(path, node, f"content nested deeper than {_MAX_CONTENT_NESTING} levels"))
   return False
-
-
-def _check_required_fields(session: _Session, path: NodePath, node: object, names: tuple[str, ...]) -> bool:
-  """Record missing fields on models built without constructor validation.
-
-  Args:
-      session: Destination for missing-field contract failures.
-      path: Path of the model being checked.
-      node: Model that may have been created with model_construct.
-      names: Required attributes to check before reading their values.
-
-  Returns:
-      True if all named attributes exist, regardless of their values.
-  """
-  missing = [name for name in names if not hasattr(node, name)]
-  for name in missing:
-    session.error(
-      TmxContractError(
-        path / name,
-        None,
-        "required field is missing (the node was not built at the entry boundary)",
-      )
-    )
-  return not missing
 
 
 def _check_content_acyclic(session: _Session, path: NodePath, node: object) -> bool:
@@ -636,25 +607,28 @@ def _validate_note_or_property_node(node: object, session: _Session, path: NodeP
 # The variant and inline nodes.
 
 
+def _check_translation_attributes(
+  node: TranslationUnit | TranslationUnitVariant, session: _Session, path: NodePath
+) -> None:
+  """Check the shared encoding, usage, and creation attributes in field order."""
+  _check_optional(session, path / "o_encoding", node.o_encoding, _check_encoding_name)
+  _check_optional(session, path / "datatype", node.datatype, _check_str)
+  _check_optional(session, path / "usagecount", node.usagecount, _check_unsigned_integer)
+  _check_optional(session, path / "lastusagedate", node.lastusagedate, _check_datetime)
+  _check_optional(session, path / "creationtool", node.creationtool, _check_str)
+  _check_optional(session, path / "creationtoolversion", node.creationtoolversion, _check_str)
+  _check_optional(session, path / "creationdate", node.creationdate, _check_datetime)
+  _check_optional(session, path / "creationid", node.creationid, _check_str)
+  _check_optional(session, path / "changedate", node.changedate, _check_datetime)
+
+
 def _validate_translation_unit_variant(tuv: object, session: _Session, path: NodePath) -> None:
   """Check variant fields, metadata, and paired codes within its segment flow."""
-  if not isinstance(tuv, TranslationUnitVariant):
-    session.error(TmxFieldTypeError(path, tuv, TranslationUnitVariant))
-    return
-  if not _check_required_fields(session, path, tuv, ("xml_lang",)):
+  if not _check_model(tuv, TranslationUnitVariant, session, path):
     return
   session.descend(tuv)
-  _check_element(session, path / "element", tuv.element, "tuv")
   _check_language_tag(session, path / "xml_lang", tuv.xml_lang)
-  _check_optional(session, path / "o_encoding", tuv.o_encoding, _check_encoding_name)
-  _check_optional(session, path / "datatype", tuv.datatype, _check_str)
-  _check_optional(session, path / "usagecount", tuv.usagecount, _check_unsigned_integer)
-  _check_optional(session, path / "lastusagedate", tuv.lastusagedate, _check_datetime)
-  _check_optional(session, path / "creationtool", tuv.creationtool, _check_str)
-  _check_optional(session, path / "creationtoolversion", tuv.creationtoolversion, _check_str)
-  _check_optional(session, path / "creationdate", tuv.creationdate, _check_datetime)
-  _check_optional(session, path / "creationid", tuv.creationid, _check_str)
-  _check_optional(session, path / "changedate", tuv.changedate, _check_datetime)
+  _check_translation_attributes(tuv, session, path)
   _check_optional(session, path / "o_tmf", tuv.o_tmf, _check_str)
   _check_optional(session, path / "changeid", tuv.changeid, _check_str)
   # The legacy-lang deprecation advisory rides on this pass.
@@ -673,11 +647,9 @@ def _validate_translation_unit_variant(tuv: object, session: _Session, path: Nod
 
 def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
   """Check an embedded segment and match codes within its own flow."""
-  if not isinstance(sub, Sub):
-    session.error(TmxFieldTypeError(path, sub, Sub))
+  if not _check_model(sub, Sub, session, path):
     return
   session.descend(sub)
-  _check_element(session, path / "element", sub.element, "sub")
   _check_optional(session, path / "datatype", sub.datatype, _check_str)
   _check_optional(session, path / "type", sub.type, _check_str)
   flow: _Flow = []
@@ -693,13 +665,9 @@ def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
 
 def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
   """Check a beginning code and embedded segments without matching its outer pair."""
-  if not isinstance(bpt, Bpt):
-    session.error(TmxFieldTypeError(path, bpt, Bpt))
-    return
-  if not _check_required_fields(session, path, bpt, ("i",)):
+  if not _check_model(bpt, Bpt, session, path):
     return
   session.descend(bpt)
-  _check_element(session, path / "element", bpt.element, "bpt")
   _check_unsigned_integer(session, path / "i", bpt.i)
   _check_optional(session, path / "x", bpt.x, _check_unsigned_integer)
   _check_optional(session, path / "type", bpt.type, _check_str)
@@ -709,13 +677,9 @@ def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
 
 def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
   """Check an ending code and embedded segments without matching its outer pair."""
-  if not isinstance(ept, Ept):
-    session.error(TmxFieldTypeError(path, ept, Ept))
-    return
-  if not _check_required_fields(session, path, ept, ("i",)):
+  if not _check_model(ept, Ept, session, path):
     return
   session.descend(ept)
-  _check_element(session, path / "element", ept.element, "ept")
   _check_unsigned_integer(session, path / "i", ept.i)
   _check_list(session, path / "content", ept.content, _validate_sub_content_node)
   session.ascend()
@@ -723,13 +687,9 @@ def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
 
 def _validate_it(it: object, session: _Session, path: NodePath) -> None:
   """Check an isolated code, its position, and any embedded segments."""
-  if not isinstance(it, It):
-    session.error(TmxFieldTypeError(path, it, It))
-    return
-  if not _check_required_fields(session, path, it, ("pos",)):
+  if not _check_model(it, It, session, path):
     return
   session.descend(it)
-  _check_element(session, path / "element", it.element, "it")
   _check_position(session, path / "pos", it.pos)
   _check_optional(session, path / "x", it.x, _check_unsigned_integer)
   _check_optional(session, path / "type", it.type, _check_str)
@@ -739,11 +699,9 @@ def _validate_it(it: object, session: _Session, path: NodePath) -> None:
 
 def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
   """Check a placeholder, its association, and any embedded segments."""
-  if not isinstance(ph, Ph):
-    session.error(TmxFieldTypeError(path, ph, Ph))
+  if not _check_model(ph, Ph, session, path):
     return
   session.descend(ph)
-  _check_element(session, path / "element", ph.element, "ph")
   _check_optional(session, path / "x", ph.x, _check_unsigned_integer)
   _check_optional(session, path / "assoc", ph.assoc, _check_association)
   _check_optional(session, path / "type", ph.type, _check_str)
@@ -753,11 +711,9 @@ def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
 
 def _validate_hi(hi: object, session: _Session, path: NodePath, flow: _Flow) -> None:
   """Check highlighted content and append its inline nodes to the enclosing flow."""
-  if not isinstance(hi, Hi):
-    session.error(TmxFieldTypeError(path, hi, Hi))
+  if not _check_model(hi, Hi, session, path):
     return
   session.descend(hi)
-  _check_element(session, path / "element", hi.element, "hi")
   _check_optional(session, path / "x", hi.x, _check_unsigned_integer)
   _check_optional(session, path / "type", hi.type, _check_str)
   _check_list(
@@ -771,8 +727,7 @@ def _validate_hi(hi: object, session: _Session, path: NodePath, flow: _Flow) -> 
 
 def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
   """Check a legacy code and embedded segments, collecting a deprecation advisory."""
-  if not isinstance(ut, Ut):
-    session.error(TmxFieldTypeError(path, ut, Ut))
+  if not _check_model(ut, Ut, session, path):
     return
   session.warn(
     TmxAdvisory(
@@ -782,7 +737,6 @@ def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
     )
   )
   session.descend(ut)
-  _check_element(session, path / "element", ut.element, "ut")
   _check_optional(session, path / "x", ut.x, _check_unsigned_integer)
   _check_list(session, path / "content", ut.content, _validate_sub_content_node)
   session.ascend()
@@ -790,23 +744,11 @@ def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
 
 def _validate_translation_unit(tu: object, session: _Session, path: NodePath) -> None:
   """Check unit fields and variants, collecting cross-variant identifier advisories."""
-  if not isinstance(tu, TranslationUnit):
-    session.error(TmxFieldTypeError(path, tu, TranslationUnit))
-    return
-  if not _check_required_fields(session, path, tu, ("variants",)):
+  if not _check_model(tu, TranslationUnit, session, path):
     return
   session.descend(tu)
-  _check_element(session, path / "element", tu.element, "tu")
   _check_optional(session, path / "tuid", tu.tuid, _check_tuid)
-  _check_optional(session, path / "o_encoding", tu.o_encoding, _check_encoding_name)
-  _check_optional(session, path / "datatype", tu.datatype, _check_str)
-  _check_optional(session, path / "usagecount", tu.usagecount, _check_unsigned_integer)
-  _check_optional(session, path / "lastusagedate", tu.lastusagedate, _check_datetime)
-  _check_optional(session, path / "creationtool", tu.creationtool, _check_str)
-  _check_optional(session, path / "creationtoolversion", tu.creationtoolversion, _check_str)
-  _check_optional(session, path / "creationdate", tu.creationdate, _check_datetime)
-  _check_optional(session, path / "creationid", tu.creationid, _check_str)
-  _check_optional(session, path / "changedate", tu.changedate, _check_datetime)
+  _check_translation_attributes(tu, session, path)
   _check_optional(session, path / "segtype", tu.segtype, _check_segtype)
   _check_optional(session, path / "changeid", tu.changeid, _check_str)
   _check_optional(session, path / "o_tmf", tu.o_tmf, _check_str)
