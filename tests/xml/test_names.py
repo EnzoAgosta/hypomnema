@@ -39,23 +39,18 @@ ALL_MODELS = (Note, Property, Map, Ude, Header, TranslationUnit, TranslationUnit
   ],
 )
 def test_field_names_map_mechanically(field_name: str, attribute_name: str) -> None:
-  """The naming rule: underscores become hyphens, ``xml_lang`` becomes
-  the namespace-qualified ``xml:lang``, everything else is verbatim."""
+  """Replace underscores with hyphens and qualify the xml_lang attribute."""
   assert xml_attribute_name(field_name) == attribute_name
 
 
 def test_non_attribute_fields_are_the_explicit_slots() -> None:
-  """The discriminator plus every explicit child/content slot: anything
-  else is an XML attribute by construction."""
+  """Exclude only the discriminator and child or content slots from attributes."""
   assert NON_ATTRIBUTE_FIELDS == {"element", "metadata", "content", "text", "maps", "variants"}
 
 
 @pytest.mark.parametrize("model_type", ALL_MODELS)
 def test_every_attribute_field_follows_the_naming_rule(model_type) -> None:
-  """The invariant the projection relies on: every field of every model
-  is either a declared slot or follows the mechanical naming rule --
-  ``xml_lang`` is the one documented exception, mapping to the
-  namespace-qualified ``xml:lang``."""
+  """Map every model attribute mechanically, with xml_lang namespace-qualified."""
   for field_name in model_type.model_fields:
     if field_name in NON_ATTRIBUTE_FIELDS:
       continue

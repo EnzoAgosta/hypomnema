@@ -1,1 +1,1 @@
-"""Projection: element-to-model and model-to-element walkers."""
+"""Convert between TMX models and lxml elements, and validate XML fragments."""

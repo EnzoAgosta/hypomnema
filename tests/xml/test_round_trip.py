@@ -19,16 +19,17 @@ TAGS = ("bpt", "ept", "header", "hi", "it", "map", "note", "ph", "prop", "sub", 
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_corpus_round_trips_to_an_equal_model(tag, corpus):
+  """Preserve each corpus model through building and reparsing its XML element."""
   model = from_element(etree.fromstring(corpus[tag]))
   assert from_element(to_element(model)) == model
 
 
 def test_empty_string_note_text_round_trip():
-  """The empty-string note text survives an in-memory element round
-  trip (to_element keeps ``text=""`` on the element, and the object
-  round trip preserves it); only through actual XML text does the
-  distinction collapse, because XML cannot express an empty-string
-  body."""
+  """Keep empty text through element projection but lose it through XML parsing.
+
+  An in-memory element distinguishes None from an empty string. Parsing the
+  serialized empty body normalizes both spellings to None.
+  """
   note = Note(text="")
   rebuilt = cast(Note, from_element(to_element(note)))
   assert rebuilt.text == ""
@@ -38,8 +39,7 @@ def test_empty_string_note_text_round_trip():
 
 
 def test_minimal_models_round_trip_to_an_equal_model():
-  """Self-closing shapes and empty slots: the None-omission and
-  empty-content build paths, end to end."""
+  """Preserve minimal models with omitted attributes and empty content slots."""
   for model in (
     Note(),
     Bpt(i=1),
@@ -51,9 +51,7 @@ def test_minimal_models_round_trip_to_an_equal_model():
 
 
 def test_full_unit_round_trips_with_nested_content():
-  """One integration unit: metadata, paired inline codes with an
-  embedded ``<sub>`` holding transparent ``<hi>``/``<ph>``, a second
-  variant, and the writer gate's full validation on the way out."""
+  """Preserve metadata, paired codes, embedded subflows, and multiple variants."""
   XML = (
     '<tu tuid="1" srclang="en">'
     "<note>unit note</note>"

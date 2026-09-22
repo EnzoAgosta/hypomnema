@@ -1,9 +1,7 @@
-"""XML names and the model-field/attribute mapping shared by parsing and
-building.
+"""Map model field names to TMX XML attribute names.
 
-Field naming is mechanical: the TMX attribute name with ``-`` and ``:``
-replaced by ``_``, otherwise verbatim -- ``o_tmf``, ``xml_lang``, and
-plain ``type`` (models.py states the rule; this module implements it once).
+Hyphens in XML names become underscores in model fields. The ``xml_lang``
+field maps to the expanded name for ``xml:lang`` in the XML namespace.
 """
 
 XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
@@ -14,5 +12,13 @@ NON_ATTRIBUTE_FIELDS = frozenset({"element", "metadata", "content", "text", "map
 
 
 def xml_attribute_name(field_name: str) -> str:
-  """The XML attribute name for a model field (the mechanical naming rule)."""
+  """Return the XML attribute name corresponding to a model field.
+
+  Args:
+      field_name: Attribute field name, excluding child and content fields.
+
+  Returns:
+      The expanded XML name for ``xml_lang``, or the name with underscores
+      replaced by hyphens.
+  """
   return XML_LANG if field_name == "xml_lang" else field_name.replace("_", "-")

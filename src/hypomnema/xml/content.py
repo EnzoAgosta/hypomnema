@@ -1,7 +1,7 @@
-"""The one implementation of XML text/child/tail interleave.
+"""Read and write XML mixed content while preserving text and whitespace.
 
-A child's tail belongs to its parent's content, never to the child model.
-No indentation or whitespace stripping happens here.
+A child's tail belongs to its parent's content. Comments and processing
+instructions are omitted on read, but their tails are retained.
 """
 
 from collections.abc import Iterable, Iterator
@@ -14,6 +14,7 @@ type XmlContentItem = str | etree._Element
 
 
 def _is_content_element(node: etree._Element) -> bool:
+  """Exclude comments and processing instructions; reject unresolved entities."""
   if isinstance(node, etree._Comment | etree._ProcessingInstruction):
     return False
   if isinstance(node, etree._Entity):
@@ -22,14 +23,37 @@ def _is_content_element(node: etree._Element) -> bool:
 
 
 def child_elements(element: etree._Element) -> Iterator[etree._Element]:
-  """Structural children only; the caller validates before discarding text."""
+  """Yield structural children in document order, ignoring comments and PIs.
+
+  Args:
+      element: Parent whose direct children are inspected. The caller must
+          validate text before discarding it.
+
+  Yields:
+      Existing child elements, without copying or removing them.
+
+  Raises:
+      TmxSpecError: A child is an unresolved entity.
+  """
   for child in element:
     if _is_content_element(child):
       yield child
 
 
 def read_mixed_content(element: etree._Element) -> Iterator[XmlContentItem]:
-  """Ignore comments/PIs but retain their tails, joining adjacent text."""
+  """Yield interleaved text and children, joining adjacent text pieces.
+
+  Args:
+      element: Parent whose text and child tails form the content. Its own
+          tail is excluded. Comments and PIs contribute only their tails.
+
+  Yields:
+      Text strings and existing child elements in document order. Whitespace
+      and explicitly empty text slots are preserved.
+
+  Raises:
+      TmxSpecError: Content contains an unresolved entity.
+  """
   text_parts: list[str] = []
   if element.text is not None:
     text_parts.append(element.text)
@@ -46,7 +70,18 @@ def read_mixed_content(element: etree._Element) -> Iterator[XmlContentItem]:
 
 
 def read_text(element: etree._Element) -> str | None:
-  """Read plain text, preserving None versus an explicitly empty XML slot."""
+  """Read text-only content, preserving absent and explicitly empty text.
+
+  Args:
+      element: Element whose content is read, excluding its own tail.
+
+  Returns:
+      Joined text, or ``None`` if there are no text slots. Comments and
+      processing instructions contribute only their tails.
+
+  Raises:
+      TmxSpecError: Content contains a child element or unresolved entity.
+  """
   parts: list[str] = []
   for item in read_mixed_content(element):
     if not isinstance(item, str):
@@ -56,7 +91,16 @@ def read_text(element: etree._Element) -> str | None:
 
 
 def write_text(element: etree._Element, text: str | None) -> None:
-  """Set a plain-text node without collapsing None and empty string."""
+  """Set an element's text slot without changing its children or tail.
+
+  Args:
+      element: Element to mutate.
+      text: Text to assign. ``None`` clears the slot; an empty string keeps
+          an explicitly empty slot.
+
+  Raises:
+      TmxSpecError: The text contains characters that XML cannot represent.
+  """
   try:
     element.text = text
   except ValueError as error:
@@ -64,7 +108,19 @@ def write_text(element: etree._Element, text: str | None) -> None:
 
 
 def write_mixed_content(element: etree._Element, items: Iterable[XmlContentItem]) -> None:
-  """Populate a fresh element, folding consecutive strings into XML slots."""
+  """Populate a fresh element with interleaved text and child elements.
+
+  Consecutive strings are joined in the parent's text or the preceding
+  child's tail. Supplied children are moved into the parent, not copied.
+
+  Args:
+      element: Empty destination element to mutate.
+      items: Ordered strings and detached child elements with no tails.
+
+  Raises:
+      TmxSpecError: A text item contains characters XML cannot represent.
+          Content written before the failure remains in the element.
+  """
   previous_child: etree._Element | None = None
   for item in items:
     if isinstance(item, str):

@@ -1,13 +1,9 @@
-"""Value-layer coercion: parse/format functions for the Annotated value
-aliases in ``models.py``.
+"""Parse, validate, and serialize the annotated value types in ``models``.
 
-Value aliases are public Pydantic functional metadata so a value is honestly
-its Python type: a ``TMXDatetime`` is a ``datetime``. BeforeValidators accept
-a narrow input repertoire and reject everything else with ``ValueError``, so
-Pydantic surfaces rejections as ``ValidationError`` with the cause retained;
-no parser raises ``TypeError``, which Pydantic would not catch. Serializers
-split Python from JSON: ``model_dump()`` keeps native values, JSON mode and
-XML output share one string formatter per type (``when_used="json"``).
+Before-validators reject unsupported input with ValueError so Pydantic can
+wrap failures in ValidationError. After-validators receive already-typed
+values. Formatters expect validated input and provide the same strings for
+JSON and XML output; Python model dumps retain native values.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -15,26 +11,25 @@ from string import digits, hexdigits
 
 
 def lowercase_string(value: object) -> object:
-  """Lowercase a string, leaving anything else untouched.
+  """Lowercase strings and return all other objects unchanged.
 
-  A before-validator for case-insensitive fields such as ``srclang``:
-  the value passes through untouched when it is not a string, so the
-  core str check rejects it with a proper ``ValidationError`` --
-  ``str.lower(None)`` would otherwise crash the entry boundary with a
-  raw ``TypeError``.
+  Used before field validation so Pydantic can reject non-string values.
   """
   return value.lower() if isinstance(value, str) else value
 
 
 def parse_integer(value: object) -> int:
-  """Parse a decimal integer, e.g. ``usagecount``, ``i``, ``x``.
+  """Parse a nonnegative integer from a native integer or ASCII digits.
 
-  The spec types these attributes as numbers, so the same unsigned domain
-  holds for every input form: native integers must be non-negative, and
-  strings must be pure ASCII digits -- no sign, whitespace, underscore, or
-  other ``int()`` conveniences. Leading zeros are accepted but their
-  spelling is not retained. Booleans are rejected even though ``bool`` is
-  an ``int`` subclass; so are floats. Raises ``ValueError`` for all of it.
+  Args:
+      value: Integer or nonempty decimal string. Leading zeros are accepted.
+
+  Returns:
+      The integer value, without preserving the input spelling.
+
+  Raises:
+      ValueError: Input is negative, boolean, an unsupported type, or a string
+          containing signs, whitespace, underscores, or non-ASCII digits.
   """
   if isinstance(value, bool):
     raise ValueError("a boolean is not a number here, even though bool subclasses int")
@@ -50,22 +45,21 @@ def parse_integer(value: object) -> int:
 
 
 def parse_datetime(value: object) -> datetime:
-  """Parse a date-time value, e.g. ``creationdate``.
+  """Parse a timestamp and attach UTC when it has no effective offset.
 
-  Accepts native ``datetime`` values and strings parseable by
-  ``datetime.fromisoformat()`` -- deliberately bounded to that parser's
-  repertoire, not the full ISO 8601 standard. Input must combine a date
-  and a time: date-only strings are rejected even though ``fromisoformat``
-  would accept them as midnight, detected with ``date.fromisoformat``
-  (which succeeds exactly on date-only input). Native ``date`` and ``time``
-  objects are rejected as unsupported types.
+  Args:
+      value: A datetime or a string accepted by ``datetime.fromisoformat``
+          that contains both a date and a time. Native dates are not accepted.
 
-  A naive value is assumed to be UTC and stamped with it; an explicit
-  offset is retained as-is, never converted. A ``tzinfo`` whose
-  ``utcoffset()`` is ``None`` is behaviorally naive and is stamped too.
-  Fractional seconds are kept
-  to ``datetime``'s microsecond precision (``fromisoformat`` truncates
-  beyond it, which is part of the bounded policy).
+  Returns:
+      A datetime preserving any explicit offset and microsecond precision.
+      Strings with finer fractional seconds are truncated by ``fromisoformat``.
+      Naive datetimes, including those whose ``utcoffset()`` is None, acquire
+      UTC without changing the clock time.
+
+  Raises:
+      ValueError: Input has an unsupported type, is date-only, or cannot be
+          parsed as an ISO date and time.
   """
   if isinstance(value, datetime):
     parsed = value
@@ -88,20 +82,16 @@ def parse_datetime(value: object) -> datetime:
 
 
 def format_datetime(value: datetime) -> str:
-  """Format a date-time for JSON and XML output, keeping its offset.
+  """Serialize a datetime in basic ISO format while preserving its offset.
 
-  Basic ISO 8601 ``YYYYMMDDTHHMMSS`` -- the form the spec recommends --
-  with ``Z`` for a zero/absent offset (naive values are assumed UTC) and
-  ``+HHMM``/``-HHMM`` otherwise, so an explicitly supplied offset survives
-  output instead of being normalized to UTC. Finer offset components are
-  emitted losslessly when present -- seconds, then a fractional part --
-  because ``fromisoformat`` re-reads every form this emits; the offset is
-  never rounded, which could silently move the instant or land outside the
-  representable range (``±2359`` at the extreme). Fractional seconds of
-  the datetime itself are emitted to ``datetime``'s precision, only when
-  nonzero, as in ``datetime.isoformat()``. Manual formatting for
-  predictable year zero-padding, which ``strftime``'s ``%Y`` does not
-  guarantee.
+  Args:
+      value: Timestamp to format. An absent effective offset is treated as UTC.
+
+  Returns:
+      A ``YYYYMMDDTHHMMSS`` string with ``Z`` for zero or absent offset, or a
+      signed ``HHMM`` offset otherwise. Nonzero fractional seconds use six
+      digits. Offset seconds and microseconds are included when present, so
+      parsing the output preserves the instant and offset.
   """
   offset = value.utcoffset()
   if offset is None or offset == timedelta(0):
@@ -126,22 +116,31 @@ def format_datetime(value: datetime) -> str:
 
 
 def validate_tuid(value: str) -> str:
-  """Check an identifier contains no whitespace, as the spec requires
-  for ``tuid``."""
+  """Return a translation-unit identifier unchanged if it has no whitespace.
+
+  Empty strings are accepted.
+
+  Raises:
+      ValueError: Any character satisfies ``str.isspace``.
+  """
   if any(character.isspace() for character in value):
     raise ValueError(f"expected a string without whitespace, got {value!r}")
   return value
 
 
 def parse_hex_integer(value: object) -> int:
-  """Parse a ``#x``-prefixed hexadecimal integer, e.g. ``#xF8FF``.
+  """Parse a nonnegative integer or a TMX ``#x`` hexadecimal string.
 
-  The format the TMX spec prescribes for ``<map unicode>`` and
-  ``<map code>``. Strictly ``#x`` plus ASCII hexadecimal digits: no
-  ``0x``, no sign, no whitespace, no ``int()`` conveniences such as
-  underscores. Native integers must be non-negative; booleans and floats
-  are rejected like any other unsupported type. Leading zeros are accepted
-  but their spelling is not retained. Raises ``ValueError`` for all of it.
+  Args:
+      value: Native integer or lowercase ``#x`` followed by one or more ASCII
+          hexadecimal digits. Digits may use either case and leading zeros.
+
+  Returns:
+      The integer value, without preserving the input spelling.
+
+  Raises:
+      ValueError: Input is negative, boolean, an unsupported type, or a string
+          with an invalid prefix or digits. Signs and whitespace are rejected.
   """
   if isinstance(value, bool):
     raise ValueError("a boolean is not a number here, even though bool subclasses int")
@@ -160,14 +159,19 @@ def parse_hex_integer(value: object) -> int:
 
 
 def format_hex_integer(value: int) -> str:
-  """Format a hexadecimal integer the way the spec's examples spell it."""
+  """Return ``value`` as uppercase hexadecimal digits prefixed with ``#x``.
+
+  Expects a validated nonnegative integer and does not repeat validation.
+  """
   return f"#x{value:X}"
 
 
 def validate_unicode_scalar(value: int) -> int:
-  """Check a code point is a valid Unicode scalar value.
+  """Return a Unicode scalar value unchanged, including private-use values.
 
-  0 to 0x10FFFF, surrogates excluded; Private Use areas allowed per spec.
+  Raises:
+      ValueError: The value is outside 0 through 0x10FFFF or is a surrogate
+          in 0xD800 through 0xDFFF.
   """
   if not (0 <= value <= 0x10FFFF) or (0xD800 <= value <= 0xDFFF):
     raise ValueError(f"expected a valid Unicode scalar value, got {value!r}")
@@ -175,7 +179,11 @@ def validate_unicode_scalar(value: int) -> int:
 
 
 def validate_ascii(value: str) -> str:
-  """Check text is ASCII, as the spec requires for ``ent`` and ``subst``."""
+  """Return ASCII text unchanged, including an empty string.
+
+  Raises:
+      ValueError: The text contains a non-ASCII character.
+  """
   if not value.isascii():
     raise ValueError(f"expected ASCII text, got {value!r}")
   return value

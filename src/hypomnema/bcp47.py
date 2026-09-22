@@ -1,22 +1,10 @@
-"""Well-formedness validation for BCP 47 language tags (RFC 5646).
+"""Check BCP 47 language-tag syntax using the RFC 5646 grammar.
 
-Grammar-only, per RFC 5646 section 2.2.9: a tag is "well-formed" when it
-matches the ABNF in section 2.1. The stricter "valid" class -- registry
-membership, deprecation, suppress-script, singleton uniqueness (section
-2.2.6 rule 3) -- is out of scope and belongs to a registry-backed layer.
-
-Self-contained (stdlib only, no TMX or third-party dependency) so it can be
-lifted out as a standalone package.
-
-References to "RFC 5646" below are section 2.1 unless noted. Per RFC 5646
-the ABNF is case-insensitive, so comparisons run on lowercased input while
-the original spelling is preserved.
-
-The grammar is unambiguous at every decision point, so the single greedy
-left-to-right pass below never needs to backtrack: after a 2*3ALPHA
-language only extlang can be 3ALPHA; only script can be 4ALPHA; variant's
-4-character branch requires a leading DIGIT, so it cannot collide with
-script; region's 3DIGIT cannot collide with that variant branch.
+These checks establish well-formedness, not registry validity. They do not
+check registered subtags, deprecation, suppress-script rules, or duplicate
+extension singletons. Comparisons are case-insensitive and accepted tags
+retain their original spelling. Parsing follows the grammar from left to
+right without backtracking.
 """
 
 from collections.abc import Sequence
@@ -64,8 +52,7 @@ pins that claim so it fails loudly if it ever stops holding.
 
 
 class _Malformed(ValueError):
-  """Internal: carries the reason only; the offending tag is added at the
-  public boundary, so the message format lives in exactly one place."""
+  """Carry a grammar failure reason until the public API adds the tag."""
 
 
 # Character classes. The length bound comes first: it short-circuits before
@@ -80,54 +67,51 @@ class _Malformed(ValueError):
 
 
 def _is_alpha(text: str, min_len: int, max_len: int) -> bool:
-  """``ALPHA``: ASCII letters only, within a length range."""
+  """Return whether ASCII letters fill the inclusive length range."""
   return min_len <= len(text) <= max_len and text.isascii() and text.isalpha()
 
 
 def _is_digits(text: str, min_len: int, max_len: int) -> bool:
-  """``DIGIT``: ASCII digits only, within a length range."""
+  """Return whether ASCII digits fill the inclusive length range."""
   return min_len <= len(text) <= max_len and text.isascii() and text.isdigit()
 
 
 def _is_alphanum(text: str, min_len: int, max_len: int) -> bool:
-  """``alphanum``: ASCII letters or digits, within a length range."""
+  """Return whether ASCII letters or digits fill the inclusive length range."""
   return min_len <= len(text) <= max_len and text.isascii() and text.isalnum()
 
 
 def _is_script(subtag: str) -> bool:
-  """``script = 4ALPHA``."""
+  """Return whether a script subtag contains exactly four ASCII letters."""
   return _is_alpha(subtag, 4, 4)
 
 
 def _is_region(subtag: str) -> bool:
-  """``region = 2ALPHA / 3DIGIT``."""
+  """Return whether a region contains two ASCII letters or three digits."""
   return _is_alpha(subtag, 2, 2) or _is_digits(subtag, 3, 3)
 
 
 def _is_variant(subtag: str) -> bool:
-  """``variant = 5*8alphanum / (DIGIT 3alphanum)``."""
+  """Match five to eight alphanumerics, or a digit plus three alphanumerics."""
   return _is_alphanum(subtag, 5, 8) or (_is_alphanum(subtag, 4, 4) and _is_digits(subtag[0], 1, 1))
 
 
 def _is_extension_singleton(subtag: str) -> bool:
-  """``singleton``: one alphanum, excluding "x"/"X", which starts private use.
-
-  The membership test uses a tuple, not the string ``"xX"``: ``"" in "xX"`` is
-  true, and an empty subtag reaches here from a doubled or trailing hyphen.
-  """
+  """Match one ASCII letter or digit other than the private-use marker x."""
   return _is_alphanum(subtag, 1, 1) and subtag not in ("x", "X")
 
 
 def _parse_language(subtags: Sequence[str]) -> int:
-  """``language = 2*3ALPHA ["-" extlang] / 4ALPHA / 5*8ALPHA``; returns the
-  index of the first subtag after the language.
+  """Consume a language and up to three permitted extended-language subtags.
 
-  The three alternatives share ``ALPHA`` and together span lengths 2-8
-  (4ALPHA is reserved for future use, 5*8ALPHA covers registered language
-  subtags); only the 2-3 length branch admits extlangs.
+  Args:
+      subtags: Nonempty sequence of hyphen-separated subtags.
 
-  ``subtags`` must be non-empty; every caller gets it from ``str.split``,
-  which never returns an empty list.
+  Returns:
+      Index of the first subtag after the language and any extended languages.
+
+  Raises:
+      _Malformed: The first subtag is not two through eight ASCII letters.
   """
   language = subtags[0]
   if not _is_alpha(language, 2, 8):
@@ -143,10 +127,20 @@ def _parse_language(subtags: Sequence[str]) -> int:
 
 
 def _parse_extensions(subtags: Sequence[str], index: int) -> int:
-  """``*("-" extension)`` where ``extension = singleton 1*("-" (2*8alphanum))``;
-  returns the index of the first subtag that is not part of an extension.
+  """Consume extension sequences starting at an index.
 
-  Duplicate singletons affect validity, not ABNF well-formedness (2.2.9).
+  Duplicate singleton identifiers are accepted as grammatically well-formed.
+
+  Args:
+      subtags: Hyphen-separated language-tag components.
+      index: Index of the next subtag to inspect.
+
+  Returns:
+      Index of the first subtag outside the extension sequences.
+
+  Raises:
+      _Malformed: An extension lacks a body or has a body subtag that is not
+          two through eight ASCII alphanumeric characters.
   """
   while index < len(subtags) and _is_extension_singleton(subtags[index]):
     singleton = subtags[index]
@@ -165,8 +159,16 @@ def _parse_extensions(subtags: Sequence[str], index: int) -> int:
 
 
 def _parse_privateuse(subtags: Sequence[str], index: int) -> None:
-  """``privateuse = "x" 1*("-" (1*8alphanum))``, with ``index`` pointing just
-  past the "x". Private use terminates the tag, so this consumes the rest."""
+  """Validate the remaining subtags after a private-use marker.
+
+  Args:
+      subtags: Hyphen-separated language-tag components.
+      index: Index immediately after the private-use marker x.
+
+  Raises:
+      _Malformed: No subtags remain, or a remaining subtag is not one through
+          eight ASCII alphanumeric characters.
+  """
   if index >= len(subtags):
     raise _Malformed("private-use singleton without subtags")
   for subtag in subtags[index:]:
@@ -175,8 +177,11 @@ def _parse_privateuse(subtags: Sequence[str], index: int) -> None:
 
 
 def _parse_langtag(subtags: Sequence[str]) -> None:
-  """``langtag = language ["-" script] ["-" region] *("-" variant)
-  *("-" extension) ["-" privateuse]``."""
+  """Validate a nonempty sequence against the ordinary language-tag grammar.
+
+  Consumes language, optional script and region, variants, extensions, and
+  optional trailing private use. Raises _Malformed at the first grammar error.
+  """
   index = _parse_language(subtags)
   if index < len(subtags) and _is_script(subtags[index]):
     index += 1
@@ -193,12 +198,19 @@ def _parse_langtag(subtags: Sequence[str]) -> None:
 
 
 def validate_well_formed_language_tag(tag: object) -> str:
-  """Validate a well-formed BCP 47 language tag and return it unchanged.
+  """Validate a BCP 47 language tag without consulting a subtag registry.
 
-  ``language-tag = langtag / privateuse / grandfathered``. Raises ``TypeError``
-  for non-string input and ``ValueError``, with the specific reason, when the
-  tag is not well-formed. Case is preserved: tags are case-insensitive,
-  spelling is not.
+  Args:
+      tag: String to check against the language-tag grammar, including
+          private-use and grandfathered forms.
+
+  Returns:
+      The original string with its case unchanged.
+
+  Raises:
+      TypeError: The input is not a string.
+      LanguageTagError: The string is not grammatically well-formed. The error
+          retains the tag and the reason for rejection.
   """
   if not isinstance(tag, str):
     raise TypeError(f"expected a string, got {type(tag)!r}")
@@ -219,11 +231,14 @@ def validate_well_formed_language_tag(tag: object) -> str:
 
 
 def is_well_formed_language_tag(tag: object) -> bool:
-  """Whether ``tag`` is a well-formed BCP 47 language tag.
+  """Return whether an object is a grammatically well-formed BCP 47 tag.
 
-  Non-string input returns ``False`` rather than raising, for pydantic-shaped
-  callers; ``validate_well_formed_language_tag`` raises ``TypeError`` and
-  reports *why* a string was rejected.
+  Args:
+      tag: Candidate tag. Non-string objects return False.
+
+  Returns:
+      True for accepted syntax, regardless of registry membership. Use
+      ``validate_well_formed_language_tag`` to obtain a rejection reason.
   """
   try:
     validate_well_formed_language_tag(tag)

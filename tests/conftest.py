@@ -14,6 +14,7 @@ def leaf_errors():
   """
 
   def leaf_errors(group) -> list[TmxFieldError]:
+    """Return field-error leaves after rejecting nested groups and foreign errors."""
     assert all(isinstance(error, TmxFieldError) for error in group.exceptions)
     return [error for error in group.exceptions if isinstance(error, TmxFieldError)]
 

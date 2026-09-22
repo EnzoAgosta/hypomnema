@@ -30,5 +30,5 @@ TAGS = tuple(sorted(CORPUS))
 
 @pytest.fixture
 def corpus() -> dict[str, str]:
-  """The golden corpus: build one dict per test run, cheap as it is."""
+  """Return the shared fragment dictionary for projection tests."""
   return CORPUS

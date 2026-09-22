@@ -89,8 +89,7 @@ def test_to_element_gates_through_validation(tag, corpus):
 
 
 def test_writer_gate_raises_tmx_error_groups_not_tmx_spec_error(corpus):
-  """The group type is the contract: callers filter with ``except*`` and
-  read ``advisories`` off it."""
+  """Expose model validation failures as field-error groups before building XML."""
   tu = cast(TranslationUnit, from_element(etree.fromstring(corpus["tu"])))
   first_bpt = tu.variants[0].content[1]
   assert isinstance(first_bpt, Bpt)
@@ -101,8 +100,7 @@ def test_writer_gate_raises_tmx_error_groups_not_tmx_spec_error(corpus):
 
 
 def test_writer_gate_attaches_advisories_to_the_group(corpus):
-  """A <ut> carries its deprecation advisory; planted alongside a real
-  error, the group carries both, and the caller can emit the advisory."""
+  """Attach a legacy-code deprecation advisory to the group containing its error."""
   ut = cast(Ut, from_element(etree.fromstring(corpus["ut"])))
   ut.content.append(42)  # ty: ignore[invalid-argument-type]  # the planted defect
   with pytest.raises(TmxErrorGroup) as excinfo:
@@ -112,9 +110,7 @@ def test_writer_gate_attaches_advisories_to_the_group(corpus):
 
 
 def test_writer_gate_rides_the_deep_paths(corpus):
-  """The gate recursion covers every child walk: a corrupt nested
-  ``<map>`` inside a <ude>, and a corrupt ``<sub>`` inside a ``<bpt>``
-  inside a variant, are each caught at their deep model-relative path."""
+  """Report invalid nested maps and subflows with their full model-relative paths."""
   ude = cast(Ude, from_element(etree.fromstring(corpus["ude"])))
   ude.maps[0].unicode = 0xD800
   with pytest.raises(TmxErrorGroup) as excinfo:
@@ -131,8 +127,7 @@ def test_writer_gate_rides_the_deep_paths(corpus):
 
 
 def test_valid_writer_gate_raises_nothing(corpus):
-  """Every corpus model builds; a quiet advisory-only pass (the <ut>
-  deprecation) stays silent by design."""
+  """Build every corpus node, including legacy nodes with nonfatal advisories."""
   for tag in TAGS:
     TO_FUNCTIONS[tag](from_element(etree.fromstring(corpus[tag])))
 
@@ -143,6 +138,7 @@ def test_valid_writer_gate_raises_nothing(corpus):
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_to_element_renders_the_corpus_verbatim(tag, corpus):
+  """Reproduce the hand-written fragment's XML and attribute order exactly."""
   model = from_element(etree.fromstring(corpus[tag]))
   built = TO_FUNCTIONS[tag](model)
   assert etree.tostring(built).decode() == corpus[tag]
@@ -152,6 +148,7 @@ def test_to_element_renders_the_corpus_verbatim(tag, corpus):
 
 
 def test_attributes_are_formatted_per_type():
+  """Format dates and hex values, map attribute names, and omit None values."""
   header = Header(
     creationtool="tool",
     creationtoolversion="1.0",
@@ -173,6 +170,7 @@ def test_attributes_are_formatted_per_type():
 
 
 def test_integer_attributes_render_as_decimal():
+  """Render usage counts as decimal and variant timestamps in TMX notation."""
   tu = TranslationUnit(
     tuid="tu-1",
     srclang="en",
@@ -187,14 +185,14 @@ def test_integer_attributes_render_as_decimal():
 
 
 def test_xml_lang_uses_the_qualified_name():
+  """Write xml:lang with its XML namespace rather than the Python field name."""
   tuv = tuv_to_element(TranslationUnitVariant(xml_lang="en"))
   assert tuv.get("{http://www.w3.org/XML/1998/namespace}lang") == "en"
   assert tuv.get("xml_lang") is None
 
 
 def test_xml_illegal_attribute_values_are_reported(corpus):
-  """Strings that pass the entry boundary can still be XML-illegal:
-  the build direction owns that failure."""
+  """Reject XML-illegal attribute text even when the model accepts the string."""
   header = cast(Header, from_element(etree.fromstring(corpus["header"])))
   header.creationtool = "bad \x03 tool"
   with pytest.raises(TmxSpecError, match="XML-illegal"):
@@ -202,11 +200,13 @@ def test_xml_illegal_attribute_values_are_reported(corpus):
 
 
 def test_xml_illegal_text_is_reported():
+  """Report forbidden XML control characters in note text."""
   with pytest.raises(TmxSpecError, match="XML-illegal"):
     note_to_element(Note(text="bad \x03 text"))
 
 
 def test_xml_illegal_text_is_reported_through_the_content_walk():
+  """Identify the enclosing inline element when its text is XML-illegal."""
   from hypomnema.models import Ph
 
   with pytest.raises(TmxSpecError, match="XML-illegal text inside <ph>"):
@@ -214,8 +214,7 @@ def test_xml_illegal_text_is_reported_through_the_content_walk():
 
 
 def test_unsupported_attribute_value_is_reported_as_type_error():
-  """The TypeError branch guards the future: a field that is neither
-  str/datetime/int cannot be serialized."""
+  """Reject attribute values outside the string, datetime, and integer types."""
   from hypomnema.xml import build
 
   note = Note.model_construct(element="note", text="x")
@@ -229,5 +228,6 @@ def test_unsupported_attribute_value_is_reported_as_type_error():
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_to_element_dispatch_matches_per_node_builders(tag, corpus):
+  """Make generic and per-node builders emit identical XML for every node kind."""
   model = from_element(etree.fromstring(corpus[tag]))
   assert etree.tostring(to_element(model)).decode() == etree.tostring(TO_FUNCTIONS[tag](model)).decode()

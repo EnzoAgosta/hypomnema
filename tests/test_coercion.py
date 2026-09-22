@@ -1,17 +1,8 @@
-"""Value contracts of the coercion layer: unsigned numbers, the
-ValidationError boundary, and fromisoformat-bounded datetimes.
+"""Test scalar coercion, canonical serialization, and Pydantic error causes.
 
-Expectations are explicit examples with asserted values, not echoes of the
-implementation's own round trips. The datetime examples derive their
-boundaries from datetime.fromisoformat's measured behavior on Python 3.14
-(date-only detection, any-character separator, 24:00 normalization,
-sub-microsecond truncation, offsets with seconds), not from a re-reading of
-ISO 8601: the policy is deliberately bounded to that parser.
-
-Every adapter is built from an alias imported from ``models.py`` -- the
-same object the field annotations use, so an adapter cannot drift from the
-field it mirrors. An alias that does not exist yet is a reason to create
-one, not to hand-build the annotation here.
+Datetime cases exercise the forms accepted by datetime.fromisoformat on
+Python 3.14, including fractional seconds and offsets. Type adapters use the
+same aliases as the domain models so these cases verify their field behavior.
 """
 
 import warnings
@@ -67,6 +58,7 @@ ACCEPTED_INTEGERS = (
 
 @pytest.mark.parametrize(("value", "expected"), ACCEPTED_INTEGERS)
 def test_parse_integer_accepts_unsigned_decimal(value: object, expected: int) -> None:
+  """Coerce unsigned ASCII decimal strings and native integers consistently."""
   assert parse_integer(value) == expected
   assert INTEGER.validate_python(value) == expected
 
@@ -102,6 +94,7 @@ REJECTED_INTEGERS = (
 
 @pytest.mark.parametrize("value", REJECTED_INTEGERS)
 def test_parse_integer_rejects_everything_outside_the_domain(value: object) -> None:
+  """Reject signed, non-ASCII, and non-integral inputs through both entry points."""
   with pytest.raises(ValueError):
     parse_integer(value)
   with pytest.raises(ValidationError):
@@ -110,6 +103,7 @@ def test_parse_integer_rejects_everything_outside_the_domain(value: object) -> N
 
 def test_format_integer_renders_canonical_decimal_digits() -> None:
   # Leading zeros are accepted by the parser but not retained by the format.
+  """Drop leading zeroes when a parsed integer is rendered as decimal text."""
   assert str(parse_integer("0042")) == "42"
 
 
@@ -127,6 +121,7 @@ ACCEPTED_HEX_INTEGERS = (
 
 @pytest.mark.parametrize(("value", "expected"), ACCEPTED_HEX_INTEGERS)
 def test_parse_hex_integer_accepts_prefixed_hexadecimal(value: object, expected: int) -> None:
+  """Accept native unsigned integers and case-insensitive digits after #x."""
   assert parse_hex_integer(value) == expected
   assert HEX_INTEGER.validate_python(value) == expected
 
@@ -158,6 +153,7 @@ REJECTED_HEX_INTEGERS = (
 
 @pytest.mark.parametrize("value", REJECTED_HEX_INTEGERS)
 def test_parse_hex_integer_rejects_everything_outside_the_domain(value: object) -> None:
+  """Reject malformed hex prefixes, invalid digits, and non-unsigned inputs."""
   with pytest.raises(ValueError):
     parse_hex_integer(value)
   with pytest.raises(ValidationError):
@@ -168,6 +164,7 @@ def test_parse_hex_integer_rejects_everything_outside_the_domain(value: object) 
   ("value", "expected"), [(0, "#x0"), (0xE9, "#xE9"), (0xF8FF, "#xF8FF"), (0x10FFFF, "#x10FFFF")]
 )
 def test_format_hex_integer_keeps_the_prefix_and_uppercases_digits(value: int, expected: str) -> None:
+  """Render hexadecimal values with #x and uppercase digits."""
   assert format_hex_integer(value) == expected
 
 
@@ -194,11 +191,13 @@ REJECTED_CODE_POINTS = (
 
 @pytest.mark.parametrize(("value", "expected"), ACCEPTED_CODE_POINTS)
 def test_code_point_accepts_scalar_values_including_private_use(value: object, expected: int) -> None:
+  """Accept Unicode scalar boundaries and private-use characters."""
   assert CODE_POINT.validate_python(value) == expected
 
 
 @pytest.mark.parametrize("value", REJECTED_CODE_POINTS)
 def test_code_point_rejects_non_scalar_values(value: object) -> None:
+  """Reject surrogates and integers outside the Unicode scalar range."""
   with pytest.raises(ValidationError):
     CODE_POINT.validate_python(value)
 
@@ -234,16 +233,19 @@ ACCEPTED_DATETIMES = (
 
 @pytest.mark.parametrize(("value", "expected"), ACCEPTED_DATETIMES)
 def test_parse_datetime_accepts_fromisoformat_date_times(value: str, expected: datetime) -> None:
+  """Coerce supported ISO datetime forms to the explicitly expected instants."""
   assert parse_datetime(value) == expected
   assert DATETIME.validate_python(value) == expected
 
 
 def test_parse_datetime_keeps_a_native_offset_untouched() -> None:
+  """Preserve the instant represented by an offset-aware native datetime."""
   native = datetime(2024, 1, 1, 12, 30, 45, tzinfo=OFFSET_P2)
   assert parse_datetime(native) == native
 
 
 def test_parse_datetime_stamps_a_native_naive_value_as_utc() -> None:
+  """Interpret a native datetime without a timezone as UTC."""
   native = datetime(2024, 1, 1, 12, 30, 45)
   assert parse_datetime(native) == native.replace(tzinfo=UTC)
   assert DATETIME.validate_python(native) == native.replace(tzinfo=UTC)
@@ -253,17 +255,21 @@ class NullOffsetTz(tzinfo):
   """A pathological tzinfo whose utcoffset() is None: behaviorally naive."""
 
   def utcoffset(self, dt: datetime | None) -> timedelta | None:
+    """Return no UTC offset so the datetime is effectively naive."""
     return None
 
   def dst(self, dt: datetime | None) -> timedelta | None:
+    """Report no daylight-saving adjustment for this naive test timezone."""
     return None
 
   def tzname(self, dt: datetime | None) -> str | None:
+    """Return no timezone name for this deliberately incomplete timezone."""
     return None
 
 
 def test_parse_datetime_stamps_a_none_offset_tzinfo_as_utc() -> None:
   # tzinfo is not None here, but the value has no effective timezone.
+  """Apply UTC when tzinfo exists but supplies no effective offset."""
   pathological = datetime(2024, 1, 1, 12, 30, 45, tzinfo=NullOffsetTz())
   stamped = parse_datetime(pathological)
   assert stamped == datetime(2024, 1, 1, 12, 30, 45, tzinfo=UTC)
@@ -271,6 +277,7 @@ def test_parse_datetime_stamps_a_none_offset_tzinfo_as_utc() -> None:
 
 
 def test_parse_datetime_keeps_native_microseconds() -> None:
+  """Preserve subsecond precision in native datetime input."""
   native = datetime(2024, 1, 1, 12, 30, 45, 123456, tzinfo=OFFSET_M530)
   assert parse_datetime(native) == native
 
@@ -303,6 +310,7 @@ REJECTED_DATETIMES = (
 
 @pytest.mark.parametrize("value", REJECTED_DATETIMES)
 def test_parse_datetime_rejects_non_instants(value: object) -> None:
+  """Reject date-only, time-only, malformed, and unsupported datetime inputs."""
   with pytest.raises(ValueError):
     parse_datetime(value)
   with pytest.raises(ValidationError):
@@ -333,6 +341,7 @@ def test_format_datetime_renders_and_reparses(value: datetime, expected: str) ->
   # form must also read back equal, including the rounding-hazard offsets
   # where lossy formatting would move the instant. Naive values are
   # assumed UTC, so they are stamped before the comparison.
+  """Match the expected TMX spelling and preserve the instant when reparsed."""
   value = value.replace(tzinfo=UTC) if value.tzinfo is None else value
   assert format_datetime(value) == expected
   assert parse_datetime(format_datetime(value)) == value
@@ -353,11 +362,13 @@ REJECTED_IDENTIFIERS = (
 
 @pytest.mark.parametrize("value", ACCEPTED_IDENTIFIERS)
 def test_identifier_accepts_whitespace_free_strings(value: str) -> None:
+  """Accept identifiers without whitespace, including the empty string."""
   assert IDENTIFIER.validate_python(value) == value
 
 
 @pytest.mark.parametrize("value", REJECTED_IDENTIFIERS)
 def test_identifier_rejects_whitespace_and_non_strings(value: object) -> None:
+  """Reject whitespace-bearing identifiers and non-string inputs."""
   with pytest.raises(ValidationError):
     IDENTIFIER.validate_python(value)
 
@@ -366,11 +377,13 @@ def test_identifier_rejects_whitespace_and_non_strings(value: object) -> None:
   ("tag", "expected"), [("mn-Cyrl-MN", "mn-Cyrl-MN"), ("EN-GB-OED", "EN-GB-OED"), ("x-pig-latin", "x-pig-latin")]
 )
 def test_language_tag_keeps_the_input_spelling(tag: str, expected: str) -> None:
+  """Preserve case in language tags that pass the field adapter."""
   assert LANGUAGE_TAG.validate_python(tag) == expected
 
 
 @pytest.mark.parametrize("tag", ["en_US", "*all*", "en-US;q=0.8", "én", 42, None])
 def test_language_tag_rejects_non_tags(tag: object) -> None:
+  """Reject malformed tags, the source-language wildcard, and non-string values."""
   with pytest.raises(ValidationError):
     LANGUAGE_TAG.validate_python(tag)
 
@@ -386,26 +399,27 @@ def test_language_tag_rejects_non_tags(tag: object) -> None:
   ],
 )
 def test_source_language_accepts_tags_and_the_all_wildcard(value: str, expected: str) -> None:
+  """Normalize language tags and the all-languages wildcard to lowercase."""
   assert SOURCE_LANGUAGE.validate_python(value) == expected
 
 
 @pytest.mark.parametrize("value", ["*all", "all*", "*", "en US", "12", "", None, 42])
 def test_source_language_rejects_non_values(value: object) -> None:
+  """Reject malformed tags and partial wildcard spellings as source languages."""
   with pytest.raises(ValidationError):
     SOURCE_LANGUAGE.validate_python(value)
 
 
 @pytest.mark.parametrize("name", ["UTF-8", "Shift_JIS", "madeup-charset", "x-vendor", ""])
 def test_encoding_accepts_any_string_silently(name: str) -> None:
-  """The entry boundary is purely coercing: any string passes, unknown
-  names included, with no warning side effect -- the unknown-encoding
-  advisory is validation's job, gathered once at validation time."""
+  """Accept unknown encoding strings without emitting warnings during coercion."""
   with warnings.catch_warnings():
     warnings.simplefilter("error")
     assert ENCODING.validate_python(name) == name
 
 
 def test_encoding_rejects_non_strings_without_warning() -> None:
+  """Reject non-string encoding names without emitting a warning."""
   with warnings.catch_warnings():
     warnings.simplefilter("error")
     with pytest.raises(ValidationError):
@@ -414,59 +428,74 @@ def test_encoding_rejects_non_strings_without_warning() -> None:
 
 @pytest.mark.parametrize("value", ["block", "paragraph", "sentence", "phrase"])
 def test_seg_type_accepts_the_dtd_enumeration(value: str) -> None:
+  """Accept each of the four lowercase TMX segmentation literals."""
   assert SEG_TYPE.validate_python(value) == value
 
 
 @pytest.mark.parametrize("value", ["Block", "block ", "", "phrases", None, 42])
 def test_seg_type_rejects_other_values(value: object) -> None:
+  """Reject values outside the exact segmentation vocabulary."""
   with pytest.raises(ValidationError):
     SEG_TYPE.validate_python(value)
 
 
 @pytest.mark.parametrize("value", ["begin", "end"])
 def test_pos_accepts_the_dtd_enumeration(value: str) -> None:
+  """Accept begin and end as isolated-code positions."""
   assert POS.validate_python(value) == value
 
 
 @pytest.mark.parametrize("value", ["Begin", "start", "middle", "", None])
 def test_pos_rejects_other_values(value: object) -> None:
+  """Reject values outside the exact isolated-code position vocabulary."""
   with pytest.raises(ValidationError):
     POS.validate_python(value)
 
 
 @pytest.mark.parametrize("value", ["p", "f", "b"])
 def test_assoc_accepts_the_spec_enumeration(value: str) -> None:
+  """Accept p, f, and b as placeholder association values."""
   assert ASSOC.validate_python(value) == value
 
 
 @pytest.mark.parametrize("value", ["P", "both", "preceding", "", None])
 def test_assoc_rejects_other_values(value: object) -> None:
+  """Reject values outside the exact placeholder association vocabulary."""
   with pytest.raises(ValidationError):
     ASSOC.validate_python(value)
 
 
 @pytest.mark.parametrize("value", ["", "code#1", '!"#$%', "0123456789"])
 def test_ascii_text_accepts_ascii_strings(value: str) -> None:
+  """Preserve ASCII strings, including empty strings and punctuation."""
   assert ASCII_TEXT.validate_python(value) == value
 
 
 @pytest.mark.parametrize("value", ["café", "±", "\u00a0", "日本", None, 42])
 def test_ascii_text_rejects_non_ascii_and_non_strings(value: object) -> None:
+  """Reject non-ASCII characters and non-string ASCII-text inputs."""
   with pytest.raises(ValidationError):
     ASCII_TEXT.validate_python(value)
 
 
 def as_runtime_input(value: object) -> Any:
-  """A value ty must not static-check against a field's nominal type.
+  """Pass a runtime coercion input through without static field-type checks.
 
-  The aliases deliberately accept string forms of native values at runtime;
-  a ``datetime`` field holding ``"2024-01-01T12:30:45Z"`` is exactly the
-  contract under test, not a type error.
+  The test deliberately supplies serialized values to fields annotated with
+  their native result types.
+
+  Args:
+      value: Input to pass to a model constructor or field assignment.
+
+  Returns:
+      The same object, with an unrestricted annotation for the test call site.
   """
   return value
 
 
 class ValueProbe(BaseModel):
+  """Exercise field coercion, JSON serialization, and assignment validation."""
+
   model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validation_error_cause=True)
 
   integer: Integer
@@ -488,6 +517,7 @@ BAD_MODEL_INPUTS = (
 
 @pytest.mark.parametrize(("field", "value"), BAD_MODEL_INPUTS)
 def test_model_construction_reports_bad_input_as_validation_error_with_cause(field: str, value: object) -> None:
+  """Wrap coercion failures in ValidationError while retaining ValueError causes."""
   kwargs: dict[str, Any] = {"integer": 1}
   kwargs[field] = value
   with pytest.raises(ValidationError) as excinfo:
@@ -498,6 +528,7 @@ def test_model_construction_reports_bad_input_as_validation_error_with_cause(fie
 
 
 def test_python_mode_dumps_keep_native_values() -> None:
+  """Keep integer and datetime objects in Python-mode model dumps."""
   probe = ValueProbe(
     integer=as_runtime_input("0042"),
     code_point=as_runtime_input("#x00e9"),
@@ -510,6 +541,7 @@ def test_python_mode_dumps_keep_native_values() -> None:
 
 
 def test_json_mode_dumps_use_the_string_formatters() -> None:
+  """Serialize numeric and datetime fields with their canonical TMX spellings."""
   probe = ValueProbe(
     integer=as_runtime_input("0042"),
     code_point=as_runtime_input("#x00e9"),
@@ -524,6 +556,7 @@ def test_json_mode_dumps_use_the_string_formatters() -> None:
 
 
 def test_assignment_revalidates_the_field() -> None:
+  """Coerce valid assignments and reject invalid values after construction."""
   probe = ValueProbe(integer=1)
   probe.integer = as_runtime_input("007")
   assert probe.integer == 7

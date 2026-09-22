@@ -1,16 +1,9 @@
-"""Node shapes, unions, content grammars, and serializer contracts.
+"""Test model fields, discriminated unions, and serialization contracts.
 
-Scope is what ``models.py`` itself owns: per-node construction (required and
-optional fields, defaults), the ``extra="forbid"`` attribute discipline, the
-discriminated unions, the two inline content grammars, tuple-field ordering,
-the JSON serializers, and the deprecated surfaces (``<ut>``, ``lang``).
-Value-parser repertoires belong to ``test_validators.py`` and cross-field
-contract rules to ``test_validation.py``; only the wiring of each alias into
-a field is asserted here.
-
-The models are a deliberately permissive IR: typing is enforced at
-construction only -- assignment is unvalidated, so nothing here asserts on
-field assignment.
+These tests cover node construction, content grammars, schema deprecations,
+and scalar alias wiring. Most fields permit unchecked mutation; the element
+discriminator is frozen and has an explicit assignment test. Scalar parsing
+cases live in test_coercion.py and tree contracts in test_validation.py.
 """
 
 import warnings
@@ -151,12 +144,14 @@ def make_header(**overrides: Any) -> Header:
 
 @pytest.mark.parametrize("element", MINIMAL_PAYLOADS)
 def test_minimal_payload_is_accepted(element: str) -> None:
+  """Construct each node model from its minimum required payload."""
   node = NODE_CLASSES[element].model_validate(MINIMAL_PAYLOADS[element])
   assert node.element == element  # ty: ignore[unresolved-attribute]
 
 
 @pytest.mark.parametrize(("element", "required_field"), REQUIRED_FIELDS)
 def test_missing_required_field_is_rejected(element: str, required_field: str) -> None:
+  """Locate the omitted required field in the model validation error."""
   payload = {key: value for key, value in MINIMAL_PAYLOADS[element].items() if key != required_field}
   with pytest.raises(ValidationError) as raised:
     NODE_CLASSES[element].model_validate(payload)
@@ -164,6 +159,7 @@ def test_missing_required_field_is_rejected(element: str, required_field: str) -
 
 
 def test_optional_fields_default_to_none_or_empty() -> None:
+  """Default optional scalars to None and optional child lists to empty lists."""
   note = Note()
   assert note.o_encoding is None
   assert note.xml_lang is None
@@ -218,6 +214,7 @@ def test_optional_fields_default_to_none_or_empty() -> None:
 
 @pytest.mark.parametrize("element", MINIMAL_PAYLOADS)
 def test_unknown_attribute_is_rejected(element: str) -> None:
+  """Reject undeclared fields for every node kind."""
   payload = {**MINIMAL_PAYLOADS[element], "unknown_attribute": "value"}
   with pytest.raises(ValidationError) as raised:
     NODE_CLASSES[element].model_validate(payload)
@@ -225,30 +222,35 @@ def test_unknown_attribute_is_rejected(element: str) -> None:
 
 
 def test_element_defaults_to_the_tmx_element_name() -> None:
+  """Populate each model's discriminator with its TMX element name."""
   assert Note().element == "note"
   assert Property(type="x").element == "prop"
   assert TranslationUnitVariant(xml_lang="en").element == "tuv"
 
 
 def test_element_cannot_be_reassigned() -> None:
+  """Reject reassignment of the frozen element discriminator."""
   node = Note()
   with pytest.raises(ValidationError):
     node.element = "prop"  # ty: ignore[invalid-assignment]
 
 
 def test_element_mismatch_is_rejected() -> None:
+  """Reject a discriminator belonging to a different TMX node kind."""
   with pytest.raises(ValidationError):
     Note.model_validate({**MINIMAL_PAYLOADS["note"], "element": "prop"})
 
 
 @pytest.mark.parametrize("element", MINIMAL_PAYLOADS)
 def test_tmx_node_union_dispatches_every_element(element: str) -> None:
+  """Choose the exact model class from each element discriminator."""
   node = TypeAdapter(TmxNode).validate_python(MINIMAL_PAYLOADS[element])
   assert type(node) is NODE_CLASSES[element]
 
 
 @pytest.mark.parametrize("payload", INLINE_ELEMENT_PAYLOADS)
 def test_inline_node_union_accepts_its_members(payload: dict[str, Any]) -> None:
+  """Construct every inline-node kind through the discriminated union."""
   node = TypeAdapter(InlineNode).validate_python(payload)
   assert node.element == payload["element"]
 
@@ -264,6 +266,7 @@ def test_inline_node_union_accepts_its_members(payload: dict[str, Any]) -> None:
   ],
 )
 def test_inline_node_union_rejects_other_kinds(payload: dict[str, Any]) -> None:
+  """Reject subflows, metadata, and structure nodes from the inline union."""
   with pytest.raises(ValidationError):
     TypeAdapter(InlineNode).validate_python(payload)
 
@@ -273,12 +276,14 @@ def test_inline_node_union_rejects_other_kinds(payload: dict[str, Any]) -> None:
   [{"element": "note"}, {"element": "prop", "type": "x"}, {"element": "map", "unicode": "#x41"}],
 )
 def test_leaf_node_union_accepts_its_members(payload: dict[str, Any]) -> None:
+  """Construct notes, properties, and maps through the leaf-node union."""
   node = TypeAdapter(LeafNode).validate_python(payload)
   assert node.element == payload["element"]
 
 
 @pytest.mark.parametrize("payload", [{"element": "bpt", "i": 1}, MINIMAL_PAYLOADS["header"]])
 def test_leaf_node_union_rejects_other_kinds(payload: dict[str, Any]) -> None:
+  """Reject inline and structure nodes from the leaf-node union."""
   with pytest.raises(ValidationError):
     TypeAdapter(LeafNode).validate_python(payload)
 
@@ -288,6 +293,7 @@ def test_leaf_node_union_rejects_other_kinds(payload: dict[str, Any]) -> None:
   [MINIMAL_PAYLOADS["header"], MINIMAL_PAYLOADS["tu"], MINIMAL_PAYLOADS["tuv"], MINIMAL_PAYLOADS["ude"]],
 )
 def test_structure_node_union_accepts_its_members(payload: dict[str, Any]) -> None:
+  """Construct headers, units, variants, and encodings through the structure union."""
   node = TypeAdapter(StructureNode).validate_python(payload)
   assert node.element == payload["element"]
 
@@ -296,17 +302,20 @@ def test_structure_node_union_accepts_its_members(payload: dict[str, Any]) -> No
   "payload", [{"element": "note"}, {"element": "prop", "type": "x"}, {"element": "map", "unicode": "#x41"}]
 )
 def test_structure_node_union_rejects_other_kinds(payload: dict[str, Any]) -> None:
+  """Reject leaf nodes from the structure-node union."""
   with pytest.raises(ValidationError):
     TypeAdapter(StructureNode).validate_python(payload)
 
 
 def test_unknown_element_name_is_rejected() -> None:
+  """Reject an unrecognized discriminator in the complete TMX node union."""
   with pytest.raises(ValidationError):
     TypeAdapter(TmxNode).validate_python({"element": "unknown"})
 
 
 @pytest.mark.parametrize("element", SUB_CONTENT_ELEMENTS)
 def test_sub_content_elements_take_text_and_sub_only(element: str) -> None:
+  """Coerce mixed text and subflow payloads into native content lists."""
   payload = {**MINIMAL_PAYLOADS[element], "content": ("leading text", {"element": "sub", "content": ("in",)})}
   node = NODE_CLASSES[element].model_validate(payload)
   assert node.content == [  # ty: ignore[unresolved-attribute]
@@ -322,6 +331,7 @@ def test_sub_content_elements_take_text_and_sub_only(element: str) -> None:
 @pytest.mark.parametrize("foreign_payload", [{"element": "ph"}, {"element": "hi"}, {"element": "note", "text": "n"}])
 @pytest.mark.parametrize("element", SUB_CONTENT_ELEMENTS)
 def test_sub_content_elements_reject_inline_and_leaf_nodes(element: str, foreign_payload: dict[str, Any]) -> None:
+  """Reject inline and metadata nodes where only text and subflows are allowed."""
   payload = {**MINIMAL_PAYLOADS[element], "content": (foreign_payload,)}
   with pytest.raises(ValidationError):
     NODE_CLASSES[element].model_validate(payload)
@@ -329,6 +339,7 @@ def test_sub_content_elements_reject_inline_and_leaf_nodes(element: str, foreign
 
 @pytest.mark.parametrize("element", SEG_CONTENT_ELEMENTS)
 def test_seg_content_elements_take_the_full_inline_grammar(element: str) -> None:
+  """Accept text and every inline-node kind in segment-style content."""
   payload = {**MINIMAL_PAYLOADS[element], "content": ("text", *INLINE_ELEMENT_PAYLOADS)}
   node = NODE_CLASSES[element].model_validate(payload)
   assert node.content[0] == "text"  # ty: ignore[unresolved-attribute]
@@ -337,12 +348,14 @@ def test_seg_content_elements_take_the_full_inline_grammar(element: str) -> None
 
 @pytest.mark.parametrize("element", SEG_CONTENT_ELEMENTS)
 def test_seg_content_elements_reject_sub(element: str) -> None:
+  """Reject a direct subflow child in segment-style content."""
   payload = {**MINIMAL_PAYLOADS[element], "content": ({"element": "sub"},)}
   with pytest.raises(ValidationError):
     NODE_CLASSES[element].model_validate(payload)
 
 
 def test_hi_recurses_into_hi() -> None:
+  """Construct nested highlights while preserving inner and outer text."""
   payload = {"element": "hi", "content": ({"element": "hi", "content": ("inner",)}, "outer")}
   node = Hi.model_validate(payload)
   assert node.content[0].content == ["inner"]  # ty: ignore[unresolved-attribute]
@@ -385,6 +398,7 @@ def test_hi_recurses_into_hi() -> None:
 def test_list_fields_keep_document_order(
   element: str, field: str, payloads: list[dict[str, Any]], expected_elements: list[str]
 ) -> None:
+  """Preserve metadata and variant order when constructing model lists."""
   payload = {**MINIMAL_PAYLOADS[element], field: payloads}
   node = NODE_CLASSES[element].model_validate(payload)
   children = getattr(node, field)
@@ -393,6 +407,7 @@ def test_list_fields_keep_document_order(
 
 
 def test_header_metadata_accepts_ude_but_tu_metadata_does_not() -> None:
+  """Allow user-defined encodings in header metadata but reject them in units."""
   header = make_header(metadata=[MINIMAL_PAYLOADS["ude"]])
   assert header.metadata[0].element == "ude"
   payload = {**MINIMAL_PAYLOADS["tu"], "metadata": [MINIMAL_PAYLOADS["ude"]]}
@@ -403,6 +418,7 @@ def test_header_metadata_accepts_ude_but_tu_metadata_does_not() -> None:
 
 @pytest.mark.parametrize(("element", "field"), [("tu", "variants"), ("ude", "maps")])
 def test_nonempty_tuple_fields_reject_an_empty_list(element: str, field: str) -> None:
+  """Require at least one unit variant and at least one encoding map."""
   payload = {**MINIMAL_PAYLOADS[element], field: []}
   with pytest.raises(ValidationError) as raised:
     NODE_CLASSES[element].model_validate(payload)
@@ -411,6 +427,7 @@ def test_nonempty_tuple_fields_reject_an_empty_list(element: str, field: str) ->
 
 
 def test_hex_integers_round_trip_through_json() -> None:
+  """Parse and serialize map integers with TMX hexadecimal notation."""
   mapping = Map.model_validate({"element": "map", "unicode": "#xF8FF", "code": "#x1F600"})
   assert mapping.unicode == 0xF8FF
   assert mapping.code == 0x1F600
@@ -420,18 +437,21 @@ def test_hex_integers_round_trip_through_json() -> None:
 
 @pytest.mark.parametrize("value", ["#xD800", "#x110000", "#x-1"])
 def test_map_unicode_must_be_a_unicode_scalar_value(value: str) -> None:
+  """Reject surrogates, out-of-range code points, and negative hex spellings."""
   with pytest.raises(ValidationError):
     Map.model_validate({"element": "map", "unicode": value})
 
 
 @pytest.mark.parametrize(("field", "value"), [("ent", "&nbsp;"), ("subst", "&amp;")])
 def test_map_ent_and_subst_take_ascii_text(field: str, value: str) -> None:
+  """Preserve ASCII entity and substitution text on character maps."""
   mapping = Map.model_validate({"element": "map", "unicode": "#x41", field: value})
   assert getattr(mapping, field) == value
 
 
 @pytest.mark.parametrize(("field", "value"), [("ent", "café"), ("subst", "españa")])
 def test_map_ent_and_subst_reject_non_ascii_text(field: str, value: str) -> None:
+  """Locate non-ASCII map text failures at the offending field."""
   with pytest.raises(ValidationError) as raised:
     Map.model_validate({"element": "map", "unicode": "#x41", field: value})
   assert raised.value.errors()[0]["loc"] == (field,)
@@ -439,27 +459,28 @@ def test_map_ent_and_subst_reject_non_ascii_text(field: str, value: str) -> None
 
 
 def test_tuid_takes_no_whitespace() -> None:
+  """Allow hyphenated unit identifiers while rejecting embedded whitespace."""
   assert TranslationUnit.model_validate({**MINIMAL_PAYLOADS["tu"], "tuid": "a-b"}).tuid == "a-b"
   with pytest.raises(ValidationError):
     TranslationUnit.model_validate({**MINIMAL_PAYLOADS["tu"], "tuid": "a b"})
 
 
 def test_datetimes_keep_their_explicit_offset() -> None:
+  """Retain explicit datetime offsets through parsing and JSON serialization."""
   header = make_header(creationdate="20240302T010203+0100")
   assert header.creationdate == datetime(2024, 3, 2, 1, 2, 3, tzinfo=timezone(timedelta(hours=1)))
   assert '"creationdate":"20240302T010203+0100"' in header.model_dump_json()
 
 
 def test_integers_take_decimal_strings_and_serialize_as_strings() -> None:
+  """Store decimal input as an integer and serialize it back as a JSON string."""
   variant = TranslationUnitVariant.model_validate({**MINIMAL_PAYLOADS["tuv"], "usagecount": "3"})
   assert variant.usagecount == 3
   assert '"usagecount":"3"' in variant.model_dump_json()
 
 
 def test_unknown_encoding_names_are_kept_silently() -> None:
-  """The entry boundary is purely coercing: any encoding name is kept,
-  no warning is emitted here -- the unknown-encoding advisory is
-  gathered once, at validation time."""
+  """Preserve an unknown encoding name without warning during construction."""
   with warnings.catch_warnings():
     warnings.simplefilter("error")
     header = make_header(o_encoding="x-unknown")
@@ -468,52 +489,62 @@ def test_unknown_encoding_names_are_kept_silently() -> None:
 
 @pytest.mark.parametrize("segtype", ["block", "paragraph", "sentence", "phrase"])
 def test_segtype_takes_the_four_spec_values(segtype: str) -> None:
+  """Accept each segmentation literal on both headers and units."""
   assert make_header(segtype=segtype).segtype == segtype
   assert TranslationUnit.model_validate({**MINIMAL_PAYLOADS["tu"], "segtype": segtype}).segtype == segtype
 
 
 @pytest.mark.parametrize("segtype", ["word", "SENTENCE", "", "sentence "])
 def test_segtype_rejects_other_values(segtype: str) -> None:
+  """Reject unknown, miscapitalized, and padded segmentation literals."""
   with pytest.raises(ValidationError):
     make_header(segtype=segtype)
 
 
 @pytest.mark.parametrize("pos", ["begin", "end"])
 def test_it_pos_takes_begin_and_end(pos: str) -> None:
+  """Accept the two isolated-code position literals."""
   assert It.model_validate({**MINIMAL_PAYLOADS["it"], "pos": pos}).pos == pos
 
 
 @pytest.mark.parametrize("pos", ["middle", "start", "", None])
 def test_it_pos_rejects_other_values(pos: str | None) -> None:
+  """Reject missing and unrecognized isolated-code positions."""
   with pytest.raises(ValidationError):
     It.model_validate({**MINIMAL_PAYLOADS["it"], "pos": pos})
 
 
 @pytest.mark.parametrize("assoc", ["p", "f", "b"])
 def test_ph_assoc_takes_p_f_and_b(assoc: str) -> None:
+  """Accept the three placeholder association literals."""
   assert Ph.model_validate({**MINIMAL_PAYLOADS["ph"], "assoc": assoc}).assoc == assoc
 
 
 @pytest.mark.parametrize("assoc", ["x", "prev", ""])
 def test_ph_assoc_rejects_other_values(assoc: str | None) -> None:
+  """Reject unrecognized placeholder association spellings."""
   with pytest.raises(ValidationError):
     Ph.model_validate({**MINIMAL_PAYLOADS["ph"], "assoc": assoc})
 
 
 def test_srclang_takes_the_all_literal() -> None:
+  """Accept the all-languages wildcard on headers and units."""
   assert make_header().srclang == "*all*"
   assert TranslationUnit.model_validate({**MINIMAL_PAYLOADS["tu"], "srclang": "*all*"}).srclang == "*all*"
 
 
 def test_srclang_is_normalized_to_lowercase() -> None:
+  """Lowercase source-language tags during model construction."""
   assert make_header(srclang="EN-US").srclang == "en-us"
 
 
 def test_srclang_all_literal_is_case_insensitive() -> None:
+  """Normalize uppercase all-languages wildcard input to its lowercase spelling."""
   assert make_header(srclang="*ALL*").srclang == "*all*"
 
 
 def test_model_dump_keeps_native_python_values() -> None:
+  """Keep datetimes and nested metadata structures in Python-mode dumps."""
   header = make_header(creationdate="20240302T010203Z", metadata=[{"element": "note", "text": "n"}])
   dumped = header.model_dump()
   assert type(dumped["creationdate"]) is datetime
@@ -522,6 +553,7 @@ def test_model_dump_keeps_native_python_values() -> None:
 
 
 def test_json_output_uses_the_spec_prescribed_forms() -> None:
+  """Render map and inline-code numeric fields as TMX-formatted JSON strings."""
   mapping = Map.model_validate({"element": "map", "unicode": "#x41", "code": "#x1F600", "ent": "&nbsp;"})
   assert mapping.model_dump_json() == (
     '{"element":"map","unicode":"#x41","code":"#x1F600","ent":"&nbsp;","subst":null}'
@@ -534,6 +566,7 @@ def test_json_output_uses_the_spec_prescribed_forms() -> None:
 
 
 def test_json_round_trip_is_value_stable() -> None:
+  """Preserve headers and units through JSON serialization and reconstruction."""
   header = make_header(
     creationdate="20240302T010203+0100",
     o_encoding="iso-8859-1",
@@ -546,16 +579,19 @@ def test_json_round_trip_is_value_stable() -> None:
 
 @pytest.mark.parametrize("schema_class", [Note, Property, TranslationUnitVariant], ids=["note", "prop", "tuv"])
 def test_lang_is_marked_deprecated_in_the_json_schema(schema_class: type[TmxModel]) -> None:
+  """Mark legacy language fields as deprecated in each applicable model schema."""
   assert schema_class.model_json_schema()["properties"]["lang"]["deprecated"] is True
 
 
 def test_ut_is_marked_deprecated_in_the_json_schema() -> None:
+  """Expose the deprecated status of Ut in its schema flag and description."""
   definition = Ut.model_json_schema()["$defs"]["Ut"]
   assert definition["deprecated"] is True
   assert "deprecated" in definition["description"]
 
 
 def test_validation_error_cause_keeps_the_raised_error() -> None:
+  """Retain the original LanguageTagError in a model validation failure's causes."""
   with pytest.raises(ValidationError) as raised:
     Note.model_validate({"element": "note", "xml_lang": "zzz bogus"})
   causes = collect_exceptions(raised.value.__cause__, LanguageTagError)

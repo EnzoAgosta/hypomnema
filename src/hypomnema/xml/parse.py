@@ -1,21 +1,13 @@
-"""Direct element-to-model projection for all TMX node models.
+"""Project existing lxml elements into TMX models.
 
-Accepts already-parsed lxml elements, not bytes: parser configuration and
-streaming belong to the Reader, not to these functions, so a consumer can
-bring their own parsing. The domain is closed -- the DTD fixes every node
-kind -- so the surface is one flat, self-contained function per element,
-mirroring ``validation.py``'s per-node family: each function knows
-everything about its own element, gates its own fragment on the DTD, and
-is safe to call standalone from anywhere. ``from_element`` is a thin
-tag-dispatching convenience on top for callers that hold a bare element.
+Public parsers check fragment structure against the packaged DTD and coerce
+attribute values through the models. They preserve content order and
+whitespace without mutating the supplied tree. Strict semantic validation
+is separate and must run before output. Configure XML parsing and entity
+handling before passing elements here, or use ``TmxReader``.
 
-Projection is the lax half. The DTD checks the fragment's structure
-(required attributes, child patterns, unknown attributes) and pydantic
-coerces or rejects bad values -- both raising ``TmxSpecError`` with the
-offending element and line. The strict contract pass is deliberately NOT
-run here: a projected node is not yet safe to output, and validation is
-the Writer's (or a consumer's) explicit call. There are no standalone
-models for tmx/body/seg; ``seg`` is a ``tuv`` content wrapper.
+There are no standalone models for ``tmx``, ``body``, or ``seg``. A ``seg``
+provides its parent variant's content.
 """
 
 from lxml import etree
@@ -46,12 +38,11 @@ from .names import NON_ATTRIBUTE_FIELDS, xml_attribute_name
 
 
 def _element_qname(element: etree._Element) -> etree.QName:
-  """The element's tag as a namespace-free ``QName``.
+  """Return an element's QName or reject tags that cannot name a TMX node.
 
-  lxml accepts tag types beyond plain names -- comments and processing
-  instructions carry a callable tag -- and a namespaced element is not a
-  TMX element at all. Anything but a plain namespace-free name is a
-  ``TmxSpecError``."""
+  Namespaced tags, comments, and processing instructions raise
+  ``TmxSpecError``. The local name is checked by the caller.
+  """
   try:
     qname = etree.QName(element)
   except ValueError as error:
@@ -62,12 +53,10 @@ def _element_qname(element: etree._Element) -> etree.QName:
 
 
 def _attributes(element: etree._Element, model_type: type[TmxModel]) -> dict[str, str | None]:
-  """Collect the element's attributes under their model-field names.
+  """Map XML attributes to model fields after DTD validation.
 
-  Every field except the discriminator and the explicit child/content
-  slots is an XML attribute. The DTD has already checked required
-  attributes and rejected unknown ones, so whatever remains is
-  model-visible.
+  Child and discriminator fields are excluded. Missing optional attributes
+  remain ``None`` for model construction.
   """
   return {
     field_name: element.get(xml_attribute_name(field_name))
@@ -79,10 +68,19 @@ def _attributes(element: etree._Element, model_type: type[TmxModel]) -> dict[str
 def _project[ModelType: TmxModel](
   element: etree._Element, model_type: type[ModelType], fields: dict[str, object]
 ) -> ModelType:
-  """The one projection body, shared by every ``*_from_element``:
-  namespace and tag guard, DTD gate, attribute mapping plus the node's
-  own fields, coercion. Keeping it here makes each per-node function
-  safe to call standalone on any fragment."""
+  """Check the tag and DTD, then construct a model from attributes and fields.
+
+  Args:
+      element: Fragment whose name and structure must match ``model_type``.
+      model_type: Model class to construct.
+      fields: Already projected content and children, merged over attributes.
+
+  Returns:
+      A model with coerced attribute values, without strict validation.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or model field values are invalid.
+  """
   qname = _element_qname(element)
   expected_tag = model_type.model_fields["element"].default
   if qname.localname != expected_tag:
@@ -95,33 +93,98 @@ def _project[ModelType: TmxModel](
 
 
 def note_from_element(element: etree._Element) -> Note:
-  """A ``<note>``: its attributes plus its text."""
+  """Parse a ``<note>`` fragment with its text and attributes.
+
+  Args:
+      element: Namespace-free ``<note>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Note, {"text": read_text(element)})
 
 
 def prop_from_element(element: etree._Element) -> Property:
-  """A ``<prop>``: its attributes plus its text."""
+  """Parse a ``<prop>`` fragment with its text and attributes.
+
+  Args:
+      element: Namespace-free ``<prop>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Property, {"text": read_text(element)})
 
 
 def map_from_element(element: etree._Element) -> Map:
-  """A ``<map>``: attributes only, not even formatting whitespace."""
+  """Parse a ``<map>`` fragment with its attributes.
+
+  Args:
+      element: Namespace-free ``<map>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Map, {})
 
 
 def ude_from_element(element: etree._Element) -> Ude:
-  """A ``<ude>``: its attributes plus its ``<map>`` children."""
+  """Parse a ``<ude>`` fragment with its ordered character mappings.
+
+  Args:
+      element: Namespace-free ``<ude>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Ude, {"maps": [from_element(child) for child in child_elements(element)]})
 
 
 def header_from_element(element: etree._Element) -> Header:
-  """A ``<header>``: its attributes plus its metadata children."""
+  """Parse a ``<header>`` fragment with its ordered metadata.
+
+  Args:
+      element: Namespace-free ``<header>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Header, {"metadata": [from_element(child) for child in child_elements(element)]})
 
 
 def tu_from_element(element: etree._Element) -> TranslationUnit:
-  """A ``<tu>``: its attributes, its metadata children, then its
-  variants -- document order survives the split."""
+  """Parse a ``<tu>`` fragment with its ordered metadata and variants.
+
+  Args:
+      element: Namespace-free ``<tu>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   children = list(child_elements(element))
   return _project(
     element,
@@ -134,8 +197,18 @@ def tu_from_element(element: etree._Element) -> TranslationUnit:
 
 
 def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
-  """A ``<tuv>``: its attributes, its metadata children, and its
-  content -- the DTD's single ``<seg>`` is the content wrapper."""
+  """Parse a ``<tuv>`` fragment with its metadata and mixed content from its single segment.
+
+  Args:
+      element: Namespace-free ``<tuv>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   qname = _element_qname(element)
   if qname.localname != "tuv":
     raise TmxSpecError(f"expected <tuv>, got <{qname.localname}> at line {element.sourceline}")
@@ -154,46 +227,131 @@ def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
 
 
 def bpt_from_element(element: etree._Element) -> Bpt:
-  """A ``<bpt>``: its attributes plus its mixed content."""
+  """Parse a ``<bpt>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<bpt>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Bpt, {"content": _parse_content(element)})
 
 
 def ept_from_element(element: etree._Element) -> Ept:
-  """An ``<ept>``: its attributes plus its mixed content."""
+  """Parse a ``<ept>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<ept>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Ept, {"content": _parse_content(element)})
 
 
 def it_from_element(element: etree._Element) -> It:
-  """An ``<it>``: its attributes plus its mixed content."""
+  """Parse a ``<it>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<it>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, It, {"content": _parse_content(element)})
 
 
 def ph_from_element(element: etree._Element) -> Ph:
-  """A ``<ph>``: its attributes plus its mixed content."""
+  """Parse a ``<ph>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<ph>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Ph, {"content": _parse_content(element)})
 
 
 def hi_from_element(element: etree._Element) -> Hi:
-  """A ``<hi>``: its attributes plus its mixed content."""
+  """Parse a ``<hi>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<hi>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Hi, {"content": _parse_content(element)})
 
 
 def ut_from_element(element: etree._Element) -> Ut:
-  """A ``<ut>``: its attributes plus its mixed content."""
+  """Parse a ``<ut>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<ut>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Ut, {"content": _parse_content(element)})
 
 
 def sub_from_element(element: etree._Element) -> Sub:
-  """A ``<sub>``: its attributes plus its mixed content."""
+  """Parse a ``<sub>`` fragment with its attributes and mixed content.
+
+  Args:
+      element: Namespace-free ``<sub>`` element. The tree is not modified,
+          and the element's own tail is excluded.
+
+  Returns:
+      A model with coerced attributes. Strict semantic validation is deferred.
+
+  Raises:
+      TmxSpecError: The tag, DTD structure, or projected field values are invalid.
+  """
   return _project(element, Sub, {"content": _parse_content(element)})
 
 
 def from_element(element: etree._Element) -> TmxNode:
-  """Project any TMX element, dispatching on its tag's local name.
+  """Parse a supported TMX node by dispatching on its namespace-free tag.
 
-  Convenience for callers that hold a bare element; the per-node
-  functions each gate their own fragment on the DTD, so this dispatcher
-  adds no checks of its own beyond the name guard.
+  Args:
+      element: Existing element to project without mutation. Wrapper elements
+          ``tmx``, ``body``, and ``seg`` are not standalone nodes.
+
+  Returns:
+      A model with coerced attributes and projected children. Strict semantic
+      validation has not been performed.
+
+  Raises:
+      TmxSpecError: The tag is unsupported or namespaced, the fragment fails
+          DTD validation, or its content cannot be projected into a model.
   """
   qname = _element_qname(element)
   match qname.localname:
@@ -234,4 +392,5 @@ def from_element(element: etree._Element) -> TmxNode:
 
 
 def _parse_content(element: etree._Element) -> list[str | TmxNode]:
+  """Project mixed content into text and models while preserving their order."""
   return [item if isinstance(item, str) else from_element(item) for item in read_mixed_content(element)]

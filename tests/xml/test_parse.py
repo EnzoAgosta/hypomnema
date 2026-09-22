@@ -1,9 +1,8 @@
-"""Unit tests for the per-node projection family in ``xml.parse``.
+"""Test XML-to-model projection, field coercion, and fragment validation.
 
-The golden corpus in ``conftest.py`` is the oracle: every field of every
-model is asserted explicitly against a hand-written, attribute-complete
-fragment. Message strings are asserted only where rendering is the
-feature (the source-line prefixes of parse errors).
+The hand-written corpus supplies attribute-complete fragments with explicit
+expected native values. Failure cases check rejected shapes, field names,
+source lines, and the order in which projection checks run.
 """
 
 from datetime import UTC, datetime
@@ -151,17 +150,14 @@ EXPECTED_FIELDS = {
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_from_element_maps_every_declared_field(tag, corpus):
-  """The corpus sets or deliberately omits each attribute field; every
-  value must land in the model, coerced to its native type."""
+  """Coerce each corpus attribute to its explicitly expected native model value."""
   model = FROM_FUNCTIONS[tag](etree.fromstring(corpus[tag]))
   for field, expected in EXPECTED_FIELDS[tag].items():
     assert getattr(model, field) == expected
 
 
 def test_expected_fields_table_covers_every_attribute_field():
-  """The oracle cannot silently drop a field: every attribute field of
-  every model must appear in the table, so adding a model field without
-  updating the corpus and the table fails here."""
+  """Require an expected-value entry for every declared model attribute field."""
   for tag in TAGS:
     model_type = MODELS[tag]
     attribute_fields = {name for name in model_type.model_fields if name not in NON_ATTRIBUTE_FIELDS}
@@ -212,8 +208,7 @@ EXPECTED_CONTENT = {
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_from_element_projects_the_content_slots(tag, corpus):
-  """The corpus's content slots are part of the oracle: text, mixed
-  content, metadata, and maps all come through with their shapes."""
+  """Project corpus text, mixed content, metadata, and maps into model slots."""
   model = FROM_FUNCTIONS[tag](etree.fromstring(corpus[tag]))
   for slot, expected in EXPECTED_CONTENT[tag]:
     assert getattr(model, slot) == expected
@@ -223,20 +218,18 @@ def test_from_element_projects_the_content_slots(tag, corpus):
 
 
 def test_note_text_distinguishes_none_and_empty():
-  """XML cannot express an empty-string body: lxml normalizes
-  ``<note></note>`` to the same None text as ``<note/>``, so the
-  distinction exists only on the model side (build can still emit it)."""
+  """Normalize both self-closing and explicit empty note bodies to None."""
   assert note_from_element(etree.fromstring("<note/>")).text is None
   assert note_from_element(etree.fromstring("<note></note>")).text is None
 
 
 def test_note_text_whitespace_is_preserved():
+  """Retain leading and trailing whitespace in note text."""
   assert note_from_element(etree.fromstring("<note>  padded  </note>")).text == "  padded  "
 
 
 def test_tu_metadata_and_variants_keep_document_order():
-  """The DTD requires all metadata before the first variant; the split
-  preserves the order within each group."""
+  """Preserve metadata and variant order within their separate model lists."""
   tu = tu_from_element(
     etree.fromstring(
       '<tu tuid="1" srclang="en">'
@@ -252,14 +245,14 @@ def test_tu_metadata_and_variants_keep_document_order():
 
 
 def test_tuv_metadata_comes_before_the_seg():
+  """Project variant metadata separately from the following segment content."""
   tuv = tuv_from_element(etree.fromstring('<tuv xml:lang="en"><note>variant note</note><seg>content</seg></tuv>'))
   assert [note.text for note in tuv.metadata] == ["variant note"]
   assert tuv.content == ["content"]
 
 
 def test_tuv_with_two_segs_is_reported():
-  """The DTD rejects this first, but the projection must not crash on a
-  planted double-<seg> fragment with an unpacking error."""
+  """Report duplicate segments with TmxSpecError rather than an unpacking error."""
   with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 2"):
     tuv_from_element(etree.fromstring('<tuv xml:lang="en"><seg>a</seg><seg>b</seg></tuv>'))
 
@@ -277,6 +270,7 @@ def test_tuv_with_two_segs_is_reported():
   ],
 )
 def test_inline_content_interleaves_text_and_elements(tag, outer, child_markup, child_type):
+  """Preserve mixed text and typed child nodes in each inline content model."""
   model = FROM_FUNCTIONS[tag](etree.fromstring(outer.format(child=child_markup)))
   assert isinstance(model, (Bpt, Ept, It, Ph, Hi, Ut, Sub))
   assert model.content[0] == "before "
@@ -285,6 +279,7 @@ def test_inline_content_interleaves_text_and_elements(tag, outer, child_markup, 
 
 
 def test_ude_projects_its_maps():
+  """Parse character maps and unescape their entity attribute values."""
   ude = ude_from_element(etree.fromstring(CORPUS_UDE))
   assert [mapping.unicode for mapping in ude.maps] == [0xF8FF]
   assert [mapping.ent for mapping in ude.maps] == ["&"]
@@ -314,8 +309,7 @@ DTD_JUNK_FRAGMENTS = {
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_dtd_gate_rejects_unknown_attributes(tag):
-  """Each fragment is DTD-valid except for the junk attribute, so the
-  attribute gate itself is what fails, not the child pattern."""
+  """Reject an unknown attribute on each otherwise valid node fragment."""
   with pytest.raises(TmxSpecError):
     FROM_FUNCTIONS[tag](etree.fromstring(DTD_JUNK_FRAGMENTS[tag]))
 
@@ -340,11 +334,13 @@ def test_dtd_gate_rejects_unknown_attributes(tag):
   ],
 )
 def test_dtd_gate_rejects_missing_required_attributes(function, broken):
+  """Reject fragments missing an attribute required by the DTD."""
   with pytest.raises(TmxSpecError):
     function(etree.fromstring(broken))
 
 
 def test_tu_without_srclang_inherits_from_the_header_later():
+  """Leave a unit's omitted source language as None during standalone parsing."""
   unit = tu_from_element(etree.fromstring('<tu tuid="1"><tuv xml:lang="en"><seg>x</seg></tuv></tu>'))
   assert unit.srclang is None
 
@@ -369,21 +365,20 @@ def test_tu_without_srclang_inherits_from_the_header_later():
   ],
 )
 def test_foreign_tags_are_rejected_by_tag_identity(function, tag, other_tag, corpus):
-  """A <prop> is a valid TMX fragment but not a <note>: each per-node
-  function projects exactly its own element."""
+  """Require each per-node parser's own element name even for valid TMX input."""
   with pytest.raises(TmxSpecError) as excinfo:
     function(etree.fromstring(corpus[other_tag]))
   assert f"expected <{tag}>, got <{other_tag}>" in str(excinfo.value)
 
 
 def test_tuv_without_a_seg_is_reported_standalone():
-  """The projection must not crash with an unpacking error on a
-  fragment the DTD would reject: the <tuv> owns its shape."""
+  """Report a missing segment with TmxSpecError rather than an unpacking error."""
   with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 0"):
     tuv_from_element(etree.fromstring('<tuv xml:lang="en"><note>x</note></tuv>'))
 
 
 def test_namespaced_elements_are_rejected():
+  """Reject TMX element names qualified by either explicit or default namespaces."""
   with pytest.raises(TmxSpecError, match="namespace-free"):
     from_element(etree.fromstring('<tmx:tu xmlns:tmx="urn:x" tuid="1" srclang="en"/>'))
   with pytest.raises(TmxSpecError, match="namespace-free"):
@@ -391,6 +386,7 @@ def test_namespaced_elements_are_rejected():
 
 
 def test_comment_and_pi_tags_are_rejected():
+  """Reject comments and processing instructions as standalone node inputs."""
   with pytest.raises(TmxSpecError, match="namespace-free"):
     note_from_element(etree.Comment("junk"))
   with pytest.raises(TmxSpecError, match="namespace-free"):
@@ -406,11 +402,13 @@ def test_modelless_tags_are_rejected(tag):
 
 @pytest.mark.parametrize("tag", ["thing", "TUV"])
 def test_unknown_tags_are_rejected(tag):
+  """Reject unknown element names and incorrectly capitalized TMX names."""
   with pytest.raises(TmxSpecError, match="is not a TMX 1.4b element"):
     from_element(etree.fromstring(f"<{tag}/>"))
 
 
 def test_coercion_gate_reports_the_source_line():
+  """Include the XML source line when an attribute cannot be coerced."""
   with pytest.raises(TmxSpecError) as excinfo:
     header_from_element(
       etree.fromstring(
@@ -423,6 +421,7 @@ def test_coercion_gate_reports_the_source_line():
 
 
 def test_coercion_gate_surfaces_the_field():
+  """Identify the field whose XML attribute value cannot be coerced."""
   with pytest.raises(TmxSpecError) as excinfo:
     map_from_element(etree.fromstring('<map unicode="junk"/>'))
   assert "unicode" in str(excinfo.value)
@@ -433,6 +432,7 @@ def test_coercion_gate_surfaces_the_field():
 
 @pytest.mark.parametrize("tag", TAGS)
 def test_from_element_dispatches_every_tag(tag, corpus):
+  """Dispatch every supported element name to its exact model class."""
   model = from_element(etree.fromstring(corpus[tag]))
   assert type(model) is MODELS[tag]
 
@@ -446,11 +446,13 @@ CORPUS_UDE = '<ude name="win" base="windows-1252"><map unicode="#xF8FF" ent="&am
 
 
 def test_text_gate_runs_before_the_dtd_gate():
+  """Report text-only content violations before parent DTD validation."""
   with pytest.raises(TmxSpecError, match="expected text only"):
     note_from_element(etree.fromstring("<note><b>x</b></note>"))
 
 
 def test_child_dispatch_runs_before_the_parent_dtd_gate():
+  """Report an unknown child element before validating its parent's DTD shape."""
   with pytest.raises(TmxSpecError, match="is not a TMX 1.4b element"):
     header_from_element(
       etree.fromstring(
@@ -461,8 +463,7 @@ def test_child_dispatch_runs_before_the_parent_dtd_gate():
 
 
 def test_non_root_fragment_is_gated_standalone():
-  """A fragment nested in a larger document is DTD-gated on its own
-  deepcopy, not against its parents."""
+  """Validate and project a nested fragment independently of its parent document."""
   document = etree.fromstring('<tu tuid="1" srclang="en"><note>hi</note><tuv xml:lang="en"><seg>x</seg></tuv></tu>')
   note_element = document.find("note")
   assert note_element is not None
@@ -470,6 +471,7 @@ def test_non_root_fragment_is_gated_standalone():
 
 
 def test_unresolved_entity_in_content_is_reported():
+  """Reject unresolved entities in a note's projected text content."""
   parser = etree.XMLParser(resolve_entities=False)
   element = etree.fromstring('<!DOCTYPE note [<!ENTITY e "text">]><note>&e;</note>', parser)
   with pytest.raises(TmxSpecError, match="unresolved entity"):

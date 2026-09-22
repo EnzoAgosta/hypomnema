@@ -1,49 +1,25 @@
-"""Strict, user-invocable validation: every field, every time (lax input,
-strict output).
+"""Validate runtime model fields and TMX relationships without coercion.
 
-The models accept nearly anything at the entry boundary and coerce it.
-These validators are the other half of the contract: they check the
-*runtime* type and value of every single field of a node and of everything
-reachable from it (metadata lists, nested nodes), so a node that passes
-validation is safe to output. Nothing here mutates or coerces: a node
-either passes as a whole, or fails as a whole.
+Public ``validate_*`` functions inspect the supplied node and its descendants.
+They return None on success or raise TmxErrorGroup containing path-bearing
+TmxFieldTypeError, TmxFieldValueError, and TmxContractError leaves. Catch the
+whole group with ``except TmxErrorGroup`` or select leaf kinds with ``except*``.
+Validation never repairs or mutates the input. XML character and DTD checks
+happen separately during XML conversion and writing.
 
-The calling pattern is always the same: call a ``validate_*`` function
-inside ``try``/``except*`` and catch the error kinds you want to react to
-(``TmxFieldTypeError`` for wrong runtime types, ``TmxFieldValueError`` for
-rejected values, ``TmxContractError`` for cross-field spec rules). Every
-failure of one pass travels on a single ``TmxErrorGroup``, and the
-advisories gathered during that same pass ride on the group's
-``advisories`` attribute (legacy ``lang`` usage, unknown encoding names,
-``<map>`` without a target) -- they are data, never ``warnings.warn``
-emissions; the caller decides whether to escalate, filter, or emit them.
-A pass that gathers only advisories raises nothing, so a document that is
-valid but uses a deprecated construct everywhere stays quiet until a real
-error is being reported anyway. Errors and advisories both carry a
-``NodePath`` locating the field relative to the node being validated,
-e.g. ``metadata[2].maps[0].code``.
+Advisories cover deprecated constructs, unknown encoding names, missing map
+targets, and cross-variant code mismatches. They are data attached to an error
+group's ``advisories`` tuple, never emitted Python warnings. A pass with only
+advisories returns None and does not expose them.
 
-Field checks stop at the first failure per field -- a wrong type is not
-followed by value checks of that same value -- and untyped/foreign
-children are reported once as ``TmxFieldTypeError`` rather than cascading
-into their innards. Errors and advisories are reported in field
-traversal order: top-level fields first, then children depth-first.
-One carve-out: flow-contract leftovers (an unmatched ``<bpt>`` reported
-when its flow ends) arrive after the flow's item errors, so they are
-not strictly path-sorted.
+Paths are relative to the validated root. Checks visit parent fields before
+children and stop value checks after a field's type fails. Unmatched beginning
+codes are reported at the end of their flow, so failures are not path-sorted.
 
-The variant and inline validators implement the spec's content-markup
-contract. Internal matching runs per flow (the ``<seg>`` scope: a
-variant's segment or a ``<sub>``'s embedded segment, with ``<hi>``
-transparent, its inline elements joining the enclosing flow): each
-``<bpt>`` must have a subsequent ``<ept>`` with the same ``i``, each
-``<ept>`` a preceding ``<bpt>``, and ``<bpt>`` ``i`` values must be
-unique within a flow. Overlapping ranges are legal per the spec, so the
-check is order-based, deliberately not stack nesting. External matching
-is advisory: ``<tu>`` validation warns when sibling variants disagree
-on their ``x`` values. The deprecation advisories for the legacy
-``lang`` on ``<tuv>``, ``<note>``, and ``<prop>`` and for ``<ut>`` are
-gathered here as well.
+Pairing uses ordered segment flows. Each variant and embedded Sub owns a flow;
+Hi contributes to its enclosing flow. Beginning codes need unique identifiers
+and a later ending code with the same identifier. Overlapping pairs are allowed.
+Private checkers append findings to a shared session instead of raising them.
 """
 
 import codecs
@@ -100,16 +76,18 @@ __all__ = [
 
 
 class _Session:
-  """Accumulates the errors and advisories of one validation pass.
+  """Collect findings and ancestor identities for one validation pass.
 
-  Checkers append; ``finish`` raises all errors at once as a
-  ``TmxErrorGroup`` with the advisories attached -- or, with no errors,
-  returns quietly, however many advisories were gathered.
+  Attributes:
+      errors: Field failures in traversal order.
+      warnings: Advisory records retained only if finish raises a group.
+      ancestors: Object identities on the active content descent path.
   """
 
   __slots__ = ("ancestors", "errors", "warnings")
 
   def __init__(self) -> None:
+    """Start a validation pass with no findings or active ancestors."""
     self.errors: list[TmxFieldError] = []
     self.warnings: list[TmxAdvisory] = []
     # ``id()`` of the content nodes on the current descent path. A node
@@ -118,20 +96,30 @@ class _Session:
     self.ancestors: list[int] = []
 
   def error(self, error: TmxFieldError) -> None:
+    """Append a field failure without interrupting traversal."""
     self.errors.append(error)
 
   def warn(self, advisory: TmxAdvisory) -> None:
+    """Append advisory data without emitting a Python warning."""
     self.warnings.append(advisory)
 
   def descend(self, node: object) -> None:
+    """Push a content node identity onto the active ancestor path."""
     self.ancestors.append(id(node))
 
   def ascend(self) -> None:
+    """Pop the identity added by the matching descend call."""
     self.ancestors.pop()
 
   def finish(self, node_name: str) -> None:
-    """Raise the group if errors were gathered, advisories attached;
-    otherwise return quietly."""
+    """Raise collected failures with advisories, or return if none failed.
+
+    Args:
+        node_name: Model name to include in the group message.
+
+    Raises:
+        TmxErrorGroup: At least one field or relationship failed validation.
+    """
     if self.errors:
       raise TmxErrorGroup(f"failed to validate {node_name}", self.errors, self.warnings)
 
@@ -163,10 +151,12 @@ a raw ``RecursionError``."""
 
 
 def _is_string(value: object) -> bool:
+  """Return whether a value can participate in string-based contract checks."""
   return isinstance(value, str)
 
 
 def _is_integer(value: object) -> bool:
+  """Return whether a value is an integer, excluding booleans."""
   # bool is an int subclass; it is not a number here.
   return isinstance(value, int) and not isinstance(value, bool)
 
@@ -177,6 +167,7 @@ def _is_integer(value: object) -> bool:
 
 
 def _check_element(session: _Session, path: NodePath, value: object, literal: str) -> None:
+  """Record a failure unless the discriminator is the expected string literal."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -185,16 +176,19 @@ def _check_element(session: _Session, path: NodePath, value: object, literal: st
 
 
 def _check_optional(session: _Session, path: NodePath, value: object, check: _FieldCheck) -> None:
+  """Run the supplied field check only when the value is not None."""
   if value is not None:
     check(session, path, value)
 
 
 def _check_str(session: _Session, path: NodePath, value: object) -> None:
+  """Record a type failure unless the value is a string."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
 
 
 def _check_ascii_text(session: _Session, path: NodePath, value: object) -> None:
+  """Record a failure for a non-string or text containing non-ASCII characters."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -203,6 +197,7 @@ def _check_ascii_text(session: _Session, path: NodePath, value: object) -> None:
 
 
 def _check_unsigned_integer(session: _Session, path: NodePath, value: object) -> None:
+  """Record a failure for booleans, non-integers, or negative integers."""
   if isinstance(value, bool) or not isinstance(value, int):
     session.error(TmxFieldTypeError(path, value, int))
     return
@@ -211,6 +206,7 @@ def _check_unsigned_integer(session: _Session, path: NodePath, value: object) ->
 
 
 def _check_unicode_scalar(session: _Session, path: NodePath, value: object) -> None:
+  """Record a failure unless the value is an integer Unicode scalar."""
   if isinstance(value, bool) or not isinstance(value, int):
     session.error(TmxFieldTypeError(path, value, int))
     return
@@ -221,6 +217,7 @@ def _check_unicode_scalar(session: _Session, path: NodePath, value: object) -> N
 
 
 def _check_datetime(session: _Session, path: NodePath, value: object) -> None:
+  """Require a datetime, allowing naive values that output treats as UTC."""
   # Naive values are allowed and documented as UTC; an explicit offset is
   # kept as-is. All further ISO 8601 well-formedness was settled at the
   # entry boundary by parse_datetime.
@@ -229,6 +226,7 @@ def _check_datetime(session: _Session, path: NodePath, value: object) -> None:
 
 
 def _check_language_tag(session: _Session, path: NodePath, value: object) -> None:
+  """Record type or BCP 47 grammar failures without normalizing the value."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -239,9 +237,7 @@ def _check_language_tag(session: _Session, path: NodePath, value: object) -> Non
 
 
 def _check_deprecated_lang(session: _Session, path: NodePath, value: object) -> None:
-  """A legacy ``lang`` value: validated like any language tag, plus the
-  deprecation advisory, since merely using the attribute is advisory-worthy
-  even when its value is fine."""
+  """Check a legacy language attribute and collect its deprecation advisory."""
   _check_language_tag(session, path, value)
   session.warn(
     TmxAdvisory(
@@ -253,6 +249,7 @@ def _check_deprecated_lang(session: _Session, path: NodePath, value: object) -> 
 
 
 def _check_srclang(session: _Session, path: NodePath, value: object) -> None:
+  """Require a language tag or the exact source-language sentinel ``*all*``."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -266,6 +263,7 @@ def _check_srclang(session: _Session, path: NodePath, value: object) -> None:
 
 
 def _check_one_of(session: _Session, path: NodePath, value: object, allowed: tuple[str, ...]) -> None:
+  """Record a failure unless a string matches one of the allowed literals."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -274,20 +272,22 @@ def _check_one_of(session: _Session, path: NodePath, value: object, allowed: tup
 
 
 def _check_segtype(session: _Session, path: NodePath, value: object) -> None:
+  """Require one of the four TMX segmentation literals."""
   _check_one_of(session, path, value, _SEGMENT_TYPES)
 
 
 def _check_position(session: _Session, path: NodePath, value: object) -> None:
+  """Require the isolated-code position to be begin or end."""
   _check_one_of(session, path, value, _POSITIONS)
 
 
 def _check_association(session: _Session, path: NodePath, value: object) -> None:
+  """Require the placeholder association to be p, f, or b."""
   _check_one_of(session, path, value, _ASSOCIATIONS)
 
 
 def _check_tuid(session: _Session, path: NodePath, value: object) -> None:
-  """An identifier without whitespace, as the spec requires for
-  ``tuid`` -- the entry boundary's own rule, re-checked strictly."""
+  """Require a string without whitespace, allowing the empty string."""
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -298,15 +298,17 @@ def _check_tuid(session: _Session, path: NodePath, value: object) -> None:
 
 
 def _check_bpt_ept_pairing(flow: _Flow, session: _Session) -> None:
-  """Internal matching within one flow, in order: each ``<bpt>`` must
-  have a subsequent ``<ept>`` with the same ``i``, each ``<ept>`` a
-  preceding ``<bpt>``, and ``<bpt>`` ``i`` values must be unique within
-  the flow (uniqueness over all ``<bpt>`` of the flow, whether closed or
-  not). Pairing is one-to-one: an ``<ept>`` consumes its open ``<bpt>``,
-  so a second ``<ept>`` with the same ``i`` has no preceding match.
-  Overlapping ranges are legal, so this is deliberately not stack
-  nesting. Only well-typed ``bpt``/``ept`` participate; garbage in
-  speaks through its type errors."""
+  """Collect missing matches and duplicate beginning-code identifiers.
+
+  Each ending code consumes one earlier beginning code with the same identifier.
+  Identifiers cannot be reused by another beginning code in the flow, even after
+  closure. Overlapping pairs are allowed. Nodes with invalid identifier types
+  are left to field validation.
+
+  Args:
+      flow: Inline nodes and their paths in segment order.
+      session: Destination for pairing failures.
+  """
   seen_i: set[int] = set()
   open_bpts: dict[int, tuple[NodePath, object]] = {}
   for node, path in flow:
@@ -328,11 +330,11 @@ def _check_bpt_ept_pairing(flow: _Flow, session: _Session) -> None:
 
 
 def _check_encoding_name(session: _Session, path: NodePath, value: object) -> None:
-  """An encoding name: typed as ``str``; unknown to Python's codecs is an
-  advisory, not an error -- the spec recommends IANA charset identifiers
-  but only as a soft "if possible". This is the advisory's single home:
-  the entry boundary accepts any string silently, so a document is
-  nudged once, at validation time."""
+  """Require a string and collect an advisory for an unknown codec name.
+
+  Python's codec registry supplies the lookup. An unrecognized name remains
+  acceptable because TMX encoding names can describe user-defined encodings.
+  """
   if not isinstance(value, str):
     session.error(TmxFieldTypeError(path, value, str))
     return
@@ -356,10 +358,15 @@ def _check_list(
   *,
   minimum: int = 0,
 ) -> None:
-  """A list field: the container itself, its length, then each item.
-  Item well-formedness is the item validator's business -- each one
-  starts with its own instance check and reports a foreign item as
-  ``TmxFieldTypeError`` without descending into it."""
+  """Check a list's type and minimum length, then visit each item.
+
+  Args:
+      session: Destination for failures and advisories.
+      path: Path of the list field relative to the validated root.
+      value: Runtime field value, which may not be a list.
+      item_check: Checker receiving each item, session, and indexed path.
+      minimum: Minimum allowed number of items. A short list is still traversed.
+  """
   if not isinstance(value, list):
     session.error(TmxFieldTypeError(path, value, list))
     return
@@ -375,6 +382,7 @@ def _check_list(
 
 
 def _validate_header(header: object, session: _Session, path: NodePath) -> None:
+  """Collect header field failures and recursively check its metadata."""
   if not isinstance(header, Header):
     session.error(TmxFieldTypeError(path, header, Header))
     return
@@ -402,8 +410,7 @@ def _validate_header(header: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_metadata_node(node: object, session: _Session, path: NodePath) -> None:
-  """Dispatches one header-metadata child to its validator; a foreign
-  child is reported once as ``TmxFieldTypeError``."""
+  """Dispatch header metadata, reporting foreign child types once."""
   match node:
     case Note():
       _validate_note(node, session, path)
@@ -416,6 +423,7 @@ def _validate_metadata_node(node: object, session: _Session, path: NodePath) -> 
 
 
 def _validate_note(note: object, session: _Session, path: NodePath) -> None:
+  """Collect note field failures and legacy-language advisories."""
   if not isinstance(note, Note):
     session.error(TmxFieldTypeError(path, note, Note))
     return
@@ -427,6 +435,7 @@ def _validate_note(note: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_property(property_node: object, session: _Session, path: NodePath) -> None:
+  """Collect property field failures and legacy-language advisories."""
   if not isinstance(property_node, Property):
     session.error(TmxFieldTypeError(path, property_node, Property))
     return
@@ -441,6 +450,7 @@ def _validate_property(property_node: object, session: _Session, path: NodePath)
 
 
 def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
+  """Check mapping fields; leave parent-dependent rules to UDE validation."""
   if not isinstance(map_node, Map):
     session.error(TmxFieldTypeError(path, map_node, Map))
     return
@@ -454,6 +464,7 @@ def _validate_map(map_node: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
+  """Check mappings, require a base for coded maps, and advise on missing targets."""
   if not isinstance(ude, Ude):
     session.error(TmxFieldTypeError(path, ude, Ude))
     return
@@ -499,10 +510,14 @@ def _validate_ude(ude: object, session: _Session, path: NodePath) -> None:
 
 
 def _check_content_depth(session: _Session, path: NodePath, node: object) -> bool:
-  """Whether the walk may descend into this content item: cyclic content
-  (a node containing itself, planted via ``model_construct``) would
-  otherwise recurse until a raw ``RecursionError`` escapes the pass.
-  Each nesting level adds exactly two ``NodePath`` segments."""
+  """Record a contract failure when the content path reaches the depth limit.
+
+  Each content nesting level adds a field name and list index to the path.
+  The limit uses the full path length, including any enclosing variant indices.
+
+  Returns:
+      True if traversal may continue; False after recording a depth failure.
+  """
   if len(path.segments) < 2 * _MAX_CONTENT_NESTING:
     return True
   session.error(TmxContractError(path, node, f"content nested deeper than {_MAX_CONTENT_NESTING} levels"))
@@ -510,9 +525,17 @@ def _check_content_depth(session: _Session, path: NodePath, node: object) -> boo
 
 
 def _check_required_fields(session: _Session, path: NodePath, node: object, names: tuple[str, ...]) -> bool:
-  """A node built through ``model_construct`` may lack required fields
-  entirely (nothing injects their values); report each one instead of
-  crashing the pass with a raw attribute error."""
+  """Record missing fields on models built without constructor validation.
+
+  Args:
+      session: Destination for missing-field contract failures.
+      path: Path of the model being checked.
+      node: Model that may have been created with model_construct.
+      names: Required attributes to check before reading their values.
+
+  Returns:
+      True if all named attributes exist, regardless of their values.
+  """
   missing = [name for name in names if not hasattr(node, name)]
   for name in missing:
     session.error(
@@ -526,12 +549,14 @@ def _check_required_fields(session: _Session, path: NodePath, node: object, name
 
 
 def _check_content_acyclic(session: _Session, path: NodePath, node: object) -> bool:
-  """Whether the walk may descend into this content node: a node whose
-  ``id()`` is on the current descent path is its own ancestor, a cycle
-  that ``hi.content.append(hi)`` can plant through ``model_construct``
-  (XML cannot express one). The walk breaks there instead of recursing
-  into a raw ``RecursionError``. A node seen elsewhere in the tree is
-  not a cycle and stays legal."""
+  """Record a contract failure if this node is already an active ancestor.
+
+  Sharing a node between separate branches is allowed. Only a reference back
+  to an ancestor on the current descent path is a cycle.
+
+  Returns:
+      True if the node may be visited; False after recording a cycle failure.
+  """
   if id(node) not in session.ancestors:
     return True
   session.error(TmxContractError(path, node, "cyclic content: this element is its own ancestor"))
@@ -539,9 +564,15 @@ def _check_content_acyclic(session: _Session, path: NodePath, node: object) -> b
 
 
 def _validate_inline_content_node(node: object, session: _Session, path: NodePath, flow: _Flow) -> None:
-  """One item of a ``list[InlineNodeOrStr]``: text or any inline element.
-  Inline elements join the given flow, in order; ``<hi>`` is transparent
-  and passes the same flow down."""
+  """Check one text or inline item and add inline nodes to the pairing flow.
+
+  Args:
+      node: Content item to check for type, depth, cycles, and field validity.
+      session: Shared findings and ancestor state.
+      path: Path of this content item.
+      flow: Ordered enclosing segment flow, extended in place. Hi passes this
+          same flow to its children; Sub content owns a separate flow.
+  """
   if not _check_content_depth(session, path, node):
     return
   if isinstance(node, str):
@@ -570,9 +601,7 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
 
 
 def _validate_sub_content_node(node: object, session: _Session, path: NodePath) -> None:
-  """One item of a ``list[SubOrStr]``: text or a ``<sub>`` element. A
-  ``<sub>`` owns a flow of its own (the embedded segment), so nothing
-  here joins the enclosing flow."""
+  """Check text or an embedded Sub, whose pairing flow is independent."""
   if not _check_content_depth(session, path, node):
     return
   if isinstance(node, str):
@@ -588,8 +617,7 @@ def _validate_sub_content_node(node: object, session: _Session, path: NodePath) 
 
 
 def _validate_note_or_property_node(node: object, session: _Session, path: NodePath) -> None:
-  """Dispatches one ``<tu>``/``<tuv>`` metadata child: their metadata
-  may hold ``<note>``/``<prop>`` only, never a ``<ude>``."""
+  """Check unit or variant metadata, rejecting children other than Note or Property."""
   match node:
     case Note():
       _validate_note(node, session, path)
@@ -603,6 +631,7 @@ def _validate_note_or_property_node(node: object, session: _Session, path: NodeP
 
 
 def _validate_translation_unit_variant(tuv: object, session: _Session, path: NodePath) -> None:
+  """Check variant fields, metadata, and paired codes within its segment flow."""
   if not isinstance(tuv, TranslationUnitVariant):
     session.error(TmxFieldTypeError(path, tuv, TranslationUnitVariant))
     return
@@ -637,6 +666,7 @@ def _validate_translation_unit_variant(tuv: object, session: _Session, path: Nod
 
 
 def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
+  """Check an embedded segment and match codes within its own flow."""
   if not isinstance(sub, Sub):
     session.error(TmxFieldTypeError(path, sub, Sub))
     return
@@ -656,6 +686,7 @@ def _validate_sub(sub: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
+  """Check a beginning code and embedded segments without matching its outer pair."""
   if not isinstance(bpt, Bpt):
     session.error(TmxFieldTypeError(path, bpt, Bpt))
     return
@@ -671,6 +702,7 @@ def _validate_bpt(bpt: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
+  """Check an ending code and embedded segments without matching its outer pair."""
   if not isinstance(ept, Ept):
     session.error(TmxFieldTypeError(path, ept, Ept))
     return
@@ -684,6 +716,7 @@ def _validate_ept(ept: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_it(it: object, session: _Session, path: NodePath) -> None:
+  """Check an isolated code, its position, and any embedded segments."""
   if not isinstance(it, It):
     session.error(TmxFieldTypeError(path, it, It))
     return
@@ -699,6 +732,7 @@ def _validate_it(it: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
+  """Check a placeholder, its association, and any embedded segments."""
   if not isinstance(ph, Ph):
     session.error(TmxFieldTypeError(path, ph, Ph))
     return
@@ -712,8 +746,7 @@ def _validate_ph(ph: object, session: _Session, path: NodePath) -> None:
 
 
 def _validate_hi(hi: object, session: _Session, path: NodePath, flow: _Flow) -> None:
-  """``<hi>`` is transparent for pairing: its inline content joins the
-  flow it was reached through."""
+  """Check highlighted content and append its inline nodes to the enclosing flow."""
   if not isinstance(hi, Hi):
     session.error(TmxFieldTypeError(path, hi, Hi))
     return
@@ -731,6 +764,7 @@ def _validate_hi(hi: object, session: _Session, path: NodePath, flow: _Flow) -> 
 
 
 def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
+  """Check a legacy code and embedded segments, collecting a deprecation advisory."""
   if not isinstance(ut, Ut):
     session.error(TmxFieldTypeError(path, ut, Ut))
     return
@@ -749,11 +783,17 @@ def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
 
 
 def _harvest_x_values(content: object, x_values: set[int]) -> None:
-  """Collects every well-typed ``x`` of the ``<bpt>``/``<it>``/``<ph>``/
-  ``<hi>`` elements reachable from a variant's content tree -- external
-  matching spans the whole variant, embedded ``<sub>`` segments
-  included. Runs on the same nodes the type pass already vetted, but
-  guards its own access so planted garbage cannot crash it."""
+  """Add external identifiers from a finite, acyclic content tree to a set.
+
+  Visit Bpt, It, Ph, and Hi identifiers, including those inside embedded Sub
+  segments. Ut identifiers do not participate, but its children are traversed.
+  Ignore non-list content and unrelated objects. This helper does not track
+  ancestors or enforce the validation traversal's depth limit.
+
+  Args:
+      content: Content list to traverse.
+      x_values: Accumulator modified in place; integer identifiers exclude bool.
+  """
   if not isinstance(content, list):
     return
   for item in content:
@@ -764,6 +804,7 @@ def _harvest_x_values(content: object, x_values: set[int]) -> None:
 
 
 def _validate_translation_unit(tu: object, session: _Session, path: NodePath) -> None:
+  """Check unit fields and variants, collecting cross-variant identifier advisories."""
   if not isinstance(tu, TranslationUnit):
     session.error(TmxFieldTypeError(path, tu, TranslationUnit))
     return
@@ -811,14 +852,17 @@ def _validate_translation_unit(tu: object, session: _Session, path: NodePath) ->
 
 
 def validate_header(header: Header) -> None:
-  """Validate a :class:`Header` and everything reachable from it.
+  """Validate a header and its metadata without modifying it.
 
-  Raises ``TmxErrorGroup`` holding one ``TmxFieldError`` per failure and,
-  on its ``advisories`` attribute, every advisory gathered along the way
-  (legacy ``lang`` usage, unknown encoding names, ``<map>`` without a
-  target). Returns without raising when no field fails, even if
-  advisories were gathered; see the module docstring for the calling
-  pattern.
+  Checks required fields and all nested notes, properties, and UDE mappings.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      header: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
   """
   session = _Session()
   _validate_header(header, session, NodePath())
@@ -826,91 +870,212 @@ def validate_header(header: Header) -> None:
 
 
 def validate_map(map_node: Map) -> None:
-  """Validate a :class:`Map`; see :func:`validate_header` for semantics."""
+  """Validate a character mapping without modifying it.
+
+  Parent-dependent base and missing-target checks run in validate_ude.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      map_node: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_map(map_node, session, NodePath())
   session.finish("Map")
 
 
 def validate_note(note: Note) -> None:
-  """Validate a :class:`Note`; see :func:`validate_header` for semantics."""
+  """Validate a note without modifying it.
+
+  Legacy lang usage produces a deprecation advisory.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      note: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+
+  Examples:
+      Check a model built without Pydantic's input validation and inspect the
+      affected field through the error group:
+
+      >>> note = Note.model_construct(text=42)
+      >>> try:
+      ...   validate_note(note)
+      ... except TmxErrorGroup as group:
+      ...   print(group.exceptions[0].path)
+      text
+  """
   session = _Session()
   _validate_note(note, session, NodePath())
   session.finish("Note")
 
 
 def validate_property(property_node: Property) -> None:
-  """Validate a :class:`Property`; see :func:`validate_header` for semantics."""
+  """Validate a property without modifying it.
+
+  Checks the property type, optional attributes, and plain text.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      property_node: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_property(property_node, session, NodePath())
   session.finish("Property")
 
 
 def validate_ude(ude: Ude) -> None:
-  """Validate a :class:`Ude`, including its maps and both contract rules
-  (``base`` required when a map carries ``code``; the map-target
-  advisory). See :func:`validate_header` for semantics."""
+  """Validate a user-defined encoding and its maps without modifying it.
+
+  Requires base if a map sets code. Maps without code, ent, or subst
+  produce an advisory.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      ude: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_ude(ude, session, NodePath())
   session.finish("Ude")
 
 
 def validate_translation_unit_variant(tuv: TranslationUnitVariant) -> None:
-  """Validate a :class:`TranslationUnitVariant` and its whole content
-  tree, including the internal-matching rules and the deprecation
-  advisories. See :func:`validate_header` for semantics."""
+  """Validate a variant, metadata, and segment content without modifying it.
+
+  Checks beginning/ending-code pairing in the segment and its embedded flows.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      tuv: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_translation_unit_variant(tuv, session, NodePath())
   session.finish("TranslationUnitVariant")
 
 
 def validate_translation_unit(tu: TranslationUnit) -> None:
-  """Validate a :class:`TranslationUnit` and every variant it holds,
-  including the cross-variant external-matching advisory (sibling
-  variants disagreeing on their ``x`` values). See
-  :func:`validate_header` for semantics."""
+  """Validate a translation unit and all its variants without modifying it.
+
+  Checks each segment flow and compares nonempty external-identifier sets
+  across variants. Differing sets produce an advisory.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      tu: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_translation_unit(tu, session, NodePath())
   session.finish("TranslationUnit")
 
 
 def validate_bpt(bpt: Bpt) -> None:
-  """Validate a :class:`Bpt` and its content tree; see
-  :func:`validate_header` for semantics."""
+  """Validate a beginning code and its embedded segments without modifying it.
+
+  The matching outer Ept is checked only when validating the enclosing flow.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      bpt: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_bpt(bpt, session, NodePath())
   session.finish("Bpt")
 
 
 def validate_ept(ept: Ept) -> None:
-  """Validate an :class:`Ept` and its content tree; see
-  :func:`validate_header` for semantics."""
+  """Validate an ending code and its embedded segments without modifying it.
+
+  The matching outer Bpt is checked only when validating the enclosing flow.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      ept: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_ept(ept, session, NodePath())
   session.finish("Ept")
 
 
 def validate_it(it: It) -> None:
-  """Validate an :class:`It` and its content tree; see
-  :func:`validate_header` for semantics."""
+  """Validate an isolated code and its embedded segments without modifying it.
+
+  Requires a begin or end position; no outer paired code is required.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      it: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_it(it, session, NodePath())
   session.finish("It")
 
 
 def validate_ph(ph: Ph) -> None:
-  """Validate a :class:`Ph` and its content tree; see
-  :func:`validate_header` for semantics."""
+  """Validate a placeholder and its embedded segments without modifying it.
+
+  Checks optional external identifiers and association with surrounding text.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      ph: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_ph(ph, session, NodePath())
   session.finish("Ph")
 
 
 def validate_hi(hi: Hi) -> None:
-  """Validate a :class:`Hi` and its content tree; see
-  :func:`validate_header` for semantics. Standalone, the ``<hi>``'s own
-  content is treated as the pairing flow -- the enclosing segment that
-  would own it is unknown here."""
+  """Validate a highlight and its inline content without modifying it.
+
+  Treats the highlight as a complete pairing flow. Validate its enclosing
+  variant instead when a pair crosses the highlight boundary.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      hi: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   flow: _Flow = []
   _validate_hi(hi, session, NodePath(), flow)
@@ -919,17 +1084,36 @@ def validate_hi(hi: Hi) -> None:
 
 
 def validate_ut(ut: Ut) -> None:
-  """Validate a :class:`Ut` and its content tree; the ``<ut>``
-  deprecation advisory rides on the translation-unit pass; see
-  :func:`validate_header` for semantics."""
+  """Validate a legacy code and its embedded segments without modifying it.
+
+  Collects the Ut deprecation advisory during this pass.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      ut: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_ut(ut, session, NodePath())
   session.finish("Ut")
 
 
 def validate_sub(sub: Sub) -> None:
-  """Validate a :class:`Sub` and its content tree; see
-  :func:`validate_header` for semantics."""
+  """Validate an embedded segment and its inline content without modifying it.
+
+  Checks pairing within this embedded flow independently of its parent code.
+  Advisories are exposed only when the pass also collects errors.
+
+  Args:
+      sub: Model to inspect in its current runtime state.
+
+  Raises:
+      TmxErrorGroup: Field or relationship failures, with relative paths and
+          any advisories collected during the same pass.
+  """
   session = _Session()
   _validate_sub(sub, session, NodePath())
   session.finish("Sub")

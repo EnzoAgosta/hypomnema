@@ -10,19 +10,23 @@ from hypomnema.xml.content import child_elements, read_mixed_content, read_text,
 
 
 def test_child_elements_skips_comments_and_pis():
+  """Yield element children in order without comments or processing instructions."""
   element = etree.fromstring("<wrapper><!--c--><x/><?p i?><y/></wrapper>")
   assert [child.tag for child in child_elements(element)] == ["x", "y"]
 
 
 def test_read_mixed_content_of_plain_text():
+  """Yield the wrapper's text as one mixed-content item."""
   assert list(read_mixed_content(etree.fromstring("<wrapper>text</wrapper>"))) == ["text"]
 
 
 def test_read_mixed_content_of_empty_element():
+  """Yield no mixed-content items for an empty element."""
   assert list(read_mixed_content(etree.fromstring("<wrapper/>"))) == []
 
 
 def test_read_mixed_content_interleaves_text_and_elements():
+  """Yield leading text, child elements, and tails in document order."""
   element = etree.fromstring("<wrapper>a<x/>b<y/>c</wrapper>")
   items = list(read_mixed_content(element))
   assert items[0] == "a"
@@ -37,19 +41,20 @@ def test_read_mixed_content_interleaves_text_and_elements():
 
 
 def test_read_mixed_content_joins_text_across_comments_and_pis():
-  """Comments and processing instructions are dropped, but the text
-  flowing around them belongs to the wrapper and is re-joined."""
+  """Join text across discarded comments and processing instructions."""
   element = etree.fromstring("<wrapper>a<!--x-->b<?p i?>c</wrapper>")
   assert list(read_mixed_content(element)) == ["abc"]
 
 
 def test_read_mixed_content_with_none_text_still_yields_children():
+  """Yield child elements even when the wrapper has no leading text."""
   element = etree.fromstring("<wrapper><x/></wrapper>")
   items = [item for item in read_mixed_content(element) if not isinstance(item, str)]
   assert [item.tag for item in items] == ["x"]
 
 
 def test_read_mixed_content_rejects_unresolved_entities():
+  """Raise a specification error for an unresolved entity in mixed content."""
   parser = etree.XMLParser(resolve_entities=False)
   element = etree.fromstring('<!DOCTYPE wrapper [<!ENTITY e "text">]><wrapper>&e;</wrapper>', parser)
   with pytest.raises(TmxSpecError, match="unresolved entity"):
@@ -57,17 +62,20 @@ def test_read_mixed_content_rejects_unresolved_entities():
 
 
 def test_read_text_reads_plain_text_only():
+  """Return plain text or None for XML elements without a body."""
   assert read_text(etree.fromstring("<note>text</note>")) == "text"
   assert read_text(etree.fromstring("<note/>")) is None
   assert read_text(etree.fromstring("<note></note>")) is None
 
 
 def test_read_text_rejects_element_children():
+  """Reject child elements where a text-only body is required."""
   with pytest.raises(TmxSpecError, match="expected text only"):
     read_text(etree.fromstring("<note>text <x/> more</note>"))
 
 
 def test_write_text_distinguishes_none_and_empty():
+  """Preserve the in-memory distinction between absent and empty text."""
   element = etree.Element("note")
   write_text(element, None)
   assert element.text is None
@@ -79,11 +87,13 @@ def test_write_text_distinguishes_none_and_empty():
 
 
 def test_write_text_rejects_xml_illegal_characters():
+  """Reject forbidden XML control characters in a text-only body."""
   with pytest.raises(TmxSpecError, match="XML-illegal"):
     write_text(etree.Element("note"), "bad \x03 text")
 
 
 def test_write_mixed_content_interleaves():
+  """Place leading text on the parent and trailing text on the child's tail."""
   element = etree.Element("wrapper")
   child = etree.Element("x")
   write_mixed_content(element, ["a", child, "b"])
@@ -93,8 +103,7 @@ def test_write_mixed_content_interleaves():
 
 
 def test_write_mixed_content_folds_consecutive_strings():
-  """Two strings in a row land in the same XML slot: the first fills
-  the element text, the next ones append to it."""
+  """Combine consecutive strings in parent text and child tail slots."""
   element = etree.Element("wrapper")
   child = etree.Element("x")
   write_mixed_content(element, ["a", "b", child, "c", "d"])
@@ -103,6 +112,7 @@ def test_write_mixed_content_folds_consecutive_strings():
 
 
 def test_write_mixed_content_rejects_xml_illegal_strings():
+  """Reject forbidden XML characters in leading mixed-content text."""
   element = etree.Element("wrapper")
   with pytest.raises(TmxSpecError, match="XML-illegal"):
     write_mixed_content(element, ["bad \x03 text"])
@@ -118,8 +128,7 @@ def test_write_mixed_content_rejects_xml_illegal_tails():
 
 
 def test_write_mixed_content_folds_into_existing_slots():
-  """The fold branches: text already present on the element, and text
-  already present on the previous child's tail, are appended to."""
+  """Append mixed-content strings to existing parent text and child tails."""
   element = etree.Element("wrapper")
   element.text = "start"
   child = etree.Element("x")
@@ -130,11 +139,11 @@ def test_write_mixed_content_folds_into_existing_slots():
 
 
 def test_content_round_trips_through_read_and_write():
-  """Reading a comment-free fragment and writing it back must reproduce
-  the serialization exactly. The projected elements are copied and their
-  tails cleared: write_mixed_content folds text into the tail of what it
-  is given, and fresh, tail-free elements are what the build direction
-  feeds it."""
+  """Reproduce comment-free XML after reading and rebuilding mixed content.
+
+  Copy child elements and clear their tails before writing. The reader emits
+  tail strings separately, so leaving the original tails would duplicate text.
+  """
   element = etree.fromstring("<wrapper>before <x/> mid <y/> after</wrapper>")
   items = []
   for item in read_mixed_content(element):
@@ -150,6 +159,7 @@ def test_content_round_trips_through_read_and_write():
 
 
 def test_content_round_trip_drops_comments_but_keeps_text_flow():
+  """Omit comments when rebuilding content while preserving surrounding text."""
   element = etree.fromstring("<wrapper>a<!--note-->b</wrapper>")
   rebuilt = etree.Element("wrapper")
   write_mixed_content(rebuilt, list(read_mixed_content(element)))
