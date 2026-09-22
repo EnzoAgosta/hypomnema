@@ -19,6 +19,7 @@ from lxml import etree
 from .errors import TmxErrorGroup, TmxSpecError
 from .models import Header, TranslationUnit
 from .xml.build import header_to_element, tu_to_element
+from .xml.content import child_elements
 from .xml.dtd import validate_fragment
 from .xml.parse import header_from_element, tu_from_element
 
@@ -248,6 +249,9 @@ class TmxReader(Iterator[TranslationUnit]):
       raise TmxSpecError("<body> must not have attributes")
     _require_only_xml_whitespace(self._root.text, "before <header>")
     _require_only_xml_whitespace(header_element.tail, "between <header> and <body>")
+    # Entity references have no start/end events. Inspect wrapper children too.
+    for _ in child_elements(self._root):
+      pass
 
     header_element.clear()
     self._root.remove(header_element)
@@ -288,6 +292,9 @@ class TmxReader(Iterator[TranslationUnit]):
       parent = element.getparent()
 
       if event == "start" and parent is self._body:
+        previous = element.getprevious()
+        if isinstance(previous, etree._Entity):
+          raise TmxSpecError(f"unresolved entity inside <body> at line {previous.sourceline}")
         _require_only_xml_whitespace(self._body.text, "inside <body>")
         _require_tag(element, "tu")
         continue
@@ -316,7 +323,12 @@ class TmxReader(Iterator[TranslationUnit]):
     """Check closing XML and trailing content, then release the exhausted source."""
     assert self._body is not None, "finishing the document requires a retained <body> element"
     _require_only_xml_whitespace(self._body.text, "inside <body>")
-    self._expect_event("end", "tmx")
+    # Processed units have been removed, so this walk visits only leftovers.
+    for _ in child_elements(self._body):
+      pass
+    root = self._expect_event("end", "tmx")
+    for _ in child_elements(root):
+      pass
     _require_only_xml_whitespace(self._body.tail, "after <body>")
 
     assert self._events is not None, "finishing the document requires an active event iterator"

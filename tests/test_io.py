@@ -101,6 +101,25 @@ class NonSeekableBytesIO(BytesIO):
     return False
 
 
+@pytest.mark.parametrize(
+  "xml",
+  [
+    document(before_header="&foo;"),
+    document(between_header_and_body="&foo;"),
+    document(body="&foo;"),
+    document(body="&foo;" + translation_unit("one")),
+    document(body=translation_unit("one") + "&foo;" + translation_unit("two")),
+    document(body=translation_unit("one") + "&foo;"),
+    document(after_body="&foo;"),
+  ],
+)
+def test_unresolved_entities_in_document_wrappers_are_rejected(xml: str) -> None:
+  """Do not silently discard entity nodes that have no iterparse events."""
+  source = BytesIO(('<!DOCTYPE tmx [<!ENTITY foo "text">]>' + xml).encode())
+  with pytest.raises(TmxSpecError, match="unresolved entity"):
+    read_document(source)
+
+
 # Normal reading and lifecycle.
 
 
