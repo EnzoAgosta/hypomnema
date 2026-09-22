@@ -10,7 +10,7 @@ from lxml import etree
 
 from hypomnema.errors import TmxErrorGroup, TmxFieldValueError, TmxSpecError
 from hypomnema.io import TmxReader, TmxWriter, TuValidationError
-from hypomnema.models import Bpt, Ept, Header, TranslationUnit, TranslationUnitVariant
+from hypomnema.models import Bpt, Ept, Header, Hi, TranslationUnit, TranslationUnitVariant
 from hypomnema.xml.dtd import load_dtd
 
 
@@ -58,6 +58,27 @@ def invalid_unit() -> TranslationUnit:
   unit = translation_unit()
   unit.variants.clear()
   return unit
+
+
+def test_hook_can_skip_a_unit_with_cyclic_content() -> None:
+  """Report cycles through the validation hook and keep the writer usable."""
+  hi = Hi()
+  hi.content.append(hi)
+  cyclic = TranslationUnit(variants=[TranslationUnitVariant(xml_lang="en", content=[hi])])
+  errors: list[TuValidationError] = []
+
+  def skip(error: TuValidationError, unit: TranslationUnit) -> None:
+    assert unit is cyclic
+    errors.append(error)
+
+  output = BytesIO()
+  valid = translation_unit()
+  with TmxWriter(output, header=header(), on_tu_validation_error=skip) as writer:
+    writer.write(cyclic)
+    writer.write(valid)
+  assert len(errors) == 1
+  assert isinstance(errors[0], TmxErrorGroup)
+  assert read_document(output.getvalue())[1] == [valid]
 
 
 class BytesPath(PathLike[bytes]):

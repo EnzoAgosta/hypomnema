@@ -25,6 +25,7 @@ Private checkers append findings to a shared session instead of raising them.
 import codecs
 from collections.abc import Callable
 from datetime import datetime
+from typing import TypeGuard
 
 from .bcp47 import validate_well_formed_language_tag
 from .coercion import validate_tuid
@@ -82,14 +83,16 @@ class _Session:
       errors: Field failures in traversal order.
       warnings: Advisory records retained only if finish raises a group.
       ancestors: Object identities on the active content descent path.
+      x_values: External identifiers collected in the current variant.
   """
 
-  __slots__ = ("ancestors", "errors", "warnings")
+  __slots__ = ("ancestors", "errors", "warnings", "x_values")
 
   def __init__(self) -> None:
     """Start a validation pass with no findings or active ancestors."""
     self.errors: list[TmxFieldError] = []
     self.warnings: list[TmxAdvisory] = []
+    self.x_values: set[int] = set()
     # ``id()`` of the content nodes on the current descent path. A node
     # whose id is here while the walk is still inside it is its own
     # ancestor: a cycle. A node seen elsewhere in the tree is fine.
@@ -155,7 +158,7 @@ def _is_string(value: object) -> bool:
   return isinstance(value, str)
 
 
-def _is_integer(value: object) -> bool:
+def _is_integer(value: object) -> TypeGuard[int]:
   """Return whether a value is an integer, excluding booleans."""
   # bool is an int subclass; it is not a number here.
   return isinstance(value, int) and not isinstance(value, bool)
@@ -582,6 +585,8 @@ def _validate_inline_content_node(node: object, session: _Session, path: NodePat
   session.descend(node)
   if isinstance(node, Bpt | Ept | It | Ph | Hi | Ut):
     flow.append((node, path))
+  if isinstance(node, Bpt | It | Ph | Hi) and _is_integer(node.x):
+    session.x_values.add(node.x)
   match node:
     case Bpt():
       _validate_bpt(node, session, path)
@@ -782,27 +787,6 @@ def _validate_ut(ut: object, session: _Session, path: NodePath) -> None:
   session.ascend()
 
 
-def _harvest_x_values(content: object, x_values: set[int]) -> None:
-  """Add external identifiers from a finite, acyclic content tree to a set.
-
-  Visit Bpt, It, Ph, and Hi identifiers, including those inside embedded Sub
-  segments. Ut identifiers do not participate, but its children are traversed.
-  Ignore non-list content and unrelated objects. This helper does not track
-  ancestors or enforce the validation traversal's depth limit.
-
-  Args:
-      content: Content list to traverse.
-      x_values: Accumulator modified in place; integer identifiers exclude bool.
-  """
-  if not isinstance(content, list):
-    return
-  for item in content:
-    if isinstance(item, Bpt | It | Ph | Hi) and _is_integer(item.x):
-      x_values.add(item.x)
-    if isinstance(item, Bpt | Ept | It | Ph | Hi | Ut | Sub):
-      _harvest_x_values(item.content, x_values)
-
-
 def _validate_translation_unit(tu: object, session: _Session, path: NodePath) -> None:
   """Check unit fields and variants, collecting cross-variant identifier advisories."""
   if not isinstance(tu, TranslationUnit):
@@ -827,18 +811,16 @@ def _validate_translation_unit(tu: object, session: _Session, path: NodePath) ->
   _check_optional(session, path / "o_tmf", tu.o_tmf, _check_str)
   _check_optional(session, path / "srclang", tu.srclang, _check_srclang)
   _check_list(session, path / "metadata", tu.metadata, _validate_note_or_property_node)
-  _check_list(session, path / "variants", tu.variants, _validate_translation_unit_variant, minimum=1)
-  # External matching across sibling variants: each variant's set of x
-  # values should agree. A disagreement is the spec's advisory, not an
-  # error; variants without x-valued inline elements do not participate.
-  variants = tu.variants if isinstance(tu.variants, list) else ()
   variant_x_sets: set[frozenset[int]] = set()
-  for variant in variants:
-    if isinstance(variant, TranslationUnitVariant):
-      x_values: set[int] = set()
-      _harvest_x_values(variant.content, x_values)
-      if x_values:
-        variant_x_sets.add(frozenset(x_values))
+
+  def validate_variant(variant: object, variant_session: _Session, variant_path: NodePath) -> None:
+    """Collect identifiers while checking this variant's protected content tree."""
+    variant_session.x_values.clear()
+    _validate_translation_unit_variant(variant, variant_session, variant_path)
+    if variant_session.x_values:
+      variant_x_sets.add(frozenset(variant_session.x_values))
+
+  _check_list(session, path / "variants", tu.variants, validate_variant, minimum=1)
   if len(variant_x_sets) > 1:
     listing = " vs ".join(", ".join(map(str, sorted(x_set))) for x_set in sorted(variant_x_sets, key=sorted))
     session.warn(

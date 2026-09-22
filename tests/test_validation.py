@@ -994,6 +994,27 @@ def test_self_cycle_is_reported_once(leaf_errors):
   assert errors[0].path == NodePath() / "content" / 0
 
 
+def test_whole_unit_reports_cyclic_content() -> None:
+  """Keep external-identifier collection inside the cycle-protected walk."""
+  hi = Hi(x=1)
+  hi.content.append(hi)
+  unit = TranslationUnit(variants=[TranslationUnitVariant(xml_lang="en", content=[hi])])
+  with pytest.raises(TmxErrorGroup) as caught:
+    validate_translation_unit(unit)
+  assert len(caught.value.exceptions) == 1
+  assert isinstance(caught.value.exceptions[0], TmxContractError)
+
+
+def test_whole_unit_stops_at_content_depth_limit() -> None:
+  """Reject very deep input without a second unbounded content traversal."""
+  hi = deep_hi_chain(2000)
+  unit = TranslationUnit(variants=[TranslationUnitVariant(xml_lang="en", content=[hi])])
+  with pytest.raises(TmxErrorGroup) as caught:
+    validate_translation_unit(unit)
+  assert len(caught.value.exceptions) == 1
+  assert isinstance(caught.value.exceptions[0], TmxContractError)
+
+
 def test_three_node_cycle_is_reported_once(leaf_errors):
   """Report a cycle across begin code, subflow, and highlight at its first revisit."""
   bpt = planted_bpt()
