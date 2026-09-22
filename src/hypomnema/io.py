@@ -382,6 +382,7 @@ class TmxWriter:
   Attributes:
       destination: Output path or borrowed binary stream.
       header: Header model written when entering the context.
+      buffered: Batch XML output until the buffer fills, flush(), or close().
       on_tu_validation_error: Optional hook for units rejected before output.
   """
 
@@ -390,6 +391,7 @@ class TmxWriter:
     destination: TmxDestination,
     *,
     header: Header,
+    buffered: bool = False,
     on_tu_validation_error: TuValidationErrorHook | None = None,
   ) -> None:
     """Configure a writer without opening or modifying its destination.
@@ -399,6 +401,8 @@ class TmxWriter:
             stream. Borrowed streams remain open; output starts at their current
             position.
         header: Header to validate and write on entry.
+        buffered: Enable bounded XML buffering and defer destination flushing
+            until flush() or close(). Defaults to flushing each complete unit.
         on_tu_validation_error: Called with a validation error and rejected
             unit. Return a replacement unit or ``None`` to skip it. A
             replacement is checked once and cannot trigger the hook again.
@@ -406,11 +410,12 @@ class TmxWriter:
     """
     self.destination = destination
     self.header = header
+    self.buffered = buffered
     self.on_tu_validation_error = on_tu_validation_error
     self._state = _WriterState.NEW
     self._stack: ExitStack | None = None
     self._write_element: Callable[[etree._Element], None] | None = None
-    self._flush_destination: Callable[[], None] | None = None
+    self._flush_output: Callable[[], None] | None = None
 
   def __enter__(self) -> TmxWriter:
     """Validate the header, open output, and write through the body start.
@@ -449,12 +454,19 @@ class TmxWriter:
           raise TypeError("a borrowed TMX destination must be opened in binary mode") from None
 
       stack.callback(destination.flush)
-      output = stack.enter_context(etree.xmlfile(destination, encoding="UTF-8", close=False, buffered=False))
+      output = stack.enter_context(etree.xmlfile(destination, encoding="UTF-8", close=False, buffered=self.buffered))
+
+      def flush_output() -> None:
+        """Drain the XML buffer before flushing the borrowed or owned stream."""
+        output.flush()
+        destination.flush()
+
       output.write_declaration()
       stack.enter_context(output.element("tmx", version="1.4"))
       output.write(header_element)
       stack.enter_context(output.element("body"))
-      destination.flush()
+      if not self.buffered:
+        flush_output()
     except BaseException:
       self._state = _WriterState.CLOSED
       stack.close()
@@ -462,7 +474,7 @@ class TmxWriter:
 
     self._stack = stack
     self._write_element = lambda element: output.write(element)
-    self._flush_destination = destination.flush
+    self._flush_output = flush_output
     self._state = _WriterState.OPEN
     return self
 
@@ -480,7 +492,7 @@ class TmxWriter:
     stack = self._stack
     self._stack = None
     self._write_element = None
-    self._flush_destination = None
+    self._flush_output = None
     try:
       if stack is not None:
         stack.close()
@@ -488,7 +500,7 @@ class TmxWriter:
       self._state = _WriterState.CLOSED
 
   def write(self, unit: TranslationUnit) -> None:
-    """Validate a unit, write its XML, and flush the destination.
+    """Validate and write a unit, flushing immediately unless buffering is enabled.
 
     A rejected unit can be replaced or skipped by the validation hook.
     Validation failures leave the writer available for subsequent calls.
@@ -511,7 +523,6 @@ class TmxWriter:
     if self._state is not _WriterState.OPEN:
       raise RuntimeError("write() must be called inside an open TmxWriter context")
     assert self._write_element is not None, "OPEN state requires an element writer"
-    assert self._flush_destination is not None, "OPEN state requires a destination flusher"
 
     try:
       element = _validated_tu_element(unit)
@@ -525,7 +536,27 @@ class TmxWriter:
 
     try:
       self._write_element(element)
-      self._flush_destination()
+      if not self.buffered:
+        self.flush()
+    except BaseException:
+      self._state = _WriterState.FAILED
+      raise
+
+  def flush(self) -> None:
+    """Drain XML and destination buffers without closing the document.
+
+    Raises:
+        RuntimeError: The writer is not open or a previous output failed.
+        OSError: Writing or flushing fails. Further writes and flushes are
+            rejected after an output failure.
+    """
+    if self._state is _WriterState.FAILED:
+      raise RuntimeError("the TmxWriter cannot continue after an output failure")
+    if self._state is not _WriterState.OPEN:
+      raise RuntimeError("flush() must be called inside an open TmxWriter context")
+    assert self._flush_output is not None, "OPEN state requires an output flusher"
+    try:
+      self._flush_output()
     except BaseException:
       self._state = _WriterState.FAILED
       raise

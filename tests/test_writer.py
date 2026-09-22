@@ -1,6 +1,6 @@
 """Test streaming TMX output, destination ownership, and unit recovery."""
 
-from collections.abc import Iterator
+from collections.abc import Buffer, Iterator
 from io import BytesIO, StringIO
 from os import PathLike, fsencode
 from pathlib import Path
@@ -332,6 +332,67 @@ def test_invalid_header_does_not_truncate_a_path_destination(tmp_path: Path) -> 
 
 
 # Streaming and flushing
+
+
+def test_buffered_writer_flushes_both_layers_on_request() -> None:
+  """Publish a partial document on demand and finish it on context exit."""
+  destination = BufferedSink()
+  unit = translation_unit()
+  with TmxWriter(destination, header=header(), buffered=True) as writer:
+    writer.write(unit)
+    assert destination.flush_count == 0
+    writer.flush()
+    assert destination.flush_count == 1
+    assert b"</tu>" in destination.visible
+    writer.write(unit)
+    assert destination.flush_count == 1
+  assert destination.flush_count == 2
+  assert read_document(bytes(destination.visible))[1] == [unit, unit]
+
+
+def test_buffered_writer_batches_destination_writes() -> None:
+  """Buffer across units while still emitting output before the document closes."""
+
+  class CountingSink(BytesIO):
+    writes: int = 0
+
+    def write(self, data: Buffer, /) -> int:
+      self.writes += 1
+      return super().write(data)
+
+  destination = CountingSink()
+  unit = translation_unit("text" * 100)
+  with TmxWriter(destination, header=header(), buffered=True) as writer:
+    for _ in range(1000):
+      writer.write(unit)
+    assert destination.getvalue()
+    assert destination.writes < 500
+  assert len(read_document(destination.getvalue())[1]) == 1000
+
+
+def test_explicit_flush_failure_poisons_buffered_writer() -> None:
+  """Apply the same failure state to manual flushes as to immediate output."""
+  destination = FailOnceOnFlush()
+  with TmxWriter(destination, header=header(), buffered=True) as writer:
+    writer.write(translation_unit())
+    destination.fail_next_flush = True
+    with pytest.raises(OSError):
+      writer.flush()
+    with pytest.raises(RuntimeError, match="output failure"):
+      writer.write(translation_unit())
+    with pytest.raises(RuntimeError, match="output failure"):
+      writer.flush()
+
+
+def test_flush_requires_an_open_writer() -> None:
+  """Reject explicit flushes before entry and after close."""
+  writer = TmxWriter(BytesIO(), header=header(), buffered=True)
+  with pytest.raises(RuntimeError, match="open TmxWriter"):
+    writer.flush()
+  with writer:
+    writer.flush()
+  with pytest.raises(RuntimeError, match="open TmxWriter"):
+    writer.flush()
 
 
 def test_flushes_each_complete_stage_to_the_destination() -> None:
