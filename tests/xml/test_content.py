@@ -111,6 +111,24 @@ def test_write_mixed_content_folds_consecutive_strings():
   assert child.tail == "cd"
 
 
+def test_write_mixed_content_accepts_many_adjacent_chunks() -> None:
+  """Consume a generator of text chunks, retaining both text and tail runs."""
+  element = etree.Element("seg")
+  child = etree.Element("ph")
+  chunks = ["abc" * 20] * 16000
+  write_mixed_content(element, (item for item in [*chunks, child, *chunks]))
+  assert element.text == "".join(chunks)
+  assert child.tail == element.text
+
+
+@pytest.mark.parametrize("items, expected", [([], None), ([""], ""), (["", ""], "")])
+def test_write_mixed_content_preserves_empty_text(items: list[str], expected: str | None) -> None:
+  """Distinguish an absent text run from explicitly empty chunks."""
+  element = etree.Element("seg")
+  write_mixed_content(element, items)
+  assert element.text == expected
+
+
 def test_write_mixed_content_rejects_xml_illegal_strings():
   """Reject forbidden XML characters in leading mixed-content text."""
   element = etree.Element("wrapper")

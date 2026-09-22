@@ -119,18 +119,35 @@ def write_mixed_content(element: etree._Element, items: Iterable[XmlContentItem]
 
   Raises:
       TmxSpecError: A text item contains characters XML cannot represent.
-          Content written before the failure remains in the element.
+          Completed text slots and children remain in the element on failure.
   """
   previous_child: etree._Element | None = None
+  text_parts: list[str] = []
+
+  def flush_text() -> None:
+    """Append a complete text run with one read and one write of its XML slot."""
+    if not text_parts:
+      return
+    try:
+      if previous_child is None:
+        existing = element.text
+        if existing is not None:
+          text_parts.insert(0, existing)
+        element.text = "".join(text_parts)
+      else:
+        existing = previous_child.tail
+        if existing is not None:
+          text_parts.insert(0, existing)
+        previous_child.tail = "".join(text_parts)
+    except ValueError as error:
+      raise TmxSpecError(f"XML-illegal text inside <{element.tag}>: {error}") from error
+    text_parts.clear()
+
   for item in items:
     if isinstance(item, str):
-      try:
-        if previous_child is None:
-          element.text = item if element.text is None else element.text + item
-        else:
-          previous_child.tail = item if previous_child.tail is None else previous_child.tail + item
-      except ValueError as error:
-        raise TmxSpecError(f"XML-illegal text inside <{element.tag}>: {error}") from error
+      text_parts.append(item)
     else:
+      flush_text()
       element.append(item)
       previous_child = item
+  flush_text()
