@@ -6,6 +6,7 @@ source lines, and the order in which projection checks run.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from lxml import etree
@@ -27,6 +28,7 @@ from hypomnema.models import (
   Ude,
   Ut,
 )
+from hypomnema.xml import parse
 from hypomnema.xml.names import NON_ATTRIBUTE_FIELDS
 from hypomnema.xml.parse import (
   bpt_from_element,
@@ -253,7 +255,7 @@ def test_tuv_metadata_comes_before_the_seg():
 
 def test_tuv_with_two_segs_is_reported():
   """Report duplicate segments with TmxSpecError rather than an unpacking error."""
-  with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 2"):
+  with pytest.raises(TmxSpecError, match="<tuv>"):
     tuv_from_element(etree.fromstring('<tuv xml:lang="en"><seg>a</seg><seg>b</seg></tuv>'))
 
 
@@ -373,7 +375,7 @@ def test_foreign_tags_are_rejected_by_tag_identity(function, tag, other_tag, cor
 
 def test_tuv_without_a_seg_is_reported_standalone():
   """Report a missing segment with TmxSpecError rather than an unpacking error."""
-  with pytest.raises(TmxSpecError, match="expected exactly one <seg>, got 0"):
+  with pytest.raises(TmxSpecError, match="<tuv>"):
     tuv_from_element(etree.fromstring('<tuv xml:lang="en"><note>x</note></tuv>'))
 
 
@@ -440,20 +442,18 @@ def test_from_element_dispatches_every_tag(tag, corpus):
 CORPUS_UDE = '<ude name="win" base="windows-1252"><map unicode="#xF8FF" ent="&amp;" subst="space"/></ude>'
 
 
-# Ordering and reach of the eager projection arguments: field arguments
-# are computed before _project's gates, so some failures surface from a
-# child's gate first. The order is pinned here as deliberate.
+# Structural validation runs once before projecting the fragment.
 
 
-def test_text_gate_runs_before_the_dtd_gate():
-  """Report text-only content violations before parent DTD validation."""
-  with pytest.raises(TmxSpecError, match="expected text only"):
+def test_dtd_rejects_children_in_text_only_content():
+  """Reject text-only content violations at the fragment DTD boundary."""
+  with pytest.raises(TmxSpecError, match="<note>"):
     note_from_element(etree.fromstring("<note><b>x</b></note>"))
 
 
-def test_child_dispatch_runs_before_the_parent_dtd_gate():
-  """Report an unknown child element before validating its parent's DTD shape."""
-  with pytest.raises(TmxSpecError, match="is not a TMX 1.4b element"):
+def test_dtd_rejects_unknown_children_before_projection():
+  """Reject unknown children at the fragment DTD boundary."""
+  with pytest.raises(TmxSpecError, match="<header>"):
     header_from_element(
       etree.fromstring(
         '<header creationtool="t" creationtoolversion="1" segtype="paragraph"'
@@ -468,6 +468,22 @@ def test_non_root_fragment_is_gated_standalone():
   note_element = document.find("note")
   assert note_element is not None
   assert note_from_element(note_element).text == "hi"
+
+
+def test_nested_fragment_requires_only_one_dtd_validation() -> None:
+  """Keep DTD work proportional to the subtree instead of its nesting depth."""
+  element = etree.fromstring('<tu><tuv xml:lang="en"><seg>' + "<hi>" * 40 + "text" + "</hi>" * 40 + "</seg></tuv></tu>")
+  with patch.object(parse, "validate_fragment", wraps=parse.validate_fragment) as validate:
+    unit = tu_from_element(element)
+  validate.assert_called_once_with(element)
+  assert unit.variants[0].xml_lang == "en"
+
+
+def test_single_dtd_gate_still_rejects_invalid_descendant_attributes() -> None:
+  """Check descendants even though recursive projection no longer runs the DTD."""
+  element = etree.fromstring('<tu><tuv xml:lang="en"><seg><hi junk="1">text</hi></seg></tuv></tu>')
+  with pytest.raises(TmxSpecError, match="junk"):
+    tu_from_element(element)
 
 
 def test_unresolved_entity_in_content_is_reported():

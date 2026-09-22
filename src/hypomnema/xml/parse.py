@@ -65,31 +65,48 @@ def _attributes(element: etree._Element, model_type: type[TmxModel]) -> dict[str
   }
 
 
-def _project[ModelType: TmxModel](
-  element: etree._Element, model_type: type[ModelType], fields: dict[str, object]
-) -> ModelType:
-  """Check the tag and DTD, then construct a model from attributes and fields.
-
-  Args:
-      element: Fragment whose name and structure must match ``model_type``.
-      model_type: Model class to construct.
-      fields: Already projected content and children, merged over attributes.
-
-  Returns:
-      A model with coerced attribute values, without strict validation.
-
-  Raises:
-      TmxSpecError: The tag, DTD structure, or model field values are invalid.
-  """
+def _parse[ModelType: TmxModel](element: etree._Element, model_type: type[ModelType]) -> ModelType:
+  """Validate a public fragment once before recursively projecting its nodes."""
   qname = _element_qname(element)
   expected_tag = model_type.model_fields["element"].default
   if qname.localname != expected_tag:
     raise TmxSpecError(f"expected <{expected_tag}>, got <{qname.localname}> at line {element.sourceline}")
   validate_fragment(element)
+  return _project(element, model_type)
+
+
+def _project[ModelType: TmxModel](element: etree._Element, model_type: type[ModelType]) -> ModelType:
+  """Coerce a node from a subtree that already passed the public DTD gate."""
+  fields: dict[str, object] = {}
+  match element.tag:
+    case "note" | "prop":
+      fields["text"] = read_text(element)
+    case "header":
+      fields["metadata"] = [_project_child(child) for child in child_elements(element)]
+    case "ude":
+      fields["maps"] = [_project_child(child) for child in child_elements(element)]
+    case "tu":
+      metadata: list[TmxNode] = []
+      variants: list[TmxNode] = []
+      for child in child_elements(element):
+        (variants if child.tag == "tuv" else metadata).append(_project_child(child))
+      fields.update(metadata=metadata, variants=variants)
+    case "tuv":
+      metadata = []
+      for child in child_elements(element):
+        if child.tag == "seg":
+          fields["content"] = _parse_content(child)
+        else:
+          metadata.append(_project_child(child))
+      fields["metadata"] = metadata
+    case "map":
+      pass
+    case _:
+      fields["content"] = _parse_content(element)
   try:
     return model_type.model_validate(_attributes(element, model_type) | fields)
   except ValidationError as error:
-    raise TmxSpecError(f"<{qname.localname}> at line {element.sourceline}: {error}") from error
+    raise TmxSpecError(f"<{element.tag}> at line {element.sourceline}: {error}") from error
 
 
 def note_from_element(element: etree._Element) -> Note:
@@ -105,7 +122,7 @@ def note_from_element(element: etree._Element) -> Note:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Note, {"text": read_text(element)})
+  return _parse(element, Note)
 
 
 def prop_from_element(element: etree._Element) -> Property:
@@ -121,7 +138,7 @@ def prop_from_element(element: etree._Element) -> Property:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Property, {"text": read_text(element)})
+  return _parse(element, Property)
 
 
 def map_from_element(element: etree._Element) -> Map:
@@ -137,7 +154,7 @@ def map_from_element(element: etree._Element) -> Map:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Map, {})
+  return _parse(element, Map)
 
 
 def ude_from_element(element: etree._Element) -> Ude:
@@ -153,7 +170,7 @@ def ude_from_element(element: etree._Element) -> Ude:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Ude, {"maps": [from_element(child) for child in child_elements(element)]})
+  return _parse(element, Ude)
 
 
 def header_from_element(element: etree._Element) -> Header:
@@ -169,7 +186,7 @@ def header_from_element(element: etree._Element) -> Header:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Header, {"metadata": [from_element(child) for child in child_elements(element)]})
+  return _parse(element, Header)
 
 
 def tu_from_element(element: etree._Element) -> TranslationUnit:
@@ -185,15 +202,7 @@ def tu_from_element(element: etree._Element) -> TranslationUnit:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  children = list(child_elements(element))
-  return _project(
-    element,
-    TranslationUnit,
-    {
-      "metadata": [from_element(child) for child in children if child.tag in ("note", "prop")],
-      "variants": [from_element(child) for child in children if child.tag == "tuv"],
-    },
-  )
+  return _parse(element, TranslationUnit)
 
 
 def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
@@ -209,21 +218,7 @@ def tuv_from_element(element: etree._Element) -> TranslationUnitVariant:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  qname = _element_qname(element)
-  if qname.localname != "tuv":
-    raise TmxSpecError(f"expected <tuv>, got <{qname.localname}> at line {element.sourceline}")
-  children = list(child_elements(element))
-  segments = [child for child in children if child.tag == "seg"]
-  if len(segments) != 1:
-    raise TmxSpecError(f"<tuv> at line {element.sourceline}: expected exactly one <seg>, got {len(segments)}")
-  return _project(
-    element,
-    TranslationUnitVariant,
-    {
-      "metadata": [from_element(child) for child in children if child.tag in ("note", "prop")],
-      "content": _parse_content(segments[0]),
-    },
-  )
+  return _parse(element, TranslationUnitVariant)
 
 
 def bpt_from_element(element: etree._Element) -> Bpt:
@@ -239,7 +234,7 @@ def bpt_from_element(element: etree._Element) -> Bpt:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Bpt, {"content": _parse_content(element)})
+  return _parse(element, Bpt)
 
 
 def ept_from_element(element: etree._Element) -> Ept:
@@ -255,7 +250,7 @@ def ept_from_element(element: etree._Element) -> Ept:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Ept, {"content": _parse_content(element)})
+  return _parse(element, Ept)
 
 
 def it_from_element(element: etree._Element) -> It:
@@ -271,7 +266,7 @@ def it_from_element(element: etree._Element) -> It:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, It, {"content": _parse_content(element)})
+  return _parse(element, It)
 
 
 def ph_from_element(element: etree._Element) -> Ph:
@@ -287,7 +282,7 @@ def ph_from_element(element: etree._Element) -> Ph:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Ph, {"content": _parse_content(element)})
+  return _parse(element, Ph)
 
 
 def hi_from_element(element: etree._Element) -> Hi:
@@ -303,7 +298,7 @@ def hi_from_element(element: etree._Element) -> Hi:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Hi, {"content": _parse_content(element)})
+  return _parse(element, Hi)
 
 
 def ut_from_element(element: etree._Element) -> Ut:
@@ -319,7 +314,7 @@ def ut_from_element(element: etree._Element) -> Ut:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Ut, {"content": _parse_content(element)})
+  return _parse(element, Ut)
 
 
 def sub_from_element(element: etree._Element) -> Sub:
@@ -335,7 +330,7 @@ def sub_from_element(element: etree._Element) -> Sub:
   Raises:
       TmxSpecError: The tag, DTD structure, or projected field values are invalid.
   """
-  return _project(element, Sub, {"content": _parse_content(element)})
+  return _parse(element, Sub)
 
 
 def from_element(element: etree._Element) -> TmxNode:
@@ -353,44 +348,43 @@ def from_element(element: etree._Element) -> TmxNode:
       TmxSpecError: The tag is unsupported or namespaced, the fragment fails
           DTD validation, or its content cannot be projected into a model.
   """
-  qname = _element_qname(element)
-  match qname.localname:
-    case "header":
-      return header_from_element(element)
-    case "tu":
-      return tu_from_element(element)
-    case "tuv":
-      return tuv_from_element(element)
-    case "note":
-      return note_from_element(element)
-    case "prop":
-      return prop_from_element(element)
-    case "ude":
-      return ude_from_element(element)
-    case "map":
-      return map_from_element(element)
-    case "bpt":
-      return bpt_from_element(element)
-    case "ept":
-      return ept_from_element(element)
-    case "it":
-      return it_from_element(element)
-    case "ph":
-      return ph_from_element(element)
-    case "hi":
-      return hi_from_element(element)
-    case "ut":
-      return ut_from_element(element)
-    case "sub":
-      return sub_from_element(element)
-    case "seg" | "tmx" | "body":
-      raise TmxSpecError(
-        f"<{qname.localname}> has no standalone domain model: project a <tuv>, <header>, or <tu> fragment instead"
-      )
-    case _:
-      raise TmxSpecError(f"<{qname.localname}> is not a TMX 1.4b element")
+  return _parse(element, _model_type(element))
+
+
+_MODEL_TYPES: dict[str, type[TmxNode]] = {
+  "note": Note,
+  "prop": Property,
+  "map": Map,
+  "ude": Ude,
+  "header": Header,
+  "tu": TranslationUnit,
+  "tuv": TranslationUnitVariant,
+  "bpt": Bpt,
+  "ept": Ept,
+  "it": It,
+  "ph": Ph,
+  "hi": Hi,
+  "ut": Ut,
+  "sub": Sub,
+}
+
+
+def _model_type(element: etree._Element) -> type[TmxNode]:
+  """Resolve a namespace-free tag to its domain model."""
+  tag = _element_qname(element).localname
+  if tag in ("seg", "tmx", "body"):
+    raise TmxSpecError(f"<{tag}> has no standalone domain model: project a <tuv>, <header>, or <tu> fragment instead")
+  try:
+    return _MODEL_TYPES[tag]
+  except KeyError:
+    raise TmxSpecError(f"<{tag}> is not a TMX 1.4b element") from None
+
+
+def _project_child(element: etree._Element) -> TmxNode:
+  """Project a descendant without repeating its ancestor's DTD validation."""
+  return _project(element, _model_type(element))
 
 
 def _parse_content(element: etree._Element) -> list[str | TmxNode]:
   """Project mixed content into text and models while preserving their order."""
-  return [item if isinstance(item, str) else from_element(item) for item in read_mixed_content(element)]
+  return [item if isinstance(item, str) else _project_child(item) for item in read_mixed_content(element)]
